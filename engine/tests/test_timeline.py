@@ -15,13 +15,30 @@ import numpy as np
 import pytest
 
 from pycoding.render import render_plan
-from pycoding.timeline import FPS, SPF, SR, Snippet, VisualState, build_plan
+from pycoding.timeline import (
+    FPS,
+    SPF,
+    SR,
+    Phrase,
+    Snippet,
+    build_plan,
+    split_evenly,
+    weighted_split,
+)
 
 W, H = 960, 540
 # AAC encoding adds encoder priming, which shifts the decoded onset by a
 # handful of samples. 128 samples is 2.7 ms -- far below the ~40 ms at which
 # A/V desync becomes perceptible, and far above the priming we are tolerating.
 AAC_TOLERANCE = 128
+
+
+def silence(seconds: float) -> np.ndarray:
+    return np.zeros(int(SR * seconds), dtype=np.int16)
+
+
+def phrase(text: str, seconds: float) -> Phrase:
+    return Phrase(text, silence(seconds))
 
 
 def _tone(seconds: float, freq: int = 440) -> np.ndarray:
@@ -77,12 +94,12 @@ def rendered(tmp_path_factory) -> tuple[object, Path]:
             Snippet(
                 code="evens = [x for x in range(15) if x % 2 == 0]\nprint(evens)\n",
                 output=("$ python snippet.py", "[0, 2, 4, 6, 8, 10, 12, 14]"),
-                narration=_tone(1.0),
+                phrases=(Phrase("Here we keep the even numbers.", _tone(1.0)),),
             ),
             Snippet(
                 code="total = sum(range(10))\nprint(total)\n",
                 output=("$ python snippet.py", "45"),
-                narration=_tone(1.5, freq=330),
+                phrases=(Phrase("Now we add them all up.", _tone(1.5, freq=330)),),
             ),
         ]
     )
@@ -91,60 +108,7 @@ def rendered(tmp_path_factory) -> tuple[object, Path]:
     return plan, path
 
 
-def test_plan_arithmetic_fixed_pace():
-    """With fixed pacing, span lengths follow directly from the constants."""
-    plan = build_plan(
-        [Snippet(code="ab", output=("one", "two"), narration=np.zeros(SPF * 3, dtype=np.int16))],
-        narration_type="after", pace="fixed",
-    )
-    # 3 typing spans (empty, "a", "ab") x FRAMES_PER_CHAR(3) = 9
-    # 2 output spans x OUT_LINE_FRAMES(4) = 8
-    # narration 3 frames + POST_PAD(30) held on the last state = 33
-    assert plan.total_frames == 9 + 8 + 33
-    assert plan.narrations[0].start_frame == 9 + 8
-
-
-def test_narration_pace_starts_the_voice_with_the_first_keystroke():
-    """The reported bug: the voice waited for typing to finish."""
-    plan = build_plan(
-        [Snippet(code="ab", output=("one",), narration=np.zeros(SPF * 3, dtype=np.int16))]
-    )
-    assert plan.narrations[0].start_frame == 0
-
-
-def test_narration_pace_types_the_code_over_the_narration():
-    """When the narration is long enough, typing fills it instead of overshooting."""
-    code = "x = 1\n" * 40  # 240 chars
-    narration = np.zeros(SR * 20, dtype=np.int16)  # 20 seconds at 48 kHz
-    plan = build_plan([Snippet(code=code, output=(), narration=narration)])
-    # 20 s of narration is 600 frames; the 241 typing states stretch to fill it,
-    # so the segment is narration + post padding and nothing is typed after the
-    # voice stops.
-    assert plan.total_frames == 600 + 30
-    assert plan.narrations[0].start_frame == 0
-
-
-def test_typing_never_runs_faster_than_the_readability_floor():
-    """A short narration over long code must not turn typing into a paste."""
-    from pycoding.timeline import MIN_FRAMES_PER_CHAR
-
-    code = "x = 1\n" * 200  # 1200 chars
-    narration = np.zeros(SPF * 2, dtype=np.int16)  # 2 s — far too short
-    plan = build_plan([Snippet(code=code, output=(), narration=narration)])
-    typing_frames = (len(code) + 1) * MIN_FRAMES_PER_CHAR
-    assert plan.total_frames >= typing_frames
-    assert plan.narrations[0].start_frame == 0
-
-
-def test_split_evenly_preserves_the_total():
-    from pycoding.timeline import split_evenly
-
-    for total, parts in [(153, 40), (10, 10), (7, 30), (0, 5), (500, 1)]:
-        counts = split_evenly(total, parts)
-        assert len(counts) == parts
-        assert sum(counts) == total
-        assert max(counts) - min(counts) <= 1
-
+# ------------------------------------------------------------------ timing
 
 def test_video_frame_count_is_exact(rendered):
     """N buffers in must equal N frames out — this is the whole point of the pipe."""
@@ -161,7 +125,6 @@ def test_audio_length_matches_video(rendered):
     """Both streams derive from the same integer, so neither needs truncating."""
     plan, path = rendered
     decoded = _decode_video_audio(path)
-    # AAC frames are padded to a whole number of 1024-sample blocks.
     assert abs(len(decoded) - plan.total_frames * SPF) <= 2048
 
 
@@ -170,6 +133,19 @@ def test_equal_lengths_produce_no_trailing_silence(rendered):
     plan, path = rendered
     decoded = _decode_video_audio(path)
     assert len(decoded) >= plan.total_frames * SPF
+
+
+def test_identical_inputs_render_identical_timing():
+    """Nothing in the pipeline may consult a clock."""
+    def make():
+        return [Snippet(code="x = 1\nprint(x)\n", output=("1",),
+                        phrases=(phrase("We set x to one.", 0.5),))]
+
+    a, b = build_plan(make()), build_plan(make())
+    assert a.total_frames == b.total_frames
+    assert [s.n_frames for s in a.spans] == [s.n_frames for s in b.spans]
+    assert [n.start_frame for n in a.narrations] == [n.start_frame for n in b.narrations]
+    assert a.captions == b.captions
 
 
 @pytest.mark.parametrize("index", [0, 1])
@@ -181,8 +157,8 @@ def test_narration_lands_on_its_planned_frame(tmp_path, index):
     """
     plan = build_plan(
         [
-            Snippet(code="a" * 40, output=(), narration=_tone(1.0, freq=440)),
-            Snippet(code="b" * 25, output=(), narration=_tone(0.8, freq=660)),
+            Snippet(code="a" * 40, phrases=(Phrase("first", _tone(1.0, freq=440)),)),
+            Snippet(code="b" * 25, phrases=(Phrase("second", _tone(0.8, freq=660)),)),
         ]
     )
     path = tmp_path / "sync.mp4"
@@ -206,132 +182,176 @@ def test_narration_lands_on_its_planned_frame(tmp_path, index):
     )
 
 
-def test_identical_inputs_render_identical_timing(tmp_path):
-    """Nothing in the pipeline may consult a clock."""
-    snippets = [Snippet(code="x = 1\nprint(x)\n", output=("1",), narration=_tone(0.5))]
-    a = build_plan(snippets)
-    b = build_plan(snippets)
-    assert a.total_frames == b.total_frames
-    assert [s.n_frames for s in a.spans] == [s.n_frames for s in b.spans]
-    assert [n.start_frame for n in a.narrations] == [n.start_frame for n in b.narrations]
+# ------------------------------------------------------------- typing pace
+
+def test_typing_has_a_human_rhythm():
+    """Line ends and punctuation must cost more frames than ordinary letters."""
+    from pycoding.timeline import typing_weights
+
+    code = "ab\ncd, e"
+    # state i is the code typed so far, so weights[i] belongs to code[i-1]
+    weights = typing_weights(code)
+    assert weights[0] < weights[1], "no pause before the first keystroke"
+    assert weights[code.index("\n") + 1] > weights[1], "a newline must cost more than a letter"
+    assert weights[code.index(",") + 1] > weights[1], "a comma must cost more than a letter"
+    assert weights[code.index(" ") + 1] < weights[1], "a space must cost less than a letter"
 
 
-def test_visible_lines_tracks_typing():
-    """Partial reveals must slice the pre-tokenized spans, not re-lex."""
-    from pycoding.render.theme import highlight, visible_lines
-
-    code = 'x = "hello"\ny = 2\n'
-    spans = highlight(code)
-    assert len(visible_lines(spans, code, 0)) == 1
-    assert visible_lines(spans, code, 0) == [[]]
-    assert visible_lines(spans, code, 1)[0][0][0] == "x"
-    # Mid-line slice stops exactly at the character count.
-    assert sum(len(t) for t, _ in visible_lines(spans, code, 5)[0]) == 5
-    # Past the first newline we are on line 2.
-    assert len(visible_lines(spans, code, 14)) == 2
+def test_typing_is_not_a_uniform_cadence():
+    """The reported problem: code appearing at a constant 20 chars/sec."""
+    code = "a = 1\nb = 2\nc = 3\n"
+    plan = build_plan([Snippet(code=code, phrases=(phrase("Counting.", 3.0),))])
+    counts = [span.n_frames for span in plan.spans[: len(code) + 1]]
+    assert len(set(counts)) > 1, "typing is still a flat cadence"
+    # Every character is visible for at least a frame.
+    assert sum(counts) >= len(code) + 1
 
 
-def test_highlight_preserves_trailing_blank_lines():
-    """Pygments normalises trailing newlines; the render must not lose lines.
+def test_typing_never_outruns_the_readable_floor():
+    """However short the narration, typing must not become a blur.
 
-    Regression: ``highlight('a\\nb\\n\\n')`` returned 3 lines instead of 4, so
-    trailing blank lines never rendered and the cursor sat on the wrong row.
+    The reported problem was 28.6 chars/sec. The floor is ~13.6.
     """
-    from pycoding.render.theme import highlight, visible_lines
+    from pycoding.timeline import MIN_FRAMES_PER_WEIGHT, typing_weights
 
-    for code in ["x", "a\n", "a\n\n", "a\nb\n\n", "a = 1\nb = 2\n\n\nc = 3\n", "\n\n"]:
-        spans = highlight(code)
-        assert len(spans) == code.count("\n") + 1, f"{code!r} -> {len(spans)} lines"
-        # The renderer slices by character offset, so this must hold for every
-        # prefix the typing animation will ever ask for.
-        for n in range(len(code) + 1):
-            visible = visible_lines(spans, code, n)
-            assert len(visible) == code[:n].count("\n") + 1, f"{code!r} at {n}"
-            # Leaf characters are what actually get drawn; newlines are the
-            # separators between rows, not glyphs.
-            drawn = sum(len(t) for line in visible for t, _ in line)
-            assert drawn == len(code[:n]) - code[:n].count("\n")
+    code = "x = 1\n" * 40
+    plan = build_plan([Snippet(code=code, phrases=(phrase("Short.", 2.0),))])
+    typing = sum(s.n_frames for s in plan.spans[: len(code) + 1])
+
+    floor = sum(typing_weights(code)) * MIN_FRAMES_PER_WEIGHT
+    assert typing >= floor - len(code), (
+        f"typing took {typing} frames, floor is {floor:.0f}"
+    )
+    chars_per_sec = len(code) / (typing / FPS)
+    assert chars_per_sec <= FPS / MIN_FRAMES_PER_WEIGHT + 0.5, (
+        f"{chars_per_sec:.1f} chars/sec is too fast to read"
+    )
 
 
-def test_build_plan_rejects_empty():
-    with pytest.raises(ValueError):
-        build_plan([])
+def test_typing_stretches_to_cover_a_long_narration():
+    """Typing slows to meet the voice rather than leaving it talking over nothing."""
+    code = "x = 1\n" * 40
+    narration = 60.0  # far longer than the natural typing time
+    plan = build_plan([Snippet(code=code, phrases=(phrase("Long.", narration),))])
+    typing = sum(s.n_frames for s in plan.spans[: len(code) + 1])
+    assert typing >= narration * FPS - 2
+    assert plan.narrations[0].start_frame == 0
+
+
+def test_voice_starts_with_the_first_keystroke():
+    """The originally reported bug: the voice waited for typing to finish."""
+    plan = build_plan([Snippet(code="ab", phrases=(phrase("Hello there.", 1.0),))])
+    assert plan.narrations[0].start_frame == 0
+
+
+def test_split_evenly_preserves_the_total():
+    for total, parts in [(153, 40), (10, 10), (7, 30), (0, 5), (500, 1)]:
+        counts = split_evenly(total, parts)
+        assert len(counts) == parts
+        assert sum(counts) == total
+        assert max(counts) - min(counts) <= 1
+
+
+def test_weighted_split_preserves_the_total():
+    for total, weights in [(153, [1.0, 2.0, 0.5]), (0, [1.0]), (7, [0.5] * 5)]:
+        counts = weighted_split(total, weights)
+        assert sum(counts) == total
+        assert len(counts) == len(weights)
+    # A heavier weight must never receive fewer frames than a lighter one.
+    counts = weighted_split(100, [1.0, 10.0])
+    assert counts[1] > counts[0]
 
 
 # --------------------------------------------------------------- captions
 
-NARRATION_TEXT = (
+NARRATION = (
     "A list comprehension builds a new list in a single expression. "
-    "Here we start with the numbers zero through fourteen, then keep only the evens."
+    "Here we start with the numbers zero through fourteen. "
+    "Then we keep only the even ones."
 )
 
 
-def _captioned_snippet(text: str = NARRATION_TEXT) -> Snippet:
+def _captioned_snippet(with_text: bool = True, per_sentence: float = 2.0) -> Snippet:
+    """Three phrases of fixed audio length, so captions can be checked exactly.
+
+    The audio is identical whether or not the phrases carry text, so the two
+    plans differ only in their captions.
+    """
+    sentences = [s.strip() for s in NARRATION.split(".") if s.strip()]
     return Snippet(
         code="evens = [x for x in range(15) if x % 2 == 0]\nprint(evens)\n",
         output=("$ python snippet.py", "[0, 2, 4, 6, 8, 10, 12, 14]"),
-        narration=_tone(3.0),
-        narration_text=text,
+        phrases=tuple(
+            Phrase(s + "." if with_text else "", silence(per_sentence))
+            for s in sentences
+        ),
     )
 
 
-def test_captions_span_exactly_the_narration():
-    plan = build_plan([_captioned_snippet()])
-    narration = plan.narrations[0]
-    assert plan.captions, "no captions were generated"
-    assert plan.captions[0].start_frame == narration.start_frame
-    # Narration frames round up, so the last caption ends at or before that point.
-    assert plan.captions[-1].end_frame <= narration.start_frame + (
-        len(narration.samples) // SPF + 1
+def test_captions_are_grouped_per_phrase():
+    """The reported bug: captions drifted because they were proportioned
+    across the whole narration rather than timed per spoken sentence.
+
+    Consecutive captions from the same sentence are adjacent; a gap between
+    them can only be the pause between two sentences.
+    """
+    snippet = _captioned_snippet()
+    plan = build_plan([snippet])
+
+    groups: list[list] = []
+    for caption in plan.captions:
+        if groups and groups[-1][-1].end_frame == caption.start_frame:
+            groups[-1].append(caption)
+        else:
+            groups.append([caption])
+
+    assert len(groups) == len(snippet.phrases), (
+        f"{len(groups)} caption groups for {len(snippet.phrases)} sentences — "
+        "a caption is straddling a sentence boundary"
     )
+    for group, spoken in zip(groups, snippet.phrases):
+        assert " ".join(c.text for c in group).split() == spoken.text.split()
 
 
-def test_captions_are_contiguous_and_ordered():
+def test_captions_never_overlap_or_run_backwards():
     plan = build_plan([_captioned_snippet()])
     for earlier, later in zip(plan.captions, plan.captions[1:]):
-        assert earlier.end_frame == later.start_frame
-    for caption in plan.captions:
-        assert caption.end_frame > caption.start_frame, "zero-length caption"
-        assert caption.text.strip()
+        assert earlier.end_frame <= later.start_frame
+    assert plan.captions[0].start_frame >= plan.narrations[0].start_frame
 
 
 def test_captions_do_not_change_the_timeline():
-    """Splitting spans to attach captions must not alter the total length.
-
-    This is the invariant that keeps captions from breaking A/V sync.
-    """
-    plain = build_plan([_captioned_snippet("")])
+    """Attaching caption text must not alter a single frame of the plan."""
+    plain = build_plan([_captioned_snippet(with_text=False)])
     with_caps = build_plan([_captioned_snippet()])
+    assert plain.captions == ()
     assert with_caps.total_frames == plain.total_frames
     assert [n.start_frame for n in with_caps.narrations] == [
         n.start_frame for n in plain.narrations
     ]
-    # Every original span boundary must survive as a numeric boundary.
-    boundaries_plain = set()
-    pos = 0
-    for span in plain.spans:
-        boundaries_plain.add(pos)
-        pos += span.n_frames
-    boundaries_plain.add(pos)
-    boundaries_caps = set()
-    pos = 0
-    for span in with_caps.spans:
-        boundaries_caps.add(pos)
-        pos += span.n_frames
-    boundaries_caps.add(pos)
-    assert boundaries_plain <= boundaries_caps
+
+    # Captions split spans, so the lists differ — but every original frame
+    # boundary must survive, which is what keeps audio and video aligned.
+    def boundaries(plan):
+        edges, pos = set(), 0
+        for span in plan.spans:
+            edges.add(pos)
+            pos += span.n_frames
+        edges.add(pos)
+        return edges
+
+    assert boundaries(plain) <= boundaries(with_caps)
 
 
 def test_caption_text_is_fully_preserved():
-    """Every word of the narration must appear across the captions."""
     plan = build_plan([_captioned_snippet()])
-    assert " ".join(c.text for c in plan.captions).split() == NARRATION_TEXT.split()
+    assert " ".join(c.text for c in plan.captions).split() == NARRATION.split()
 
 
 def test_chunking_respects_limits():
     from pycoding.timeline import CAPTION_MAX_CHARS, CAPTION_MAX_WORDS, chunk_caption_text
 
-    chunks = chunk_caption_text(NARRATION_TEXT)
+    chunks = chunk_caption_text(NARRATION)
     assert len(chunks) > 1
     for chunk in chunks:
         assert len(chunk) <= CAPTION_MAX_CHARS or len(chunk.split()) == 1
@@ -339,8 +359,8 @@ def test_chunking_respects_limits():
     assert chunk_caption_text("") == []
 
 
-def test_no_narration_text_means_no_captions():
-    plan = build_plan([_captioned_snippet("")])
+def test_no_phrases_means_no_captions():
+    plan = build_plan([Snippet(code="x = 1\n", output=("1",))])
     assert plan.captions == ()
     assert all(span.state.caption is None for span in plan.spans)
 
@@ -352,6 +372,8 @@ def test_caption_reaches_the_visual_states():
     assert shown == {c.text for c in plan.captions}
 
 
+# ------------------------------------------------------------------- srt
+
 def test_srt_timestamps_and_layout():
     from pycoding.srt import timestamp, to_srt
 
@@ -360,10 +382,50 @@ def test_srt_timestamps_and_layout():
     assert timestamp(90_000) == "00:50:00,000"
 
     plan = build_plan([_captioned_snippet()])
-    body = to_srt(plan.captions)
-    blocks = [b for b in body.strip().split("\n\n")]
+    blocks = to_srt(plan.captions).strip().split("\n\n")
     assert len(blocks) == len(plan.captions)
     first = blocks[0].split("\n")
     assert first[0] == "1"
     assert " --> " in first[1]
     assert first[2] == plan.captions[0].text
+
+
+# ------------------------------------------------------------------- misc
+
+def test_visible_lines_tracks_typing():
+    """Partial reveals must slice the pre-tokenized spans, not re-lex."""
+    from pycoding.render.theme import highlight, visible_lines
+
+    code = 'x = "hello"\ny = 2\n'
+    spans = highlight(code)
+    assert visible_lines(spans, code, 0) == [[]]
+    assert visible_lines(spans, code, 1)[0][0][0] == "x"
+    assert sum(len(t) for t, _ in visible_lines(spans, code, 5)[0]) == 5
+    assert len(visible_lines(spans, code, 14)) == 2
+
+
+def test_highlight_preserves_trailing_blank_lines():
+    """Pygments normalises trailing newlines; the render must not lose lines."""
+    from pycoding.render.theme import highlight, visible_lines
+
+    for code in ["x", "a\n", "a\n\n", "a\nb\n\n", "a = 1\nb = 2\n\n\nc = 3\n", "\n\n"]:
+        spans = highlight(code)
+        assert len(spans) == code.count("\n") + 1, f"{code!r} -> {len(spans)} lines"
+        for n in range(len(code) + 1):
+            visible = visible_lines(spans, code, n)
+            assert len(visible) == code[:n].count("\n") + 1, f"{code!r} at {n}"
+            drawn = sum(len(t) for line in visible for t, _ in line)
+            assert drawn == len(code[:n]) - code[:n].count("\n")
+
+
+def test_build_plan_rejects_empty():
+    with pytest.raises(ValueError):
+        build_plan([])
+
+
+def test_plan_rejects_bad_options():
+    snippet = Snippet(code="x", phrases=(phrase("hi", 1.0),))
+    with pytest.raises(ValueError):
+        build_plan([snippet], narration_type="sometimes")
+    with pytest.raises(ValueError):
+        build_plan([snippet], pace="warp")

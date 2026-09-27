@@ -20,27 +20,49 @@ FPS = 30
 SR = 48000
 SPF = SR // FPS  # samples per frame -- 1600, exact
 
-# --- Timing (all in integer frames) --------------------------------------
-FRAMES_PER_CHAR = 3  # 100 ms/char — the fixed cadence, used when pace="fixed"
+# --- Typing rhythm --------------------------------------------------------
+# Typing is not uniform: people pause at the end of a line and after
+# punctuation, and rattle through runs of spaces. Each character state gets a
+# weight, and the segment's total frames are shared out in proportion.
+WEIGHT_START = 0.5      # the brief empty editor before the first keystroke
+WEIGHT_NORMAL = 1.0
+WEIGHT_SPACE = 0.6      # runs of indentation go by quickly
+WEIGHT_PUNCT = 2.0      # a beat after a comma or a colon
+WEIGHT_LINE_END = 4.0   # the pause at the end of a line
+FRAMES_PER_WEIGHT = 3.0       # ~100 ms per character at a normal pace
+MIN_FRAMES_PER_WEIGHT = 2.2   # ~13 chars/sec: fastest that still reads as typing
+MAX_FRAMES_PER_WEIGHT = 8.0   # ~4 chars/sec: slowest we will stretch to
+# Pausing is how the voice keeps pace with slow typing, but a long silence
+# reads as a stall. Cap each gap, and never let total pause exceed this share
+# of the spoken audio.
+MAX_GAP_FRAMES = 45           # 1.5 s
+PAUSE_RATIO = 0.4
+
 OUT_LINE_FRAMES = 4  # 133 ms per output line revealed
 POST_PAD_FRAMES = 30  # 1 s of breathing room after each snippet
 MIN_HOLD_FRAMES = 1  # a span is never zero-length
-# Floor for narration-paced typing: 1 frame per character is 30 chars/second,
-# beyond which the code stops reading as typing and starts reading as a paste.
-MIN_FRAMES_PER_CHAR = 1
+CAPTION_MAX_CHARS = 42
+CAPTION_MAX_WORDS = 8
+# A pause between sentences reads as thinking; a long one reads as a stall.
+MAX_GAP_FRAMES = 45  # 1.5 s
 
 
-def split_evenly(total: int, parts: int) -> list[int]:
-    """Split *total* frames into *parts* integers differing by at most one.
+@dataclass(frozen=True)
+class Phrase:
+    """One spoken sentence, with the audio it was synthesised into.
 
-    Zero-length parts are allowed and mean "several changes land in one frame",
-    which is what makes typing faster than one character per frame possible
-    without ever breaking the integer frame grid.
+    Narration is synthesised a sentence at a time rather than as one block,
+    because that is what makes caption timing exact: each caption spans the
+    frames of the audio it was actually spoken over, instead of being
+    proportioned by character count across a whole paragraph.
     """
-    if parts <= 0:
-        return []
-    base, extra = divmod(total, parts)
-    return [base + 1] * extra + [base] * (parts - extra)
+
+    text: str
+    samples: np.ndarray
+
+    @property
+    def n_frames(self) -> int:
+        return ceil(len(self.samples) / SPF)
 
 
 @dataclass(frozen=True)
@@ -85,9 +107,12 @@ class Snippet:
     """One unit of the tutorial: code, its captured output, its narration."""
 
     code: str
-    output: tuple[str, ...]
-    narration: np.ndarray
-    narration_text: str = ""
+    output: tuple[str, ...] = ()
+    phrases: tuple[Phrase, ...] = ()
+
+    @property
+    def narration_text(self) -> str:
+        return " ".join(p.text for p in self.phrases)
 
 
 @dataclass(frozen=True)
@@ -118,73 +143,53 @@ class FramePlan:
         return np.clip(track, -32768, 32767).astype(np.int16)
 
 
-def plan_snippet(
-    snippet: Snippet, narration_type: str = "after", pace: str = "narration"
-) -> tuple[list[Span], Narration | None, int]:
-    """Build the spans for one snippet.
+# --------------------------------------------------------------- allocation
 
-    ``pace`` controls how typing is timed:
+def split_evenly(total: int, parts: int) -> list[int]:
+    """Split *total* into *parts* integers differing by at most one.
 
-    - ``"narration"`` (default): the typing rate is derived from the narration
-      so the code finishes appearing roughly as the explanation ends, and the
-      voice starts with the first keystroke. This is what "explain it while the
-      code is being written" requires.
-    - ``"fixed"``: a constant FRAMES_PER_CHAR regardless of narration length.
-      Typing and narration then drift apart badly -- a 500 character snippet at
-      100 ms/char is 51 s of typing, which no narration of ~14 s survives.
-
-    Returns (spans, narration, n_frames) where n_frames is the segment length.
+    Zero-length parts are allowed and mean "several changes land in one frame",
+    which is what allows typing faster than one character per frame without
+    ever leaving the integer grid.
     """
-    if narration_type not in ("after", "parallel"):
-        raise ValueError(f"narration_type must be 'after' or 'parallel', got {narration_type!r}")
-    if pace not in ("narration", "fixed"):
-        raise ValueError(f"pace must be 'narration' or 'fixed', got {pace!r}")
-
-    n_states = len(snippet.code) + 1  # one span per character, plus the empty state
-    out_frames = len(snippet.output) * OUT_LINE_FRAMES
-    narr_frames = ceil(len(snippet.narration) / SPF)  # the only rounding, and it rounds up
-
-    if pace == "narration" and narr_frames:
-        # Typing gets whatever the narration leaves after the output reveal,
-        # but never runs faster than MIN_FRAMES_PER_CHAR.
-        typing_total = max(narr_frames - out_frames, n_states * MIN_FRAMES_PER_CHAR)
-        typing_counts = split_evenly(typing_total, n_states)
-    else:
-        typing_counts = [FRAMES_PER_CHAR] * n_states
-
-    spans: list[Span] = [
-        Span(VisualState(snippet.code[:i]), n) for i, n in enumerate(typing_counts)
-    ]
-    for j in range(1, len(snippet.output) + 1):
-        spans.append(
-            Span(VisualState(snippet.code, snippet.output[:j]), OUT_LINE_FRAMES)
-        )
-
-    body_frames = sum(s.n_frames for s in spans)
-
-    if pace == "narration" or narration_type == "parallel":
-        # The voice starts on the first keystroke. Any narration left over after
-        # typing holds the final frame.
-        hold = max(MIN_HOLD_FRAMES, narr_frames + POST_PAD_FRAMES - body_frames)
-        start_frame = 0
-    else:
-        # Narration waits for typing and output to finish.
-        hold = max(MIN_HOLD_FRAMES, narr_frames + POST_PAD_FRAMES)
-        start_frame = body_frames
-
-    spans.append(Span(spans[-1].state, hold))
-
-    narration = (
-        Narration(snippet.narration, start_frame) if len(snippet.narration) else None
-    )
-    return spans, narration, body_frames + hold
+    if parts <= 0:
+        return []
+    base, extra = divmod(total, parts)
+    return [base + 1] * extra + [base] * (parts - extra)
 
 
-# Caption chunking: wide enough to take in at a glance, narrow enough to fit
-# two lines on screen at 1080p.
-CAPTION_MAX_CHARS = 42
-CAPTION_MAX_WORDS = 8
+def weighted_split(total: int, weights: list[float]) -> list[int]:
+    """Share *total* out in proportion to *weights*, preserving the total exactly."""
+    if not weights:
+        return []
+    if total <= 0:
+        return [0] * len(weights)
+    scale = sum(weights) or 1.0
+    exact = [total * w / scale for w in weights]
+    counts = [int(v) for v in exact]
+    # Hand the leftovers to whichever parts were cut hardest, so the sum is exact.
+    shortfall = total - sum(counts)
+    for i in sorted(range(len(exact)), key=lambda i: exact[i] - counts[i], reverse=True)[:shortfall]:
+        counts[i] += 1
+    return counts
 
+
+def typing_weights(code: str) -> list[float]:
+    """Per-state typing weights — one entry per visible character state."""
+    weights = [WEIGHT_START]
+    for ch in code:
+        if ch == "\n":
+            weights.append(WEIGHT_LINE_END)
+        elif ch in ",;:":
+            weights.append(WEIGHT_PUNCT)
+        elif ch == " ":
+            weights.append(WEIGHT_SPACE)
+        else:
+            weights.append(WEIGHT_NORMAL)
+    return weights
+
+
+# ---------------------------------------------------------------- captions
 
 def chunk_caption_text(text: str) -> list[str]:
     words = text.split()
@@ -208,19 +213,17 @@ def chunk_caption_text(text: str) -> list[str]:
 
 
 def time_captions(text: str, start_frame: int, end_frame: int) -> list[Caption]:
-    """Spread a narration's words across its exact frame span.
+    """Spread one sentence's words across the frames it was spoken over.
 
-    Timing is proportional to character count -- an approximation of speaking
-    rate, not forced alignment. ElevenLabs can return character-level
-    timestamps, which would make this exact; until that is wired up this is at
-    least deterministic and every caption lands inside a span of known length.
+    Within a single sentence the speaking rate is even enough that character
+    proportion is a good approximation. Across a whole paragraph it is not,
+    which is why captions are timed per phrase rather than per narration.
     """
     chunks = chunk_caption_text(text)
     span = end_frame - start_frame
     if not chunks or span <= 0:
         return []
     if span < len(chunks):
-        # Too short to give each chunk its own frames without flicker.
         return [Caption(" ".join(chunks), start_frame, end_frame)]
 
     total = sum(len(c) for c in chunks)
@@ -242,8 +245,7 @@ def time_captions(text: str, start_frame: int, end_frame: int) -> list[Caption]:
 def with_captions(spans: list[Span], captions: list[Caption]) -> list[Span]:
     """Split spans at caption boundaries and stamp each piece with its caption.
 
-    Both lists are already in frame order, so this is a single forward pass
-    rather than a nested scan.
+    Both lists are already in frame order, so this is a single forward pass.
     """
     if not captions:
         return list(spans)
@@ -281,8 +283,115 @@ def with_captions(spans: list[Span], captions: list[Caption]) -> list[Span]:
     return out
 
 
-def build_plan(snippets: list[Snippet], narration_type: str = "after",
-               pace: str = "narration") -> FramePlan:
+# ------------------------------------------------------------------ layout
+
+def lay_out_phrases(
+    phrases: tuple[Phrase, ...], gap_frames: int
+) -> tuple[np.ndarray, list[int], list[int]]:
+    """Place phrases end to end with pauses between them.
+
+    Returns (audio, starts, lengths) in snippet-relative frames. Each phrase's
+    audio is padded to a whole number of frames so the next phrase starts
+    exactly where the captions say it does.
+    """
+    n = len(phrases)
+    if n == 0:
+        return np.zeros(0, dtype=np.int16), [], []
+
+    lengths = [p.n_frames for p in phrases]
+    if gap_frames <= 0 or n == 1:
+        gaps = [0] * n
+    else:
+        # A short breath before the first sentence, fuller ones between them.
+        gaps = weighted_split(gap_frames, [0.5] + [1.0] * (n - 1))
+        gaps = [min(g, MAX_GAP_FRAMES) for g in gaps]
+
+    parts: list[np.ndarray] = []
+    starts: list[int] = []
+    cursor = 0
+    for i, phrase in enumerate(phrases):
+        if gaps[i]:
+            parts.append(np.zeros(gaps[i] * SPF, dtype=np.int16))
+            cursor += gaps[i]
+        starts.append(cursor)
+        parts.append(phrase.samples)
+        padding = lengths[i] * SPF - len(phrase.samples)
+        if padding > 0:
+            parts.append(np.zeros(padding, dtype=np.int16))
+        cursor += lengths[i]
+    return np.concatenate(parts), starts, lengths
+
+
+def plan_snippet(
+    snippet: Snippet, narration_type: str = "after", pace: str = "narration"
+) -> tuple[list[Span], Narration | None, list[Caption], int]:
+    """Build the spans, narration and captions for one snippet.
+
+    Returns (spans, narration, captions, n_frames) with captions in
+    snippet-relative frames.
+    """
+    if narration_type not in ("after", "parallel"):
+        raise ValueError(f"narration_type must be 'after' or 'parallel', got {narration_type!r}")
+    if pace not in ("narration", "fixed"):
+        raise ValueError(f"pace must be 'narration' or 'fixed', got {pace!r}")
+
+    weights = typing_weights(snippet.code)
+    out_frames = len(snippet.output) * OUT_LINE_FRAMES
+    native = sum(p.n_frames for p in snippet.phrases)
+
+    if pace == "narration" and native:
+        total_weight = sum(weights)
+        # Aim for the narration plus natural pauses, then keep the result
+        # within a range that still reads as a person typing: slow enough to
+        # follow, fast enough that the voice is not stranded mid-snippet.
+        pause_budget = min(len(snippet.phrases) * MAX_GAP_FRAMES, native * PAUSE_RATIO)
+        target = native + pause_budget - out_frames
+        typing_total = min(
+            max(target, total_weight * MIN_FRAMES_PER_WEIGHT),
+            total_weight * MAX_FRAMES_PER_WEIGHT,
+        )
+    else:
+        typing_total = sum(weights) * FRAMES_PER_WEIGHT
+
+    typing_total = max(typing_total, 0)
+    counts = weighted_split(int(round(typing_total)), weights)
+
+    spans: list[Span] = [
+        Span(VisualState(snippet.code[:i]), n) for i, n in enumerate(counts)
+    ]
+    for j in range(1, len(snippet.output) + 1):
+        spans.append(
+            Span(VisualState(snippet.code, snippet.output[:j]), OUT_LINE_FRAMES)
+        )
+
+    body_frames = sum(s.n_frames for s in spans)
+    gap_budget = max(0, body_frames - native)
+    audio, starts, lengths = lay_out_phrases(snippet.phrases, gap_budget)
+
+    captions = [
+        caption
+        for phrase, start, length in zip(snippet.phrases, starts, lengths)
+        for caption in time_captions(phrase.text, start, start + length)
+    ]
+
+    if pace == "narration" or narration_type == "parallel":
+        hold = max(MIN_HOLD_FRAMES, native + POST_PAD_FRAMES - body_frames)
+        start_frame = 0
+    else:
+        hold = max(MIN_HOLD_FRAMES, native + POST_PAD_FRAMES)
+        start_frame = body_frames
+
+    spans.append(Span(spans[-1].state, hold))
+
+    narration = (
+        Narration(audio, start_frame) if len(audio) else None
+    )
+    return spans, narration, captions, body_frames + hold
+
+
+def build_plan(
+    snippets: list[Snippet], narration_type: str = "after", pace: str = "narration"
+) -> FramePlan:
     """Build the complete frame plan for a tutorial.
 
     Each snippet starts from a blank editor, matching the engine's existing
@@ -297,15 +406,17 @@ def build_plan(snippets: list[Snippet], narration_type: str = "after",
     cursor = 0
 
     for snippet in snippets:
-        spans, narration, n_frames = plan_snippet(snippet, narration_type, pace)
+        spans, narration, snippet_captions, n_frames = plan_snippet(
+            snippet, narration_type, pace
+        )
         if narration is not None:
             narrations.append(
                 Narration(narration.samples, narration.start_frame + cursor)
             )
-            if snippet.narration_text:
-                start = cursor + narration.start_frame
-                end = min(start + ceil(len(narration.samples) / SPF), cursor + n_frames)
-                captions.extend(time_captions(snippet.narration_text, start, end))
+        captions.extend(
+            Caption(c.text, c.start_frame + cursor, c.end_frame + cursor)
+            for c in snippet_captions
+        )
         all_spans.extend(spans)
         cursor += n_frames
 

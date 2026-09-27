@@ -11,6 +11,7 @@ Run: python -m pycoding.cli --demo
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import subprocess
 import sys
@@ -20,13 +21,30 @@ from pathlib import Path
 import numpy as np
 
 from .execute import run_snippet
-from .narration import decode_pcm
+from .narration import decode_pcm, trim_silence
 from .render import render_plan
 from .sandbox import assert_sandbox_available
 from .srt import write_srt
-from .timeline import SR, Snippet, build_plan
+from .timeline import SR, Phrase, Snippet, build_plan
 
-SPEECH_WPM = 150  # espeak-ng pace; roughly a calm tutorial delivery
+SPEECH_WPM = 165  # espeak-ng pace; roughly a calm tutorial delivery
+
+
+def split_sentences(text: str) -> list[str]:
+    """Break narration into sentences so each can be synthesised separately."""
+    parts = re.split(r"(?<=[.!?])\s+", text.strip())
+    return [p.strip() for p in parts if p.strip()]
+
+
+def narrate(text: str) -> tuple[Phrase, ...]:
+    """Synthesise narration one sentence at a time.
+
+    Sentence-at-a-time is what makes caption timing exact: each caption spans
+    the frames of the audio it was actually spoken over. It also keeps prosody
+    intact, because a sentence is a natural unit of speech -- unlike the
+    caption-sized fragments, which would each get their own intonation contour.
+    """
+    return tuple(Phrase(s, trim_silence(speak(s))) for s in split_sentences(text))
 
 
 def _tone(seconds: float) -> np.ndarray:
@@ -78,9 +96,12 @@ def _demo_snippets(execute: bool = False) -> list[Snippet]:
                 "Evens:              [0, 2, 4, 6, 8, 10, 12, 14]",
                 "Divisible by three: [0, 3, 6, 9, 12]",
             ),
-            "A list comprehension builds a new list in a single expression. "
-            "Here we start with the numbers zero through fourteen, then keep only "
-            "the evens, and separately the multiples of three.",
+            "A list comprehension builds a new list in a single expression, "
+            "without writing out a loop. We start with the numbers zero through "
+            "fourteen. The first comprehension keeps only the elements where the "
+            "remainder after dividing by two is zero, which gives us the even "
+            "numbers. The second does the same with three, giving the multiples "
+            "of three. Finally we print both lists so you can compare them.",
         ),
         (
             # 22 lines — long enough to exercise scrolling past the visible rows.
@@ -109,9 +130,14 @@ def _demo_snippets(execute: bool = False) -> list[Snippet]:
                 '    print(f"{letter}: {count}")\n'
             ),
             ("$ python snippet.py", "A: 3", "B: 2", "C: 2", "D: 2", "G: 1"),
-            "We define a function that counts each name by its first letter. "
-            "Inside, we loop over the rows, normalise each key to upper case, and "
-            "tally it in a dictionary. Finally we sort by count, most common first.",
+            "Here we define a function called summarise that counts a list of "
+            "names by their first letter. Inside, we begin with an empty "
+            "dictionary. Then we loop over every row, take its first character, "
+            "convert it to upper case, and either increment an existing count or "
+            "create a new entry. Once the loop finishes, we sort the items by "
+            "count in descending order and return them. Further down we build a "
+            "list of names. Finally we call the function and print each letter "
+            "alongside its count.",
         ),
         (
             (
@@ -132,14 +158,15 @@ def _demo_snippets(execute: bool = False) -> list[Snippet]:
                 '    print("Average:", total / 0)',
                 "ZeroDivisionError: division by zero",
             ),
-            "We sum the list by accumulating into a running total. Now watch what "
-            "happens when we divide by zero: Python raises a ZeroDivisionError and "
-            "prints the traceback in red.",
+            "We sum the values by adding each one into a running total, which "
+            "gives us one hundred and eight. Now watch what happens when we "
+            "divide by zero. Python raises a ZeroDivisionError and prints the "
+            "traceback in red.",
         ),
     ]
     if not execute:
         return [
-            Snippet(code=code, output=output, narration=speak(text), narration_text=text)
+            Snippet(code=code, output=output, phrases=narrate(text))
             for code, output, text in specs
         ]
 
@@ -150,12 +177,7 @@ def _demo_snippets(execute: bool = False) -> list[Snippet]:
         for i, (code, _, text) in enumerate(specs):
             execution = run_snippet(code, workdir=Path(td) / f"snippet_{i}")
             snippets.append(
-                Snippet(
-                    code=code,
-                    output=execution.lines,
-                    narration=speak(text),
-                    narration_text=text,
-                )
+                Snippet(code=code, output=execution.lines, phrases=narrate(text))
             )
     return snippets
 
@@ -181,7 +203,8 @@ def main(argv: list[str] | None = None) -> int:
     snippets = _demo_snippets(execute=args.execute)
     if args.no_captions:
         snippets = [
-            Snippet(s.code, s.output, s.narration, "") for s in snippets
+            Snippet(s.code, s.output, tuple(Phrase("", p.samples) for p in s.phrases))
+            for s in snippets
         ]
 
     plan = build_plan(snippets, narration_type=args.narration_type, pace=args.pace)
