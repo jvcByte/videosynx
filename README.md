@@ -1,227 +1,136 @@
-# **Pycoding**
+# pycoding
 
-[Example Tutorial](https://github.com/user-attachments/assets/a6a7110d-6f13-47cb-b968-0aad3db89335)
+Generate narrated coding-tutorial videos from a topic.
 
-## **Automated Coding Tutorial Generation with Audio Narration**
-
-**Pycoding** is an agentic Python library designed to generate fully automated, natural-looking coding tutorials with real-time or post-processed audio narration. It combines AI-powered code generation, screen recording, and voice synthesis to create engaging programming tutorials.
-
----
-
-## **Key Features**
-
-- **AI-Powered Code Generation**: Uses Google's Generative AI to create relevant code examples
-- **Natural Voice Narration**: Integrates with ElevenLabs for high-quality voice synthesis
-- **Real-Time Screen Recording**: Captures live coding demonstrations
-- **Multi-Language Support**: Works with multiple programming languages
-- **Flexible Narration Modes**: Supports both real-time and post-processed narration
-- **Title Slide Generation**: Optional title slides for each code segment
-- **Automated Window Management**: Handles Jupyter console and matplotlib windows automatically
-- **Flowchart Visualizations**: Optional flowchart visualizations for code logic
-
-## **Supported Languages**
-
-Pycoding supports generating tutorials in the following programming languages:
-
-- **Python** (`python3`)
-- **C/C++** (`xcpp17`)
-- **Julia** (`julia`)
-- **Rust** (`rust`)
-- **Bash** (`bash`)
-- **R** (`r`)
+Give it a subject and it writes the code, runs it, explains each line while the
+code types itself out on screen, narrates it, and produces an `.mp4` with
+captions and a matching `.srt`.
 
 ---
 
-## **Prerequisites**
+## Status
 
-Before installing Pycoding, ensure you have the following:
+The rendering engine, the sandbox and the generation pipeline are built and
+tested (70 tests). **The pipeline has not yet been run against the live Gemini
+and ElevenLabs APIs** — that needs API keys and spends real quota, so it is
+deliberately the last thing to wire up.
 
-### **System Requirements**
-- Linux operating system (currently Linux-only)
-- `ffmpeg` for audio/video processing
-- `wmctrl` and `xwininfo` for window management
-- `gnome-terminal` for terminal emulation
-- Jupyter installation with required language kernels
-- `graphviz` for flowchart generation
-
-### **API Requirements**
-- Google Generative AI API key
-- ElevenLabs API key and voice ID
-
-### **Python Dependencies**
-Core dependencies include:
-```
-ffmpeg-python
-google-generativeai
-pydub
-simpleaudio
-pyautogui
-pynput
-rich 
-elevenlabs
-jupyter
-ipython
-pycaw
-comtypes
-pygetwindow
-moviepy
-opencv-python
-```
+| | |
+|---|---|
+| Render core | done — deterministic, ~4× faster than real time |
+| Captions | done — burned in, exactly synced, plus `.srt` |
+| Title card | done |
+| Sandbox | done — bubblewrap, no network, no secrets |
+| Generation pipeline | done, tested offline against stand-ins |
+| Live API run | **not yet exercised** |
+| Service layer (API, queue, billing, web) | not started |
 
 ---
 
-## **Installation**
+## Try it offline
 
-1. **Clone the Repository**
-```bash
-git clone https://github.com/aadya940/pycoding.git
-cd pycoding
-```
-
-2. **Install Dependencies**
-```bash
-python3 -m pip install -r requirements.txt
-```
-
-3. **Install System Dependencies**
-```bash
-# For Ubuntu/Debian
-sudo apt-get install ffmpeg graphviz
-
-# For Fedora
-sudo dnf install ffmpeg graphviz
-
-# For Arch Linux
-sudo pacman -S ffmpeg graphviz
-```
-
-4. **Install the Library**
-```bash
-python3 -m pip install .
-```
-
-4. **Configure Jupyter Kernels**
-See [README_kernels.md](README_kernels.md) for detailed instructions on setting up language kernels.
-
----
-
-## **Usage**
-
-### **Command Line Interface**
-
-Generate a coding tutorial using the command line:
+No keys, no quota, no spend. Uses hardcoded snippets and offline speech:
 
 ```bash
-python3 -m pycoding \
-    --topic "Your Tutorial Topic" \
-    --google-api-key YOUR_GOOGLE_API_KEY \
-    --elevenlabs-api-key YOUR_ELEVENLABS_API_KEY \
-    --elevenlabs-voice-id YOUR_ELEVENLABS_VOICE_ID \
-    --narration-type parallel \
-    --language python3 \
-    --force-approve \
-    --add-titles \
-    --add-flowchart \
-    --io-path /path/to/example/code
+cd engine
+pip install -e .
+python -m pycoding.cli --demo --execute --out demo.mp4
 ```
 
-### **Python API**
+`--execute` runs each snippet in the sandbox and renders its real output.
+Without it, the output is canned. Install `espeak-ng` for audible narration —
+otherwise you get a tone:
 
-```python
-from pycoding import CodingTutorial, GoogleGenAI
-
-# Initialize AI model
-model = GoogleGenAI(google_api_key)
-
-# Create tutorial
-tutorial = CodingTutorial(
-    topic="Your Tutorial Topic",
-    eleven_labs_api_key="YOUR_ELEVENLABS_API_KEY",
-    eleven_labs_voice_id="YOUR_ELEVENLABS_VOICE_ID",
-    model_object=model,
-    path_info=[],  # Optional paths for code context
-    narration_type="parallel",  # or "after"
-    language="python3",
-    force_approve=False,  # Set to True to skip manual approvals
-    add_titles=True,  # Add title slides
-    add_flowchart=True,  # Add flowchart visualization
-    io_path="/path/to/example/code"  # Specify paths for code generation context
-)
-
-# Generate the tutorial
-tutorial.make_tutorial()
-```
-
-### **Command Line Options**
-
-| **Flag**                   | **Description** |
-|----------------------------|----------------|
-| `--topic`                  | Tutorial topic |
-| `--google-api-key`         | Google Generative AI API key |
-| `--elevenlabs-api-key`     | ElevenLabs API key |
-| `--elevenlabs-voice-id`    | ElevenLabs voice ID |
-| `--io-path`                | Paths for code context (optional) |
-| `--narration-type`         | Narration mode: `parallel` or `after` |
-| `--language`               | Programming language |
-| `--force-approve`          | Skip manual approvals |
-| `--add-titles`             | Add title slides |
-| `--add-flowchart`          | Add flowchart visualization |
-
----
-
-## **Output**
-
-The generated tutorial includes:
-- Screen recording of code typing and execution
-- AI-generated voice narration
-- Optional title slides
-- Optional flowchart visualizations
-- Synchronized audio and video
-- Output files in `pycoding_data/` directory
-
----
-
-## **Examples**
-
-### **Basic Python Tutorial**
 ```bash
-python3 -m pycoding \
-    --topic "Python List Comprehensions in 3 Examples" \
-    --google-api-key YOUR_KEY \
-    --elevenlabs-api-key YOUR_KEY \
-    --elevenlabs-voice-id YOUR_ID \
-    --language python3
+sudo apt install espeak-ng bubblewrap
 ```
 
-### **C++ Tutorial with Titles and Flowchart**
+## Run it for real
+
 ```bash
-python3 -m pycoding \
-    --topic "Understanding C++ Templates" \
-    --google-api-key YOUR_KEY \
-    --elevenlabs-api-key YOUR_KEY \
-    --elevenlabs-voice-id YOUR_ID \
-    --language xcpp17 \
-    --add-titles \
-    --add-flowchart
+export GEMINI_API_KEY=...
+export ELEVENLABS_API_KEY=...
+export ELEVENLABS_VOICE_ID=...
+
+python -m pycoding.cli --topic "Python decorators explained" \
+    --execute --out tutorial.mp4
 ```
 
----
-
-## **Limitations**
-
-- Currently supports Linux environments only
-- Requires specific window management utilities
-- API keys needed for AI services
-- Language kernels must be properly configured
+`--no-tts` runs real code generation against offline speech, which is a cheap
+way to check the prompts without spending anything.
 
 ---
 
-## **Contributing**
+## How it works
 
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+```
+topic
+  └─ Gemini writes the code, in separately runnable snippets
+       └─ each snippet runs in a bubblewrap sandbox
+            └─ Gemini writes narration, anchored to fragments of the code
+                 └─ ElevenLabs speaks it, one sentence at a time
+                      └─ frames are rendered and piped into ffmpeg
+```
+
+### The parts worth knowing about
+
+**Nothing is screen-captured.** Frames are drawn directly and piped to ffmpeg
+as raw RGB, so there is no display, no window manager, no editor and no
+keystroke simulation. It runs faster than real time, and many jobs fit on one
+box — which the screen-recording approach it replaced could not do.
+
+**The timeline is a plan, not a recording.** `FPS=30` and `SR=48000`, so one
+frame is exactly 1600 audio samples. Every span carries an integer frame count
+and everything else derives from those integers — there is no wall clock
+anywhere in the timing path, so audio and video cannot drift apart.
+
+**Narration is anchored to the code.** Each sentence carries the character
+offset it describes and is spoken while that part of the code is on screen,
+rather than being a paragraph spread evenly across the snippet. Without this
+the opening line talks about the topic in general while the first line of code
+is being typed, and the viewer has nothing to attach it to.
+
+**Generated code is treated as hostile.** It is model output derived from
+user-supplied input, so it runs in bubblewrap with no network, no readable
+home directory, and no inherited environment. If isolation cannot be
+established the worker refuses to start rather than falling back to running
+it unsandboxed.
+
+**Narration is synthesised a sentence at a time**, which is what makes caption
+timing exact: each caption spans the frames of the audio it was actually
+spoken over. Measured at 0 ms offset across a full render.
 
 ---
 
-## **Author**
+## Layout
 
-Aadya Chinubhai
+```
+engine/                # the package: renderer, timeline, sandbox, pipeline
+  src/pycoding/
+    timeline.py        # the frame plan
+    render/            # editor canvas, ffmpeg sink
+    sandbox.py         # bubblewrap isolation
+    execute.py         # run a snippet, capture its transcript
+    prompts.py         # what the model is asked for
+    providers.py       # Gemini and ElevenLabs, behind protocols
+    script.py          # topic -> render plan
+    cli.py             # entry point
+  tests/
+pyproject.toml         # workspace: shared tool config only
+```
+
+The old screen-capture engine is kept on the `legacy-engine` branch.
+
+## Requirements
+
+- Linux, Python 3.11+
+- `ffmpeg` — encoding
+- `bubblewrap` — sandboxing generated code
+- `espeak-ng` — optional; offline narration for development
+
+## Development
+
+```bash
+pip install -e "engine[dev]"
+pytest              # from the repository root
+```

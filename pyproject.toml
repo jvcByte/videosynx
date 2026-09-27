@@ -1,0 +1,18 @@
+# Workspace root.
+#
+# The engine is its own project under engine/, with its own pyproject.toml.
+# This file carries only shared tool configuration, so `pytest` and `ruff`
+# work from the repository root.
+#
+# There is deliberately no package at the root. There used to be -- a `pycoding`
+# directory holding the old screen-capture engine -- and it shadowed the engine
+# package, so `pytest` from here collected the wrong code and `import pycoding`
+# gave you the wrong module. That engine now lives on the `legacy-engine` branch.
+
+[tool.pytest.ini_options]
+testpaths = ["engine/tests"]
+pythonpath = ["engine/src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
