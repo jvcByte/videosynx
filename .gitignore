@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Secrets — never commit. The IDE session logs contain pasted API keys.
+.env
+.env.*
+sess_*/
+
+# Build / media artifacts
+*.mp4
+*.mp3
+build/
+dist/

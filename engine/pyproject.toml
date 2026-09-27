@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pycoding"
+version = "0.2.0"
+description = "Deterministic narrated coding-video renderer."
+requires-python = ">=3.11"
+dependencies = [
+    "pillow>=10.0",
+    "pygments>=2.17",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.5"]
+
+[project.scripts]
+# Points at a main() that actually exists — the previous entry point
+# (pycoding.__main__:main) referenced a function that was never defined.
+pycoding = "pycoding.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
