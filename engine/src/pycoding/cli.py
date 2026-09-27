@@ -19,8 +19,10 @@ from pathlib import Path
 
 import numpy as np
 
+from .execute import run_snippet
 from .narration import decode_pcm
 from .render import render_plan
+from .sandbox import assert_sandbox_available
 from .srt import write_srt
 from .timeline import SR, Snippet, build_plan
 
@@ -58,7 +60,7 @@ def speak(text: str) -> np.ndarray:
         return decode_pcm(wav)
 
 
-def _demo_snippets() -> list[Snippet]:
+def _demo_snippets(execute: bool = False) -> list[Snippet]:
     specs = [
         (
             (
@@ -135,10 +137,27 @@ def _demo_snippets() -> list[Snippet]:
             "prints the traceback in red.",
         ),
     ]
-    return [
-        Snippet(code=code, output=output, narration=speak(text), narration_text=text)
-        for code, output, text in specs
-    ]
+    if not execute:
+        return [
+            Snippet(code=code, output=output, narration=speak(text), narration_text=text)
+            for code, output, text in specs
+        ]
+
+    # Refuse to run anything generated unless isolation actually holds.
+    assert_sandbox_available()
+    snippets = []
+    with tempfile.TemporaryDirectory(prefix="pycoding_demo_") as td:
+        for i, (code, _, text) in enumerate(specs):
+            execution = run_snippet(code, workdir=Path(td) / f"snippet_{i}")
+            snippets.append(
+                Snippet(
+                    code=code,
+                    output=execution.lines,
+                    narration=speak(text),
+                    narration_text=text,
+                )
+            )
+    return snippets
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -149,12 +168,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--height", type=int, default=1080)
     parser.add_argument("--narration-type", choices=["after", "parallel"], default="after")
     parser.add_argument("--no-captions", action="store_true", help="render without captions")
+    parser.add_argument("--execute", action="store_true",
+                        help="actually run each snippet in the sandbox and show its real output")
     args = parser.parse_args(argv)
 
     if not args.demo:
         parser.error("nothing to do — pass --demo")
 
-    snippets = _demo_snippets()
+    snippets = _demo_snippets(execute=args.execute)
     if args.no_captions:
         snippets = [
             Snippet(s.code, s.output, s.narration, "") for s in snippets
