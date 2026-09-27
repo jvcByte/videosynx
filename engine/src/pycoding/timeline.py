@@ -307,18 +307,42 @@ def with_captions(spans: list[Span], captions: list[Caption]) -> list[Span]:
 # ------------------------------------------------------------------ layout
 
 def resolve_anchors(phrases: tuple[Phrase, ...], code_len: int) -> list[int]:
-    """Character offsets for each phrase, explicitly given or evenly spread."""
+    """Character offsets for each phrase.
+
+    Explicit anchors are used as given. ``None`` means nobody said what that
+    sentence refers to -- a model-written fragment that did not match the code,
+    for instance -- so it is interpolated between its neighbours rather than
+    silently collapsing to the start of the snippet.
+    """
     if not phrases:
         return []
     given = [p.anchor for p in phrases]
+
     if all(a is None for a in given):
-        # Nobody said what each sentence refers to, so spread them over the code.
+        # Nothing to go on: spread them across the code.
         step = code_len / len(phrases)
         return [min(code_len, int(round(i * step))) for i in range(len(phrases))]
 
-    anchors = [
-        min(max(a if a is not None else 0, 0), code_len) for a in given
-    ]
+    anchors: list[int] = [0] * len(phrases)
+    known = [i for i, a in enumerate(given) if a is not None]
+    for i in known:
+        anchors[i] = min(max(given[i], 0), code_len)
+
+    for position, i in enumerate(known):
+        if position == 0:
+            for j in range(i):
+                anchors[j] = anchors[i]
+        if position + 1 < len(known):
+            nxt = known[position + 1]
+            span = nxt - i
+            for k in range(1, span):
+                anchors[i + k] = anchors[i] + round(
+                    (anchors[nxt] - anchors[i]) * k / span
+                )
+        else:
+            for j in range(i + 1, len(phrases)):
+                anchors[j] = anchors[i]
+
     # An anchor must move forward, or two sentences land on the same keystroke.
     for i in range(1, len(anchors)):
         anchors[i] = max(anchors[i], anchors[i - 1])

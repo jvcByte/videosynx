@@ -1,33 +1,45 @@
-"""Offline driver for the render core.
+"""Command line entry point.
 
-Phase 1 deliberately has no network, no Gemini, no ElevenLabs and no sandbox:
-snippets are hardcoded and narration comes from espeak-ng (falling back to a
-sine tone). That keeps the riskiest component iterable without touching the
-20/day Gemini free quota or spending ElevenLabs credits.
+Two modes:
 
-Run: python -m pycoding.cli --demo
+- ``--demo`` renders a hardcoded tutorial with synthetic speech. No network,
+  no API keys, no quota, no spend -- this is what the render core is developed
+  and judged against.
+- ``--topic`` runs the real pipeline: Gemini writes the code and the
+  narration, the code is executed in the sandbox, ElevenLabs speaks it. It
+  needs API keys and spends real quota.
+
+Both end at the same place: a FramePlan handed to the renderer.
 """
 
 from __future__ import annotations
 
 import argparse
-import re
-import shutil
-import subprocess
+import os
 import sys
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
-import numpy as np
+from rich.console import Console
 
 from .execute import run_snippet
-from .narration import decode_pcm, trim_silence
+from .narration import trim_silence
+from .prompts import sentences
+from .providers import (
+    ESpeakSpeaker,
+    ElevenLabsSpeaker,
+    GeminiWriter,
+    Speaker,
+    ToneSpeaker,
+)
 from .render import render_plan
 from .sandbox import assert_sandbox_available
+from .script import build_tutorial
 from .srt import write_srt
-from .timeline import SR, Intro, Phrase, Snippet, build_plan
+from .timeline import FPS, Intro, Phrase, Snippet, Span, build_plan
 
-SPEECH_WPM = 165  # espeak-ng pace; roughly a calm tutorial delivery
+_console = Console()
 
 TOPIC = "Python List Comprehensions"
 
@@ -41,13 +53,7 @@ INTRO_TEXT = (
 )
 
 
-def split_sentences(text: str) -> list[str]:
-    """Break narration into sentences so each can be synthesised separately."""
-    parts = re.split(r"(?<=[.!?])\s+", text.strip())
-    return [p.strip() for p in parts if p.strip()]
-
-
-def narrate(text: str) -> tuple[Phrase, ...]:
+def narrate(speaker: Speaker, text: str) -> tuple[Phrase, ...]:
     """Synthesise narration one sentence at a time.
 
     Sentence-at-a-time is what makes caption timing exact: each caption spans
@@ -55,10 +61,11 @@ def narrate(text: str) -> tuple[Phrase, ...]:
     intact, because a sentence is a natural unit of speech -- unlike the
     caption-sized fragments, which would each get their own intonation contour.
     """
-    return tuple(Phrase(s, trim_silence(speak(s))) for s in split_sentences(text))
+    return tuple(Phrase(s, trim_silence(speaker.say(s))) for s in sentences(text))
 
 
-def narrate_against(code: str, script: list[tuple[str, str]]) -> tuple[Phrase, ...]:
+def narrate_against(speaker: Speaker, code: str,
+                    script: list[tuple[str, str]]) -> tuple[Phrase, ...]:
     """Synthesise narration, each sentence anchored to the code it describes.
 
     *script* pairs a marker -- a fragment of the code -- with what to say while
@@ -68,42 +75,11 @@ def narrate_against(code: str, script: list[tuple[str, str]]) -> tuple[Phrase, .
     phrases = []
     for marker, sentence in script:
         anchor = code.index(marker) if marker else 0
-        phrases.append(Phrase(sentence, trim_silence(speak(sentence)), anchor))
+        phrases.append(Phrase(sentence, trim_silence(speaker.say(sentence)), anchor))
     return tuple(phrases)
 
 
-def _tone(seconds: float) -> np.ndarray:
-    """Fallback stand-in: a sine tone, encoded to MP3 and decoded back."""
-    with tempfile.TemporaryDirectory() as td:
-        mp3 = Path(td) / "tone.mp3"
-        subprocess.run(
-            ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi",
-             "-i", f"sine=frequency=320:duration={seconds}",
-             "-ar", str(SR), "-ac", "1", "-b:a", "96k", str(mp3)],
-            check=True,
-        )
-        return decode_pcm(mp3)
-
-
-def speak(text: str) -> np.ndarray:
-    """Narration for *text*, via espeak-ng when available.
-
-    The voice is robotic on purpose: it exists to make pacing and caption sync
-    audible before ElevenLabs is wired up, not to be the final product.
-    """
-    engine = shutil.which("espeak-ng") or shutil.which("espeak")
-    if engine is None:
-        return _tone(max(1.2, len(text) * 0.055))
-    with tempfile.TemporaryDirectory() as td:
-        wav = Path(td) / "line.wav"
-        subprocess.run(
-            [engine, "-v", "en-us", "-s", str(SPEECH_WPM), "-w", str(wav), text],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-        return decode_pcm(wav)
-
-
-def _demo_snippets(execute: bool = False) -> list[Snippet]:
+def _demo_snippets(speaker: Speaker, execute: bool = False) -> list[Snippet]:
     specs = [
         (
             (
@@ -221,7 +197,8 @@ def _demo_snippets(execute: bool = False) -> list[Snippet]:
     ]
     if not execute:
         return [
-            Snippet(code=code, output=output, phrases=narrate_against(code, script))
+            Snippet(code=code, output=output,
+                    phrases=narrate_against(speaker, code, script))
             for code, output, script in specs
         ]
 
@@ -233,15 +210,51 @@ def _demo_snippets(execute: bool = False) -> list[Snippet]:
             execution = run_snippet(code, workdir=Path(td) / f"snippet_{i}")
             snippets.append(
                 Snippet(code=code, output=execution.lines,
-                        phrases=narrate_against(code, script))
+                        phrases=narrate_against(speaker, code, script))
             )
     return snippets
 
 
+def _offline_speaker() -> Speaker:
+    """Speech for development: espeak-ng, or a tone if it is not installed."""
+    espeak = ESpeakSpeaker()
+    if espeak.available:
+        return espeak
+    _console.log(
+        "[yellow]espeak-ng not found, falling back to a tone. "
+        "Install it with: sudo apt install espeak-ng[/yellow]"
+    )
+    return ToneSpeaker()
+
+
+def _real_speaker(args) -> Speaker:
+    if args.no_tts:
+        _console.log("[yellow]--no-tts: using offline speech[/yellow]")
+        return _offline_speaker()
+    missing = [
+        name for name, value in (
+            ("--elevenlabs-api-key", args.elevenlabs_api_key),
+            ("--elevenlabs-voice-id", args.elevenlabs_voice_id),
+        ) if not value
+    ]
+    if missing:
+        raise SystemExit(
+            f"missing {', '.join(missing)} (or set ELEVENLABS_API_KEY / "
+            "ELEVENLABS_VOICE_ID), or pass --no-tts for offline speech"
+        )
+    return ElevenLabsSpeaker(args.elevenlabs_api_key, args.elevenlabs_voice_id)
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="pycoding render core (offline demo).")
-    parser.add_argument("--demo", action="store_true", help="render the built-in demo")
-    parser.add_argument("--out", type=Path, default=Path("demo.mp4"))
+    parser = argparse.ArgumentParser(
+        description="Generate narrated coding tutorial videos."
+    )
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--demo", action="store_true",
+                      help="render the built-in offline demo (no keys, no spend)")
+    mode.add_argument("--topic", type=str, help="topic to generate a tutorial about")
+
+    parser.add_argument("--out", type=Path, default=Path("tutorial.mp4"))
     parser.add_argument("--width", type=int, default=1920)
     parser.add_argument("--height", type=int, default=1080)
     parser.add_argument("--narration-type", choices=["after", "parallel"], default="after")
@@ -251,36 +264,64 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-captions", action="store_true", help="render without captions")
     parser.add_argument("--no-intro", action="store_true", help="skip the opening title card")
     parser.add_argument("--execute", action="store_true",
-                        help="actually run each snippet in the sandbox and show its real output")
+                        help="run each snippet in the sandbox and show its real output")
+    parser.add_argument("--context", type=str, default="",
+                        help="extra context for code generation (files, constraints)")
+    parser.add_argument("--no-tts", action="store_true",
+                        help="use offline speech even when ElevenLabs keys are present")
+    parser.add_argument("--google-api-key", type=str,
+                        default=os.environ.get("GEMINI_API_KEY", ""))
+    parser.add_argument("--elevenlabs-api-key", type=str,
+                        default=os.environ.get("ELEVENLABS_API_KEY", ""))
+    parser.add_argument("--elevenlabs-voice-id", type=str,
+                        default=os.environ.get("ELEVENLABS_VOICE_ID", ""))
     args = parser.parse_args(argv)
 
-    if not args.demo:
-        parser.error("nothing to do — pass --demo")
+    if args.demo:
+        speaker = _offline_speaker()
+        snippets = _demo_snippets(speaker, execute=args.execute)
+        intro = None if args.no_intro else Intro(TOPIC, narrate(speaker, INTRO_TEXT))
+        plan = build_plan(snippets, narration_type=args.narration_type,
+                          pace=args.pace, intro=intro)
+    else:
+        if not args.google_api_key:
+            raise SystemExit(
+                "--google-api-key or GEMINI_API_KEY is required, "
+                "or pass --demo for the offline one"
+            )
+        tutorial = build_tutorial(
+            args.topic,
+            writer=GeminiWriter(args.google_api_key),
+            speaker=_real_speaker(args),
+            context=args.context,
+            execute=args.execute,
+            intro=not args.no_intro,
+        )
+        plan = tutorial.plan
 
-    snippets = _demo_snippets(execute=args.execute)
     if args.no_captions:
-        snippets = [
-            Snippet(s.code, s.output, tuple(Phrase("", p.samples) for p in s.phrases))
-            for s in snippets
-        ]
+        plan = replace(
+            plan,
+            spans=tuple(
+                Span(replace(s.state, caption=None), s.n_frames) for s in plan.spans
+            ),
+            captions=(),
+        )
 
-    intro = None if args.no_intro else Intro(TOPIC, narrate(INTRO_TEXT))
-
-    plan = build_plan(snippets, narration_type=args.narration_type, pace=args.pace,
-                      intro=intro)
-    print(f"plan: {len(plan.spans)} spans, {plan.total_frames} frames, "
-          f"{plan.duration_s:.2f}s, {len(plan.narrations)} narrations, "
-          f"{len(plan.captions)} captions")
-    if intro is not None:
-        card_frames = sum(s.n_frames for s in plan.spans if s.state.title is not None)
-        print(f"      title card: {card_frames / 30:.1f}s")
+    _console.log(
+        f"plan: {len(plan.spans)} spans, {plan.total_frames} frames, "
+        f"{plan.duration_s:.2f}s, {len(plan.captions)} captions"
+    )
+    card_frames = sum(s.n_frames for s in plan.spans if s.state.title is not None)
+    if card_frames:
+        _console.log(f"      title card: {card_frames / FPS:.1f}s")
 
     path = render_plan(plan, args.out, width=args.width, height=args.height)
-    print(f"wrote {path}")
+    _console.log(f"[green]wrote {path}[/green]")
 
     srt_path = write_srt(plan.captions, Path(args.out).with_suffix(".srt"))
     if srt_path:
-        print(f"wrote {srt_path}")
+        _console.log(f"[green]wrote {srt_path}[/green]")
     return 0
 
 
