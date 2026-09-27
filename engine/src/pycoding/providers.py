@@ -249,6 +249,62 @@ class ElevenLabsSpeaker:
 
 # ------------------------------------------------------------------ offline
 
+KOKORO_DIR = Path.home() / ".cache" / "kokoro"
+KOKORO_MODEL = KOKORO_DIR / "kokoro-v1.0.onnx"
+KOKORO_VOICES = KOKORO_DIR / "voices-v1.0.bin"
+DEFAULT_KOKORO_VOICE = "af_heart"
+
+
+def resample_to_timeline(samples: np.ndarray, source_rate: int) -> np.ndarray:
+    """Convert float audio at *source_rate* to int16 PCM at the timeline's rate.
+
+    Kokoro emits 24 kHz and the frame grid is built on 48 kHz. Linear
+    interpolation is adequate for a 2x upsample of speech, which is already
+    band-limited well below either rate.
+    """
+    if source_rate == SR:
+        return (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
+    count = int(round(len(samples) * SR / source_rate))
+    warped = np.interp(
+        np.linspace(0, len(samples) - 1, count), np.arange(len(samples)), samples
+    )
+    return (np.clip(warped, -1.0, 1.0) * 32767).astype(np.int16)
+
+
+class KokoroSpeaker:
+    """Local neural speech, running on CPU.
+
+    Apache 2.0 and no per-character cost, which matters for a service where
+    narration is otherwise the dominant expense. Not ElevenLabs -- nothing
+    open is -- but markedly more natural than a formant synthesiser, and for
+    neutral explanatory narration that difference is small.
+    """
+
+    def __init__(self, voice: str = DEFAULT_KOKORO_VOICE, speed: float = 1.0,
+                 model_path: Path | None = None, voices_path: Path | None = None):
+        model = Path(model_path or KOKORO_MODEL)
+        voices = Path(voices_path or KOKORO_VOICES)
+        if not model.exists() or not voices.exists():
+            raise ProviderError(
+                f"Kokoro model files not found in {model.parent}. Download "
+                "kokoro-v1.0.onnx and voices-v1.0.bin from the kokoro-onnx "
+                "releases page, or pass --tts espeak."
+            )
+        from kokoro_onnx import Kokoro
+
+        self._kokoro = Kokoro(str(model), str(voices))
+        self._voice = voice
+        self._speed = speed
+
+    def say(self, text: str, *, previous: str = "", following: str = "") -> np.ndarray:
+        # Neighbour text is accepted for interface parity and ignored: Kokoro
+        # has no equivalent, and each sentence carries its own prosody fine.
+        samples, rate = self._kokoro.create(
+            text, voice=self._voice, speed=self._speed, lang="en-us"
+        )
+        return resample_to_timeline(samples, rate)
+
+
 class ESpeakSpeaker:
     """Offline speech, for development.
 

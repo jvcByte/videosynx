@@ -28,10 +28,13 @@ from .lesson import build_lesson, load_lesson
 from .narration import trim_silence
 from .prompts import sentences
 from .providers import (
+    DEFAULT_KOKORO_VOICE,
     DEFAULT_MODEL,
     ESpeakSpeaker,
     ElevenLabsSpeaker,
     GeminiWriter,
+    KokoroSpeaker,
+    ProviderError,
     Speaker,
     ToneSpeaker,
 )
@@ -230,21 +233,35 @@ def _offline_speaker() -> Speaker:
 
 
 def _real_speaker(args) -> Speaker:
-    if args.no_tts:
-        _console.log("[yellow]--no-tts: using offline speech[/yellow]")
-        return _offline_speaker()
-    missing = [
-        name for name, value in (
-            ("--elevenlabs-api-key", args.elevenlabs_api_key),
-            ("--elevenlabs-voice-id", args.elevenlabs_voice_id),
-        ) if not value
-    ]
-    if missing:
-        raise SystemExit(
-            f"missing {', '.join(missing)} (or set ELEVENLABS_API_KEY / "
-            "ELEVENLABS_VOICE_ID), or pass --no-tts for offline speech"
-        )
-    return ElevenLabsSpeaker(args.elevenlabs_api_key, args.elevenlabs_voice_id)
+    """Pick the voice: ElevenLabs if asked for, Kokoro if present, else espeak."""
+    choice = "espeak" if args.no_tts else args.tts
+
+    if choice == "auto":
+        choice = "elevenlabs" if (args.elevenlabs_api_key and args.elevenlabs_voice_id) else "kokoro"
+
+    if choice == "elevenlabs":
+        missing = [
+            name for name, value in (
+                ("--elevenlabs-api-key", args.elevenlabs_api_key),
+                ("--elevenlabs-voice-id", args.elevenlabs_voice_id),
+            ) if not value
+        ]
+        if missing:
+            raise SystemExit(
+                f"missing {', '.join(missing)} (or set ELEVENLABS_API_KEY / "
+                "ELEVENLABS_VOICE_ID). Use --tts kokoro or --tts espeak to "
+                "narrate locally instead."
+            )
+        return ElevenLabsSpeaker(args.elevenlabs_api_key, args.elevenlabs_voice_id)
+
+    if choice == "kokoro":
+        try:
+            return KokoroSpeaker(voice=args.voice)
+        except ProviderError as exc:
+            _console.log(f"[yellow]{exc}[/yellow]")
+            _console.log("[yellow]falling back to espeak[/yellow]")
+
+    return _offline_speaker()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -278,6 +295,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="extra context for code generation (files, constraints)")
     parser.add_argument("--no-tts", action="store_true",
                         help="use offline speech even when ElevenLabs keys are present")
+    parser.add_argument("--tts", choices=["auto", "elevenlabs", "kokoro", "espeak"],
+                        default="auto",
+                        help="voice engine. 'auto' prefers ElevenLabs when keys are "
+                             "set, then Kokoro, then espeak")
+    parser.add_argument("--voice", type=str, default=DEFAULT_KOKORO_VOICE,
+                        help=f"Kokoro voice (default: {DEFAULT_KOKORO_VOICE})")
     parser.add_argument("--save-script", type=Path,
                         help="write the generated code and narration to this JSON file")
     parser.add_argument("--model", type=str, default=DEFAULT_MODEL,
