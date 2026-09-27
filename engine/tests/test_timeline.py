@@ -213,3 +213,114 @@ def test_highlight_preserves_trailing_blank_lines():
 def test_build_plan_rejects_empty():
     with pytest.raises(ValueError):
         build_plan([])
+
+
+# --------------------------------------------------------------- captions
+
+NARRATION_TEXT = (
+    "A list comprehension builds a new list in a single expression. "
+    "Here we start with the numbers zero through fourteen, then keep only the evens."
+)
+
+
+def _captioned_snippet(text: str = NARRATION_TEXT) -> Snippet:
+    return Snippet(
+        code="evens = [x for x in range(15) if x % 2 == 0]\nprint(evens)\n",
+        output=("$ python snippet.py", "[0, 2, 4, 6, 8, 10, 12, 14]"),
+        narration=_tone(3.0),
+        narration_text=text,
+    )
+
+
+def test_captions_span_exactly_the_narration():
+    plan = build_plan([_captioned_snippet()])
+    narration = plan.narrations[0]
+    assert plan.captions, "no captions were generated"
+    assert plan.captions[0].start_frame == narration.start_frame
+    # Narration frames round up, so the last caption ends at or before that point.
+    assert plan.captions[-1].end_frame <= narration.start_frame + (
+        len(narration.samples) // SPF + 1
+    )
+
+
+def test_captions_are_contiguous_and_ordered():
+    plan = build_plan([_captioned_snippet()])
+    for earlier, later in zip(plan.captions, plan.captions[1:]):
+        assert earlier.end_frame == later.start_frame
+    for caption in plan.captions:
+        assert caption.end_frame > caption.start_frame, "zero-length caption"
+        assert caption.text.strip()
+
+
+def test_captions_do_not_change_the_timeline():
+    """Splitting spans to attach captions must not alter the total length.
+
+    This is the invariant that keeps captions from breaking A/V sync.
+    """
+    plain = build_plan([_captioned_snippet("")])
+    with_caps = build_plan([_captioned_snippet()])
+    assert with_caps.total_frames == plain.total_frames
+    assert [n.start_frame for n in with_caps.narrations] == [
+        n.start_frame for n in plain.narrations
+    ]
+    # Every original span boundary must survive as a numeric boundary.
+    boundaries_plain = set()
+    pos = 0
+    for span in plain.spans:
+        boundaries_plain.add(pos)
+        pos += span.n_frames
+    boundaries_plain.add(pos)
+    boundaries_caps = set()
+    pos = 0
+    for span in with_caps.spans:
+        boundaries_caps.add(pos)
+        pos += span.n_frames
+    boundaries_caps.add(pos)
+    assert boundaries_plain <= boundaries_caps
+
+
+def test_caption_text_is_fully_preserved():
+    """Every word of the narration must appear across the captions."""
+    plan = build_plan([_captioned_snippet()])
+    assert " ".join(c.text for c in plan.captions).split() == NARRATION_TEXT.split()
+
+
+def test_chunking_respects_limits():
+    from pycoding.timeline import CAPTION_MAX_CHARS, CAPTION_MAX_WORDS, chunk_caption_text
+
+    chunks = chunk_caption_text(NARRATION_TEXT)
+    assert len(chunks) > 1
+    for chunk in chunks:
+        assert len(chunk) <= CAPTION_MAX_CHARS or len(chunk.split()) == 1
+        assert len(chunk.split()) <= CAPTION_MAX_WORDS
+    assert chunk_caption_text("") == []
+
+
+def test_no_narration_text_means_no_captions():
+    plan = build_plan([_captioned_snippet("")])
+    assert plan.captions == ()
+    assert all(span.state.caption is None for span in plan.spans)
+
+
+def test_caption_reaches_the_visual_states():
+    """Captions must actually make it onto the frames, not just the plan."""
+    plan = build_plan([_captioned_snippet()])
+    shown = {span.state.caption for span in plan.spans if span.state.caption}
+    assert shown == {c.text for c in plan.captions}
+
+
+def test_srt_timestamps_and_layout():
+    from pycoding.srt import timestamp, to_srt
+
+    assert timestamp(0) == "00:00:00,000"
+    assert timestamp(30) == "00:00:01,000"  # 30 frames at 30fps
+    assert timestamp(90_000) == "00:50:00,000"
+
+    plan = build_plan([_captioned_snippet()])
+    body = to_srt(plan.captions)
+    blocks = [b for b in body.strip().split("\n\n")]
+    assert len(blocks) == len(plan.captions)
+    first = blocks[0].split("\n")
+    assert first[0] == "1"
+    assert " --> " in first[1]
+    assert first[2] == plan.captions[0].text

@@ -1,8 +1,9 @@
 """Offline driver for the render core.
 
 Phase 1 deliberately has no network, no Gemini, no ElevenLabs and no sandbox:
-snippets are hardcoded and narration is a decoded sine tone. That keeps the
-riskiest component iterable without touching the 20/day Gemini free quota.
+snippets are hardcoded and narration comes from espeak-ng (falling back to a
+sine tone). That keeps the riskiest component iterable without touching the
+20/day Gemini free quota or spending ElevenLabs credits.
 
 Run: python -m pycoding.cli --demo
 """
@@ -10,6 +11,7 @@ Run: python -m pycoding.cli --demo
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -19,16 +21,14 @@ import numpy as np
 
 from .narration import decode_pcm
 from .render import render_plan
+from .srt import write_srt
 from .timeline import SR, Snippet, build_plan
+
+SPEECH_WPM = 150  # espeak-ng pace; roughly a calm tutorial delivery
 
 
 def _tone(seconds: float) -> np.ndarray:
-    """A stand-in narration track: a sine tone encoded to MP3 and decoded back.
-
-    Deliberately round-trips through the encoder rather than returning raw
-    samples, so the demo exercises the same exact-sample-count path that real
-    ElevenLabs MP3s will take.
-    """
+    """Fallback stand-in: a sine tone, encoded to MP3 and decoded back."""
     with tempfile.TemporaryDirectory() as td:
         mp3 = Path(td) / "tone.mp3"
         subprocess.run(
@@ -37,20 +37,31 @@ def _tone(seconds: float) -> np.ndarray:
              "-ar", str(SR), "-ac", "1", "-b:a", "96k", str(mp3)],
             check=True,
         )
-        pcm = decode_pcm(mp3)
-    # Fade the edges so the tone does not click against silence.
-    n = min(len(pcm), int(0.05 * SR))
-    if n:
-        ramp = np.linspace(0, 1, n)
-        pcm[:n] = (pcm[:n] * ramp).astype(np.int16)
-        pcm[-n:] = (pcm[-n:] * ramp[::-1]).astype(np.int16)
-    return pcm
+        return decode_pcm(mp3)
+
+
+def speak(text: str) -> np.ndarray:
+    """Narration for *text*, via espeak-ng when available.
+
+    The voice is robotic on purpose: it exists to make pacing and caption sync
+    audible before ElevenLabs is wired up, not to be the final product.
+    """
+    engine = shutil.which("espeak-ng") or shutil.which("espeak")
+    if engine is None:
+        return _tone(max(1.2, len(text) * 0.055))
+    with tempfile.TemporaryDirectory() as td:
+        wav = Path(td) / "line.wav"
+        subprocess.run(
+            [engine, "-v", "en-us", "-s", str(SPEECH_WPM), "-w", str(wav), text],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        return decode_pcm(wav)
 
 
 def _demo_snippets() -> list[Snippet]:
-    return [
-        Snippet(
-            code=(
+    specs = [
+        (
+            (
                 "numbers = range(15)\n"
                 "\n"
                 "# Keep only elements where the condition is True\n"
@@ -60,16 +71,18 @@ def _demo_snippets() -> list[Snippet]:
                 'print("Evens:             ", evens)\n'
                 'print("Divisible by three:", by_three)\n'
             ),
-            output=(
+            (
                 "$ python snippet.py",
                 "Evens:              [0, 2, 4, 6, 8, 10, 12, 14]",
                 "Divisible by three: [0, 3, 6, 9, 12]",
             ),
-            narration=_tone(2.2),
+            "A list comprehension builds a new list in a single expression. "
+            "Here we start with the numbers zero through fourteen, then keep only "
+            "the evens, and separately the multiples of three.",
         ),
-        Snippet(
+        (
             # 22 lines — long enough to exercise scrolling past the visible rows.
-            code=(
+            (
                 "def summarise(rows):\n"
                 '    """Count rows by first letter, most common first."""\n'
                 "    counts = {}\n"
@@ -93,18 +106,13 @@ def _demo_snippets() -> list[Snippet]:
                 "for letter, count in summarise(names):\n"
                 '    print(f"{letter}: {count}")\n'
             ),
-            output=(
-                "$ python snippet.py",
-                "A: 3",
-                "B: 2",
-                "C: 2",
-                "D: 2",
-                "G: 1",
-            ),
-            narration=_tone(4.0),
+            ("$ python snippet.py", "A: 3", "B: 2", "C: 2", "D: 2", "G: 1"),
+            "We define a function that counts each name by its first letter. "
+            "Inside, we loop over the rows, normalise each key to upper case, and "
+            "tally it in a dictionary. Finally we sort by count, most common first.",
         ),
-        Snippet(
-            code=(
+        (
+            (
                 "values = [4, 8, 15, 16, 23, 42]\n"
                 "total = 0\n"
                 "\n"
@@ -114,7 +122,7 @@ def _demo_snippets() -> list[Snippet]:
                 'print("Sum:", total)\n'
                 'print("Average:", total / 0)\n'
             ),
-            output=(
+            (
                 "$ python snippet.py",
                 "Sum: 108",
                 "Traceback (most recent call last):",
@@ -122,8 +130,14 @@ def _demo_snippets() -> list[Snippet]:
                 '    print("Average:", total / 0)',
                 "ZeroDivisionError: division by zero",
             ),
-            narration=_tone(3.0),
+            "We sum the list by accumulating into a running total. Now watch what "
+            "happens when we divide by zero: Python raises a ZeroDivisionError and "
+            "prints the traceback in red.",
         ),
+    ]
+    return [
+        Snippet(code=code, output=output, narration=speak(text), narration_text=text)
+        for code, output, text in specs
     ]
 
 
@@ -134,17 +148,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--width", type=int, default=1920)
     parser.add_argument("--height", type=int, default=1080)
     parser.add_argument("--narration-type", choices=["after", "parallel"], default="after")
+    parser.add_argument("--no-captions", action="store_true", help="render without captions")
     args = parser.parse_args(argv)
 
     if not args.demo:
         parser.error("nothing to do — pass --demo")
 
-    plan = build_plan(_demo_snippets(), narration_type=args.narration_type)
+    snippets = _demo_snippets()
+    if args.no_captions:
+        snippets = [
+            Snippet(s.code, s.output, s.narration, "") for s in snippets
+        ]
+
+    plan = build_plan(snippets, narration_type=args.narration_type)
     print(f"plan: {len(plan.spans)} spans, {plan.total_frames} frames, "
-          f"{plan.duration_s:.2f}s, {len(plan.narrations)} narrations")
+          f"{plan.duration_s:.2f}s, {len(plan.narrations)} narrations, "
+          f"{len(plan.captions)} captions")
 
     path = render_plan(plan, args.out, width=args.width, height=args.height)
     print(f"wrote {path}")
+
+    srt_path = write_srt(plan.captions, Path(args.out).with_suffix(".srt"))
+    if srt_path:
+        print(f"wrote {srt_path}")
     return 0
 
 

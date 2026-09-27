@@ -7,7 +7,7 @@ happens before the plan is built, and nothing here depends on how long it took.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import ceil
 
 import numpy as np
@@ -36,6 +36,16 @@ class VisualState:
 
     code: str
     output: tuple[str, ...] = ()
+    caption: str | None = None
+
+
+@dataclass(frozen=True)
+class Caption:
+    """A chunk of narration shown on screen, in absolute frame numbers."""
+
+    text: str
+    start_frame: int
+    end_frame: int
 
 
 @dataclass(frozen=True)
@@ -61,6 +71,7 @@ class Snippet:
     code: str
     output: tuple[str, ...]
     narration: np.ndarray
+    narration_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -68,6 +79,7 @@ class FramePlan:
     spans: tuple[Span, ...]
     narrations: tuple[Narration, ...]
     total_frames: int
+    captions: tuple[Caption, ...] = ()
 
     @property
     def duration_s(self) -> float:
@@ -134,6 +146,107 @@ def plan_snippet(
     return spans, narration, body_frames + hold
 
 
+# Caption chunking: wide enough to take in at a glance, narrow enough to fit
+# two lines on screen at 1080p.
+CAPTION_MAX_CHARS = 42
+CAPTION_MAX_WORDS = 8
+
+
+def chunk_caption_text(text: str) -> list[str]:
+    words = text.split()
+    if not words:
+        return []
+    chunks: list[str] = []
+    current: list[str] = []
+    for word in words:
+        # Close the current chunk *before* it would overflow, so a chunk only
+        # exceeds the limit when a single word is longer than the whole limit.
+        if current and (
+            len(" ".join([*current, word])) > CAPTION_MAX_CHARS
+            or len(current) >= CAPTION_MAX_WORDS
+        ):
+            chunks.append(" ".join(current))
+            current = []
+        current.append(word)
+    if current:
+        chunks.append(" ".join(current))
+    return chunks
+
+
+def time_captions(text: str, start_frame: int, end_frame: int) -> list[Caption]:
+    """Spread a narration's words across its exact frame span.
+
+    Timing is proportional to character count -- an approximation of speaking
+    rate, not forced alignment. ElevenLabs can return character-level
+    timestamps, which would make this exact; until that is wired up this is at
+    least deterministic and every caption lands inside a span of known length.
+    """
+    chunks = chunk_caption_text(text)
+    span = end_frame - start_frame
+    if not chunks or span <= 0:
+        return []
+    if span < len(chunks):
+        # Too short to give each chunk its own frames without flicker.
+        return [Caption(" ".join(chunks), start_frame, end_frame)]
+
+    total = sum(len(c) for c in chunks)
+    bounds, acc = [], 0
+    for chunk in chunks[:-1]:
+        acc += len(chunk)
+        bounds.append(start_frame + round(span * acc / total))
+    bounds.append(end_frame)
+
+    captions: list[Caption] = []
+    previous = start_frame
+    for chunk, stop in zip(chunks, bounds):
+        stop = min(max(stop, previous + 1), end_frame)
+        captions.append(Caption(chunk, previous, stop))
+        previous = stop
+    return [c for c in captions if c.end_frame > c.start_frame]
+
+
+def with_captions(spans: list[Span], captions: list[Caption]) -> list[Span]:
+    """Split spans at caption boundaries and stamp each piece with its caption.
+
+    Both lists are already in frame order, so this is a single forward pass
+    rather than a nested scan.
+    """
+    if not captions:
+        return list(spans)
+
+    ranges, pos = [], 0
+    for span in spans:
+        ranges.append((pos, pos + span.n_frames, span.state))
+        pos += span.n_frames
+    if not ranges:
+        return []
+
+    points: set[int] = {0, pos}
+    for start, end, _ in ranges:
+        points.add(start)
+        points.add(end)
+    for caption in captions:
+        points.add(caption.start_frame)
+        points.add(caption.end_frame)
+    ordered = sorted(p for p in points if 0 <= p <= pos)
+
+    out: list[Span] = []
+    span_i = caption_i = 0
+    for start, end in zip(ordered, ordered[1:]):
+        if end <= start:
+            continue
+        while span_i + 1 < len(ranges) and ranges[span_i][1] <= start:
+            span_i += 1
+        while caption_i < len(captions) and captions[caption_i].end_frame <= start:
+            caption_i += 1
+        state = ranges[span_i][2]
+        caption = None
+        if caption_i < len(captions) and captions[caption_i].start_frame <= start:
+            caption = captions[caption_i].text
+        out.append(Span(replace(state, caption=caption), end - start))
+    return out
+
+
 def build_plan(snippets: list[Snippet], narration_type: str = "after") -> FramePlan:
     """Build the complete frame plan for a tutorial.
 
@@ -145,6 +258,7 @@ def build_plan(snippets: list[Snippet], narration_type: str = "after") -> FrameP
 
     all_spans: list[Span] = []
     narrations: list[Narration] = []
+    captions: list[Caption] = []
     cursor = 0
 
     for snippet in snippets:
@@ -153,7 +267,16 @@ def build_plan(snippets: list[Snippet], narration_type: str = "after") -> FrameP
             narrations.append(
                 Narration(narration.samples, narration.start_frame + cursor)
             )
+            if snippet.narration_text:
+                start = cursor + narration.start_frame
+                end = min(start + ceil(len(narration.samples) / SPF), cursor + n_frames)
+                captions.extend(time_captions(snippet.narration_text, start, end))
         all_spans.extend(spans)
         cursor += n_frames
 
-    return FramePlan(tuple(all_spans), tuple(narrations), cursor)
+    return FramePlan(
+        tuple(with_captions(all_spans, captions)),
+        tuple(narrations),
+        cursor,
+        tuple(captions),
+    )

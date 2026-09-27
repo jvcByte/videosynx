@@ -22,7 +22,10 @@ LINE_H = 34
 CODE_SIZE = 22
 TERM_SIZE = 20
 UI_SIZE = 16
+CAPTION_SIZE = 26
 BOTTOM_PAD = 24  # blank rows kept below the cursor, like VS Code's cursorSurroundingLines
+CAPTION_H = 92  # a dedicated band, so clearing a caption never erases terminal output
+CAPTION_MAX_LINES = 2
 
 
 class Editor:
@@ -32,12 +35,14 @@ class Editor:
         self.filename = filename
         # Scale the panel with the canvas so 720p (free tier) and 1080p both work.
         panel_h = min(PANEL_H, max(80, height // 3))
-        self.panel_top = height - STATUS_H - panel_h
+        self.caption_top = height - STATUS_H - CAPTION_H
+        self.panel_top = self.caption_top - panel_h
         self.rows = max(1, (self.panel_top - CODE_TOP - BOTTOM_PAD) // LINE_H)
 
         self.f_ui = ImageFont.truetype(font_path, UI_SIZE)
         self.f_code = ImageFont.truetype(font_path, CODE_SIZE, layout_engine=ImageFont.Layout.BASIC)
         self.f_term = ImageFont.truetype(font_path, TERM_SIZE, layout_engine=ImageFont.Layout.BASIC)
+        self.f_caption = ImageFont.truetype(font_path, CAPTION_SIZE)
         self.char_w = self.f_code.getlength("M")
 
         self._chrome = self._draw_chrome()
@@ -47,6 +52,7 @@ class Editor:
         self._spans: list[list[tuple[str, str]]] = []
         self._drawn: list[list[tuple[str, str]]] = []
         self._drawn_output: tuple[str, ...] = ()
+        self._drawn_caption: str | None = None
         self._scroll = 0
         self._drawn_scroll = 0
         self._cursor_line = 0
@@ -68,9 +74,10 @@ class Editor:
         d.text((16, TITLE_H + 18), self.filename, font=self.f_ui, fill="#ffffff", anchor="lm")
         d.text((196, TITLE_H + 18), "×", font=self.f_ui, fill="#cccccc", anchor="lm")
 
-        d.rectangle([0, self.panel_top, self.width, self.height - STATUS_H], fill=theme.PANEL_BG)
+        d.rectangle([0, self.panel_top, self.width, self.caption_top], fill=theme.PANEL_BG)
         d.line([0, self.panel_top, self.width, self.panel_top], fill=theme.BORDER)
         d.text((24, self.panel_top + 22), "TERMINAL", font=self.f_ui, fill="#9d9d9d")
+        d.rectangle([0, self.caption_top, self.width, self.height - STATUS_H], fill=theme.CAPTION_BG)
 
         d.rectangle([0, self.height - STATUS_H, self.width, self.height], fill=theme.STATUS_BG)
         d.text((20, self.height - 12), "main", font=self.f_ui, fill="#ffffff", anchor="lm")
@@ -118,6 +125,8 @@ class Editor:
             self._redraw_lines(visible)
         if state.output != self._drawn_output:
             self._redraw_output(state.output)
+        if state.caption != self._drawn_caption:
+            self._redraw_caption(state.caption)
 
     def _update_scroll(self, cursor_line: int) -> None:
         """Keep the cursor on screen, holding BOTTOM_PAD rows below it."""
@@ -158,19 +167,54 @@ class Editor:
         d = ImageDraw.Draw(self.canvas)
         prev_n = len(self._drawn_output)
         if len(output) < prev_n:
-            d.rectangle([0, self.panel_top + 44, self.width, self.height - STATUS_H],
+            d.rectangle([0, self.panel_top + 44, self.width, self.caption_top],
                         fill=theme.PANEL_BG)
             prev_n = 0
         for i in range(prev_n, len(output)):
             text = output[i]
+            # Never spill into the caption band.
+            if self.panel_top + 56 + i * 30 + 30 > self.caption_top:
+                break
             colour = theme.ERROR_FG if _looks_like_error(text) else theme.FG
             y = self.panel_top + 56 + i * 30
             d.text((24, y), text, font=self.f_term, fill=colour)
         self._drawn_output = output
 
+    def _redraw_caption(self, caption: str | None) -> None:
+        """Repaint the caption band. Its own region, so this cannot clobber output."""
+        d = ImageDraw.Draw(self.canvas)
+        d.rectangle([0, self.caption_top, self.width, self.height - STATUS_H],
+                    fill=theme.CAPTION_BG)
+        if caption:
+            lines = _wrap_to_pixels(caption, self.f_caption, int(self.width * 0.82))
+            lines = lines[:CAPTION_MAX_LINES]
+            total_h = len(lines) * int(CAPTION_SIZE * 1.35)
+            y = self.caption_top + (CAPTION_H - total_h) // 2
+            for line in lines:
+                d.text((self.width // 2, y), line, font=self.f_caption,
+                       fill=theme.CAPTION_FG, anchor="ma")
+                y += int(CAPTION_SIZE * 1.35)
+        self._drawn_caption = caption
+
     # ------------------------------------------------------------------ output
     def tobytes(self) -> bytes:
         return self.canvas.tobytes()
+
+
+def _wrap_to_pixels(text: str, font, max_width: int) -> list[str]:
+    """Greedy word wrap measured in pixels rather than characters."""
+    lines: list[str] = []
+    current = ""
+    for word in text.split():
+        trial = f"{current} {word}".strip()
+        if not current or font.getlength(trial) <= max_width:
+            current = trial
+        else:
+            lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines
 
 
 def _looks_like_error(line: str) -> bool:

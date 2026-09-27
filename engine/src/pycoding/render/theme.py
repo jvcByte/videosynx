@@ -20,6 +20,10 @@ FG = "#d4d4d4"
 CURSOR = "#aeafad"
 ERROR_FG = "#f48771"
 
+# Caption band
+CAPTION_BG = "#0d0d0d"
+CAPTION_FG = "#ffffff"
+
 # Traffic lights
 DOT_COLORS = ("#ff5f57", "#febc2e", "#28c840")
 
