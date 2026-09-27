@@ -37,13 +37,15 @@ from .execute import run_snippet
 from .providers import Speaker
 from .sandbox import DEFAULT_TIMEOUT_S, assert_sandbox_available
 from .script import Tutorial, speak_anchored, speak_plain
-from .timeline import Intro, Phrase, Snippet, build_plan
+from .timeline import Explanation, Intro, Phrase, Slide, Snippet, build_plan
 
 _console = Console()
 
 
 @dataclass(frozen=True)
 class Section:
+    """A coded section: narration sentences anchored to fragments of the code."""
+
     name: str
     code: str
     narration: list[tuple[str, str]]
@@ -52,16 +54,48 @@ class Section:
 @dataclass(frozen=True)
 class Lesson:
     title: str
-    sections: list[Section]
+    sections: list[Section | ExplainSection]
     intro: str = ""
     outro: str = ""
+
+
+@dataclass(frozen=True)
+class ExplainSection:
+    """A concept section: a slide, narrated, with no code on screen yet."""
+
+    name: str
+    slide: Slide
+    sentences: tuple[str, ...]
+
+
+def _load_explain(raw: dict, name: str) -> ExplainSection:
+    spec = raw["explain"]
+    columns = tuple(
+        (str(title), tuple(str(line) for line in lines))
+        for title, lines in spec.get("columns", [])
+    )
+    slide = Slide(
+        heading=str(spec.get("heading", name)),
+        columns=columns,
+        sequence=tuple(str(v) for v in spec.get("sequence", [])),
+        note=str(spec.get("note", "")),
+    )
+    sentences = tuple(str(s) for s in raw.get("narration", []) if str(s).strip())
+    if not sentences:
+        raise ValueError(f"section {name!r}: an explanation needs narration")
+    return ExplainSection(name=name, slide=slide, sentences=sentences)
 
 
 def load_lesson(path: Path | str) -> Lesson:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
 
-    sections = []
+    sections: list[Section | ExplainSection] = []
     for i, raw in enumerate(data.get("sections", []), start=1):
+        name = raw.get("name", f"Section {i}")
+        if "explain" in raw:
+            sections.append(_load_explain(raw, name))
+            continue
+
         code = raw["code"]
         narration = [(str(marker), str(sentence)) for marker, sentence in raw["narration"]]
         for marker, _ in narration:
@@ -69,12 +103,10 @@ def load_lesson(path: Path | str) -> Lesson:
                 # Anchors are how a sentence is lined up with the screen; a
                 # marker that is not in the code means it will drift.
                 raise ValueError(
-                    f"section {i} ({raw.get('name', '?')}): narration marker "
+                    f"section {i} ({name}): narration marker "
                     f"{marker!r} does not appear in the code"
                 )
-        sections.append(
-            Section(name=raw.get("name", f"Section {i}"), code=code, narration=narration)
-        )
+        sections.append(Section(name=name, code=code, narration=narration))
 
     if not sections:
         raise ValueError(f"{path}: no sections")
@@ -99,9 +131,19 @@ def build_lesson(
         # Refuse before running anything that did not exist a moment ago.
         assert_sandbox_available()
 
-    snippets: list[Snippet] = []
+    snippets: list[Snippet | Explanation] = []
     with tempfile.TemporaryDirectory(prefix="pycoding_lesson_") as td:
         for i, section in enumerate(lesson.sections):
+            if isinstance(section, ExplainSection):
+                _console.log(f"[blue]Explaining[/blue] {section.name}")
+                snippets.append(
+                    Explanation(
+                        slide=section.slide,
+                        phrases=speak_plain(speaker, " ".join(section.sentences)),
+                    )
+                )
+                continue
+
             output: tuple[str, ...] = ()
             if execute:
                 _console.log(f"[blue]Running[/blue] {section.name}")
@@ -136,4 +178,4 @@ def build_lesson(
         f"[green]Plan:[/green] {plan.total_frames} frames, {plan.duration_s:.1f}s, "
         f"{len(plan.captions)} captions"
     )
-    return Tutorial(plan=plan, snippets=snippets, topic=lesson.title)
+    return Tutorial(plan=plan, sections=snippets, topic=lesson.title)

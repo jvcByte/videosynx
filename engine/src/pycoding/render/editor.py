@@ -58,6 +58,8 @@ class Editor:
         self._drawn_output: tuple[str, ...] = ()
         self._drawn_caption: str | None = None
         self._drawn_title: str | None = None
+        self._drawn_slide = None
+        self._mode = "editor"
         self._scroll = 0
         self._drawn_scroll = 0
         self._cursor_line = 0
@@ -120,46 +122,171 @@ class Editor:
                 self._paint_row(row, self._drawn[idx], idx + 1, idx == self._cursor_line)
 
     # ------------------------------------------------------------------ state
-    def apply(self, state: VisualState) -> None:
-        """Update the canvas to *state*, repainting only what changed."""
-        if state.title != self._drawn_title:
-            self._switch_mode(state.title)
+    @staticmethod
+    def _mode_for(state: VisualState) -> str:
         if state.title is not None:
-            # The card is static; only the caption under it changes.
-            if state.caption != self._drawn_caption:
-                self._redraw_caption(state.caption)
-            return
+            return "card"
+        if state.slide is not None:
+            return "slide"
+        return "editor"
 
-        if state.code != self._code:
-            self._code = state.code
-            self._spans = theme.highlight(state.code)
-            visible = theme.visible_lines(self._spans, state.code, len(state.code))
-            self._update_scroll(len(visible) - 1)
-            self._redraw_lines(visible)
-        if state.output != self._drawn_output:
-            self._redraw_output(state.output)
-        if state.caption != self._drawn_caption:
-            self._redraw_caption(state.caption)
+    def apply(self, state: VisualState) -> None:
+        """Update the canvas to *state*, repainting only what changed.
 
-    def _switch_mode(self, title: str | None) -> None:
-        """Swap between the title card and the editor.
-
-        Both directions invalidate every tracked diff, so the next state
+        Three modes share one canvas: the opening card, a concept slide, and
+        the editor. Changing mode invalidates everything, so the next state
         repaints from scratch rather than being diffed against a canvas that
         was showing something else entirely.
         """
-        self._drawn_title = title
-        self.canvas = self._chrome.copy()
-        self._code = None  # type: ignore[assignment]
-        self._spans = []
-        self._drawn = []
-        self._drawn_scroll = -1
-        self._cursor_line = 0
-        self._drawn_output = ()
-        self._drawn_caption = None
-        if title is not None:
-            self._paint_title_card(title)
-            self._redraw_caption(None)
+        mode = self._mode_for(state)
+        if mode != self._mode:
+            self._mode = mode
+            self.canvas = self._chrome.copy()
+            self._code = None  # type: ignore[assignment]
+            self._spans = []
+            self._drawn = []
+            self._drawn_scroll = -1
+            self._cursor_line = 0
+            self._drawn_output = ()
+            self._drawn_caption = None
+            self._drawn_title = None
+            self._drawn_slide = None
+
+        if mode == "card":
+            if state.title != self._drawn_title:
+                self._drawn_title = state.title
+                self._paint_title_card(state.title)
+        elif mode == "slide":
+            if state.slide != self._drawn_slide:
+                self._drawn_slide = state.slide
+                self._paint_slide(state.slide)
+        else:
+            if state.code != self._code:
+                self._code = state.code
+                self._spans = theme.highlight(state.code)
+                visible = theme.visible_lines(self._spans, state.code, len(state.code))
+                self._update_scroll(len(visible) - 1)
+                self._redraw_lines(visible)
+            if state.output != self._drawn_output:
+                self._redraw_output(state.output)
+
+        if state.caption != self._drawn_caption:
+            self._redraw_caption(state.caption)
+
+    def _paint_slide(self, slide) -> None:
+        """Draw a concept illustration.
+
+        Explaining over typing code makes the viewer read code before they
+        know what it is for. A slide carries the idea on its own, and the code
+        starts once the narration says so.
+        """
+        d = ImageDraw.Draw(self.canvas)
+        d.rectangle([0, 0, self.width, self.caption_top], fill=theme.CARD_BG)
+        d.rectangle([0, self.height - STATUS_H, self.width, self.height], fill=theme.CARD_BG)
+
+        heading_lines = _wrap_to_pixels(slide.heading, self.f_title, int(self.width * 0.8))[:2]
+        heading_h = len(heading_lines) * int(TITLE_SIZE * 1.2)
+        rule_gap = int(TITLE_SIZE * 0.25) + 4 + int(TITLE_SIZE * 0.75)
+
+        if slide.columns:
+            col_w, _, wrapped, box_h = self._layout_columns(slide)
+            content_h = box_h
+        else:
+            content_h = self._sequence_height(slide)
+
+        pieces = len(slide.columns) or len(slide.sequence)
+        show_note = bool(slide.note) and pieces and slide.revealed >= pieces
+        note_h = int(TITLE_SIZE * 0.45) + CAPTION_SIZE if show_note else 0
+
+        total = heading_h + rule_gap + content_h + note_h
+        y = max(int(self.height * 0.07), (self.caption_top - total) // 2)
+
+        for line in heading_lines:
+            d.text((self.width // 2, y), line, font=self.f_title,
+                   fill=theme.CARD_FG, anchor="ma")
+            y += int(TITLE_SIZE * 1.2)
+
+        rule_w = int(self.width * 0.09)
+        y += int(TITLE_SIZE * 0.25)
+        d.rectangle([(self.width - rule_w) // 2, y, (self.width + rule_w) // 2, y + 4],
+                    fill=theme.STATUS_BG)
+        y += 4 + int(TITLE_SIZE * 0.75)
+
+        if slide.columns:
+            self._paint_columns(d, slide, y, col_w, wrapped, box_h)
+        elif slide.sequence:
+            self._paint_sequence(d, slide, y)
+        y += content_h
+
+        # The takeaway lands last, once everything it summarises is on screen.
+        if show_note:
+            d.text((self.width // 2, y + int(TITLE_SIZE * 0.45)), slide.note,
+                   font=self.f_caption, fill=theme.CARD_DIM, anchor="ma")
+
+    def _layout_columns(self, slide):
+        """Work out column geometry and wrapped lines before drawing anything."""
+        count = len(slide.columns)
+        available = int(self.width * 0.82)
+        gap = 44
+        col_w = (available - gap * (count - 1)) // count
+        wrapped = [
+            [w for line in lines
+             for w in _wrap_to_pixels(line, self.f_term, col_w - 60)[:2]]
+            for _, lines in slide.columns
+        ]
+        rows = max((len(w) for w in wrapped), default=0)
+        box_h = int(SUBTITLE_SIZE * 2.4) + rows * int(TERM_SIZE * 1.6) + 32
+        return col_w, (self.width - available) // 2, wrapped, box_h
+
+    def _sequence_height(self, slide) -> int:
+        return 96 + (96 if slide.revealed >= 2 else 44)
+
+    def _paint_columns(self, d, slide, y: int, col_w: int, wrapped, box_h: int) -> None:
+        """Side-by-side panels, revealed one per sentence."""
+        gap = 44
+        x0 = (self.width - (col_w * len(slide.columns) + gap * (len(slide.columns) - 1))) // 2
+        for i, (title, _) in enumerate(slide.columns):
+            x = x0 + i * (col_w + gap)
+            if i >= slide.revealed:
+                # Not said yet: an empty frame, so the shape of what is coming
+                # is visible without giving it away.
+                d.rounded_rectangle([x, y, x + col_w, y + box_h], radius=14,
+                                    outline=theme.SLIDE_DIM, width=2)
+                continue
+            d.rounded_rectangle([x, y, x + col_w, y + box_h], radius=14,
+                                fill=theme.SLIDE_PANEL, outline=theme.SLIDE_LINE, width=2)
+            d.text((x + 30, y + 24), title, font=self.f_subtitle,
+                   fill=theme.STATUS_BG, anchor="la")
+            ty = y + 24 + int(SUBTITLE_SIZE * 2.4)
+            for line in wrapped[i]:
+                d.text((x + 30, ty), line, font=self.f_term,
+                       fill=theme.CARD_FG, anchor="la")
+                ty += int(TERM_SIZE * 1.6)
+
+    def _paint_sequence(self, d, slide, y: int) -> None:
+        """Boxes in a row, with the index numbers revealed beneath them.
+
+        The boxes are always visible -- they are the data. The narration then
+        adds the positive indices, then the negative ones, which is the order
+        a person learns them in.
+        """
+        items = slide.sequence
+        box_w = min(220, int(self.width * 0.66 / len(items)))
+        box_h = 96
+        gap = 20
+        x0 = (self.width - (len(items) * box_w + (len(items) - 1) * gap)) // 2
+        for i, value in enumerate(items):
+            x = x0 + i * (box_w + gap)
+            d.rounded_rectangle([x, y, x + box_w, y + box_h], radius=12,
+                                fill=theme.SLIDE_PANEL, outline=theme.SLIDE_LINE, width=2)
+            d.text((x + box_w // 2, y + box_h // 2), value, font=self.f_code,
+                   fill=theme.CARD_FG, anchor="mm")
+            if slide.revealed >= 1:
+                d.text((x + box_w // 2, y + box_h + 30), str(i),
+                       font=self.f_caption, fill=theme.STATUS_BG, anchor="mm")
+            if slide.revealed >= 2:
+                d.text((x + box_w // 2, y + box_h + 72), str(i - len(items)),
+                       font=self.f_caption, fill=theme.ERROR_FG, anchor="mm")
 
     def _paint_title_card(self, title: str) -> None:
         """Draw the opening card: what the video is about, before any code."""

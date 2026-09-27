@@ -29,6 +29,11 @@ CARD_BG = "#101418"
 CARD_FG = "#ffffff"
 CARD_DIM = "#7d8590"
 
+# Concept slides
+SLIDE_PANEL = "#1a2027"
+SLIDE_LINE = "#3d444d"
+SLIDE_DIM = "#2a3138"
+
 # Traffic lights
 DOT_COLORS = ("#ff5f57", "#febc2e", "#28c840")
 

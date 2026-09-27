@@ -27,7 +27,7 @@ from .prompts import (
 )
 from .providers import Speaker, Writer
 from .sandbox import DEFAULT_TIMEOUT_S, assert_sandbox_available
-from .timeline import FramePlan, Intro, Phrase, Snippet, build_plan
+from .timeline import Explanation, FramePlan, Intro, Phrase, Snippet, build_plan
 
 _console = Console()
 
@@ -73,7 +73,7 @@ def speak_plain(speaker: Speaker, text: str) -> tuple[Phrase, ...]:
 @dataclass
 class Tutorial:
     plan: FramePlan
-    snippets: list[Snippet]
+    sections: list[Snippet | Explanation]
     topic: str
 
     def export(self, path: Path) -> Path:
@@ -87,10 +87,20 @@ class Tutorial:
             "topic": self.topic,
             "total_frames": self.plan.total_frames,
             "duration_s": self.plan.duration_s,
-            "snippets": [
+            "sections": [
                 {
-                    "code": snippet.code,
-                    "output": list(snippet.output),
+                    "kind": "explain",
+                    "heading": section.slide.heading,
+                    "narration": [
+                        {"text": p.text, "frames": p.n_frames}
+                        for p in section.phrases
+                    ],
+                }
+                if isinstance(section, Explanation)
+                else {
+                    "kind": "code",
+                    "code": section.code,
+                    "output": list(section.output),
                     "narration": [
                         {
                             "text": phrase.text,
@@ -98,10 +108,10 @@ class Tutorial:
                             "anchored": phrase.anchor is not None,
                             "frames": phrase.n_frames,
                         }
-                        for phrase in snippet.phrases
+                        for phrase in section.phrases
                     ],
                 }
-                for snippet in self.snippets
+                for section in self.sections
             ],
             "captions": [
                 {"text": c.text, "start_frame": c.start_frame, "end_frame": c.end_frame}
@@ -181,4 +191,4 @@ def build_tutorial(
         f"[green]Plan:[/green] {plan.total_frames} frames, {plan.duration_s:.1f}s, "
         f"{len(plan.captions)} captions"
     )
-    return Tutorial(plan=plan, snippets=built, topic=topic)
+    return Tutorial(plan=plan, sections=built, topic=topic)

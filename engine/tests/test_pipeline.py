@@ -187,7 +187,7 @@ def test_build_tutorial_produces_a_renderable_plan():
     plan = tutorial.plan
     assert plan.total_frames > 0
     assert plan.captions, "no captions were produced"
-    assert len(tutorial.snippets) == 1
+    assert len(tutorial.sections) == 1
     # Intro card, then the snippet.
     assert plan.spans[0].state.title == "Running totals"
     assert any(s.state.code for s in plan.spans)

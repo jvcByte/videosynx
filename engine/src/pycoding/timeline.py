@@ -71,19 +71,39 @@ class Phrase:
 
 
 @dataclass(frozen=True)
+class Slide:
+    """A concept illustration, revealed a piece at a time as the voice explains.
+
+    Explaining over typing code makes the viewer read code before they know
+    what it is for. Concepts get a slide instead, and the code only starts
+    once the narration says so.
+    """
+
+    heading: str
+    # (column title, lines) -- shown side by side, for contrasting two things.
+    columns: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    # A row of boxes with their index underneath, for anything positional:
+    # indexing, slicing, negative indices, membership.
+    sequence: tuple[str, ...] = ()
+    note: str = ""
+    revealed: int = 0  # how many columns (or boxes) are on screen so far
+
+
+@dataclass(frozen=True)
 class VisualState:
     """What the screen looks like at one moment.
 
     Immutable so the renderer can cheaply compare states to find what changed.
-    When ``title`` is set the renderer shows a title card instead of the
-    editor, which is how the video opens: a viewer arriving cold needs to be
-    told what the video is about before any code starts moving.
+    ``title`` shows the opening card, ``slide`` shows a concept illustration,
+    and neither means the editor. A viewer arriving cold needs to understand
+    the idea before they watch it being typed.
     """
 
     code: str
     output: tuple[str, ...] = ()
     caption: str | None = None
     title: str | None = None
+    slide: Slide | None = None
 
 
 @dataclass(frozen=True)
@@ -474,6 +494,70 @@ def plan_intro(
     return spans, Narration(audio, 0), captions, total
 
 
+@dataclass(frozen=True)
+class Explanation:
+    """A narrated slide: concept first, in place of code on screen."""
+
+    slide: Slide
+    phrases: tuple[Phrase, ...] = ()
+
+    @property
+    def narration_text(self) -> str:
+        return " ".join(p.text for p in self.phrases)
+
+    @property
+    def pieces(self) -> int:
+        return len(self.slide.columns) or len(self.slide.sequence)
+
+
+def plan_explanation(
+    explanation: Explanation, tail_frames: int = POST_PAD_FRAMES
+) -> tuple[list[Span], Narration | None, list[Caption], int]:
+    """Build a slide segment, revealing one piece per sentence.
+
+    The first sentence lands on the heading alone, so the point of the slide
+    is stated before its parts appear; each later sentence adds the next
+    column or box. Sentences beyond the last piece hold the finished slide.
+    """
+    phrases = explanation.phrases
+    if not phrases:
+        return [], None, [], 0
+
+    audio, starts, lengths = lay_out_phrases(
+        phrases, [0] * len(phrases), [0.0, 1.0], 0
+    )
+    captions = [
+        caption
+        for phrase, start, length in zip(phrases, starts, lengths)
+        for caption in time_captions(phrase.text, start, start + length)
+    ]
+    total = sum(lengths) + tail_frames
+    pieces = explanation.pieces
+
+    edges = sorted({0, total} | {c.start_frame for c in captions}
+                   | {c.end_frame for c in captions})
+    spans: list[Span] = []
+    for start, end in zip(edges, edges[1:]):
+        if end <= start:
+            continue
+        caption = next(
+            (c.text for c in captions if c.start_frame <= start < c.end_frame), None
+        )
+        # Which sentence are we inside? That is how much is revealed.
+        index = 0
+        for i, (phrase_start, phrase_len) in enumerate(zip(starts, lengths)):
+            if start >= phrase_start + phrase_len:
+                index = i + 1
+            else:
+                index = i
+                break
+        revealed = min(index, pieces)
+        slide = replace(explanation.slide, revealed=revealed)
+        spans.append(Span(VisualState("", caption=caption, slide=slide), end - start))
+
+    return spans, Narration(audio, 0), captions, total
+
+
 def plan_snippet(
     snippet: Snippet, narration_type: str = "after", pace: str = "narration"
 ) -> tuple[list[Span], Narration | None, list[Caption], int]:
@@ -545,18 +629,19 @@ def plan_snippet(
 
 
 def build_plan(
-    snippets: list[Snippet],
+    sections: list[Snippet | Explanation],
     narration_type: str = "after",
     pace: str = "narration",
     intro: Intro | None = None,
 ) -> FramePlan:
     """Build the complete frame plan for a tutorial.
 
-    Each snippet starts from a blank editor, matching the engine's existing
-    behaviour of writing a fresh file per snippet.
+    Sections run in order and may be either coded snippets or narrated
+    slides. Each snippet starts from a blank editor, matching the engine's
+    existing behaviour of writing a fresh file per snippet.
     """
-    if not snippets:
-        raise ValueError("Cannot build a plan with no snippets.")
+    if not sections:
+        raise ValueError("Cannot build a plan with no sections.")
 
     all_spans: list[Span] = []
     narrations: list[Narration] = []
@@ -571,17 +656,20 @@ def build_plan(
 
     cursor = sum(s.n_frames for s in all_spans)
 
-    for snippet in snippets:
-        spans, narration, snippet_captions, n_frames = plan_snippet(
-            snippet, narration_type, pace
-        )
+    for section in sections:
+        if isinstance(section, Explanation):
+            spans, narration, section_captions, n_frames = plan_explanation(section)
+        else:
+            spans, narration, section_captions, n_frames = plan_snippet(
+                section, narration_type, pace
+            )
         if narration is not None:
             narrations.append(
                 Narration(narration.samples, narration.start_frame + cursor)
             )
         captions.extend(
             Caption(c.text, c.start_frame + cursor, c.end_frame + cursor)
-            for c in snippet_captions
+            for c in section_captions
         )
         all_spans.extend(spans)
         cursor += n_frames
