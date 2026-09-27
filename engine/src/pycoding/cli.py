@@ -58,6 +58,20 @@ def narrate(text: str) -> tuple[Phrase, ...]:
     return tuple(Phrase(s, trim_silence(speak(s))) for s in split_sentences(text))
 
 
+def narrate_against(code: str, script: list[tuple[str, str]]) -> tuple[Phrase, ...]:
+    """Synthesise narration, each sentence anchored to the code it describes.
+
+    *script* pairs a marker -- a fragment of the code -- with what to say while
+    that fragment is being typed. Anchoring by substring rather than by a
+    hardcoded offset means the script survives edits to the code.
+    """
+    phrases = []
+    for marker, sentence in script:
+        anchor = code.index(marker) if marker else 0
+        phrases.append(Phrase(sentence, trim_silence(speak(sentence)), anchor))
+    return tuple(phrases)
+
+
 def _tone(seconds: float) -> np.ndarray:
     """Fallback stand-in: a sine tone, encoded to MP3 and decoded back."""
     with tempfile.TemporaryDirectory() as td:
@@ -107,12 +121,18 @@ def _demo_snippets(execute: bool = False) -> list[Snippet]:
                 "Evens:              [0, 2, 4, 6, 8, 10, 12, 14]",
                 "Divisible by three: [0, 3, 6, 9, 12]",
             ),
-            "A list comprehension builds a new list in a single expression, "
-            "without writing out a loop. We start with the numbers zero through "
-            "fourteen. The first comprehension keeps only the elements where the "
-            "remainder after dividing by two is zero, which gives us the even "
-            "numbers. The second does the same with three, giving the multiples "
-            "of three. Finally we print both lists so you can compare them.",
+            [
+                ("numbers = range",
+                 "First we make a range holding the numbers zero through fourteen."),
+                ("evens = [",
+                 "This comprehension keeps only the elements where the remainder "
+                 "after dividing by two is zero, giving us the even numbers."),
+                ("by_three = [",
+                 "The second one does the same with three, so we get the multiples "
+                 "of three."),
+                ('print("Evens',
+                 "Finally we print both lists side by side so you can compare them."),
+            ],
         ),
         (
             # 22 lines — long enough to exercise scrolling past the visible rows.
@@ -141,14 +161,32 @@ def _demo_snippets(execute: bool = False) -> list[Snippet]:
                 '    print(f"{letter}: {count}")\n'
             ),
             ("$ python snippet.py", "A: 3", "B: 2", "C: 2", "D: 2", "G: 1"),
-            "Here we define a function called summarise that counts a list of "
-            "names by their first letter. Inside, we begin with an empty "
-            "dictionary. Then we loop over every row, take its first character, "
-            "convert it to upper case, and either increment an existing count or "
-            "create a new entry. Once the loop finishes, we sort the items by "
-            "count in descending order and return them. Further down we build a "
-            "list of names. Finally we call the function and print each letter "
-            "alongside its count.",
+            [
+                ("def summarise",
+                 "Here we define a function called summarise that counts a list of "
+                 "names by their first letter."),
+                ("counts = {}",
+                 "Inside, we begin with an empty dictionary."),
+                ("for row in rows",
+                 "Then we loop over every row and take its first character."),
+                ("key = row[0].upper()",
+                 "We convert that character to upper case, so the grouping does not "
+                 "depend on how a name was capitalised."),
+                ("if key in counts",
+                 "If the letter is already in the dictionary we increment its count, "
+                 "otherwise we create a new entry."),
+                ("ordered = sorted",
+                 "Once the loop finishes, we sort the items by count with the most "
+                 "common first, and return them."),
+                ("names = [",
+                 "Further down, we build the list of names to summarise."),
+                ('"barbara"',
+                 "Any names will do; we just need enough of them for the counts "
+                 "to be interesting."),
+                ("for letter, count",
+                 "Finally we call the function and print each letter alongside its "
+                 "count."),
+            ],
         ),
         (
             (
@@ -169,26 +207,33 @@ def _demo_snippets(execute: bool = False) -> list[Snippet]:
                 '    print("Average:", total / 0)',
                 "ZeroDivisionError: division by zero",
             ),
-            "We sum the values by adding each one into a running total, which "
-            "gives us one hundred and eight. Now watch what happens when we "
-            "divide by zero. Python raises a ZeroDivisionError and prints the "
-            "traceback in red.",
+            [
+                ("values = [",
+                 "We start with a list of values, and a running total set to zero."),
+                ("for v in values",
+                 "Then we loop over every value and add it into the total."),
+                ('print("Sum:',
+                 "That gives us one hundred and eight."),
+                ('print("Average',
+                 "Now watch what happens when we divide by zero."),
+            ],
         ),
     ]
     if not execute:
         return [
-            Snippet(code=code, output=output, phrases=narrate(text))
-            for code, output, text in specs
+            Snippet(code=code, output=output, phrases=narrate_against(code, script))
+            for code, output, script in specs
         ]
 
     # Refuse to run anything generated unless isolation actually holds.
     assert_sandbox_available()
     snippets = []
     with tempfile.TemporaryDirectory(prefix="pycoding_demo_") as td:
-        for i, (code, _, text) in enumerate(specs):
+        for i, (code, _, script) in enumerate(specs):
             execution = run_snippet(code, workdir=Path(td) / f"snippet_{i}")
             snippets.append(
-                Snippet(code=code, output=execution.lines, phrases=narrate(text))
+                Snippet(code=code, output=execution.lines,
+                        phrases=narrate_against(code, script))
             )
     return snippets
 

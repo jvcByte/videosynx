@@ -32,11 +32,6 @@ WEIGHT_LINE_END = 4.0   # the pause at the end of a line
 FRAMES_PER_WEIGHT = 3.0       # ~100 ms per character at a normal pace
 MIN_FRAMES_PER_WEIGHT = 2.2   # ~13 chars/sec: fastest that still reads as typing
 MAX_FRAMES_PER_WEIGHT = 8.0   # ~4 chars/sec: slowest we will stretch to
-# Pausing is how the voice keeps pace with slow typing, but a long silence
-# reads as a stall. Cap each gap, and never let total pause exceed this share
-# of the spoken audio.
-MAX_GAP_FRAMES = 45           # 1.5 s
-PAUSE_RATIO = 0.4
 INTRO_TAIL_FRAMES = 45        # 1.5 s on the title card after the voice stops
 
 OUT_LINE_FRAMES = 4  # 133 ms per output line revealed
@@ -56,10 +51,19 @@ class Phrase:
     because that is what makes caption timing exact: each caption spans the
     frames of the audio it was actually spoken over, instead of being
     proportioned by character count across a whole paragraph.
+
+    ``anchor`` is the character offset in the code this sentence is *about*.
+    The sentence is spoken while that part of the code is on screen. Without
+    it, narration drifts out of step with the code: an opening line about
+    list comprehensions in general plays over ``numbers = range(15)`` being
+    typed, and the viewer has nothing to attach it to. ``None`` spreads the
+    sentences evenly across the code, which is the right default when nobody
+    has said what each one refers to.
     """
 
     text: str
     samples: np.ndarray
+    anchor: int | None = None
 
     @property
     def n_frames(self) -> int:
@@ -302,35 +306,106 @@ def with_captions(spans: list[Span], captions: list[Caption]) -> list[Span]:
 
 # ------------------------------------------------------------------ layout
 
+def resolve_anchors(phrases: tuple[Phrase, ...], code_len: int) -> list[int]:
+    """Character offsets for each phrase, explicitly given or evenly spread."""
+    if not phrases:
+        return []
+    given = [p.anchor for p in phrases]
+    if all(a is None for a in given):
+        # Nobody said what each sentence refers to, so spread them over the code.
+        step = code_len / len(phrases)
+        return [min(code_len, int(round(i * step))) for i in range(len(phrases))]
+
+    anchors = [
+        min(max(a if a is not None else 0, 0), code_len) for a in given
+    ]
+    # An anchor must move forward, or two sentences land on the same keystroke.
+    for i in range(1, len(anchors)):
+        anchors[i] = max(anchors[i], anchors[i - 1])
+    return anchors
+
+
+def anchor_frame(anchor: int, cum_weights: list[float], typing_total: int) -> int:
+    """The frame at which typing reaches *anchor*, given the cumulative weights."""
+    total = cum_weights[-1] or 1.0
+    return int(round(typing_total * cum_weights[min(anchor, len(cum_weights) - 1)] / total))
+
+
+def typing_total_for(
+    phrases: tuple[Phrase, ...], anchors: list[int], cum_weights: list[float],
+    natural: float, floor: float, ceiling: float,
+) -> int:
+    """How long typing should take, given where the sentences are anchored.
+
+    Sentences are *not* forced to finish before the next anchor is reached --
+    doing that drags typing down to a crawl whenever a sentence is longer than
+    its stretch of code (measured at 4.5 chars/sec). Instead a sentence may
+    overrun, and the next one starts a beat late. The only adjustment is
+    enough slack for the final sentence to fit, so the voice is not still
+    talking over a finished screen.
+    """
+    total_weight = cum_weights[-1] or 1.0
+    target = min(max(natural, floor), ceiling)
+
+    if phrases:
+        fraction = cum_weights[anchors[-1]] / total_weight
+        if fraction < 1:
+            # The last sentence starts when typing reaches its anchor and must
+            # still have time to play: T >= T*fraction + duration.
+            needed = phrases[-1].n_frames / (1 - fraction)
+            target = min(max(target, needed), ceiling)
+
+    for _ in range(3):
+        starts, lengths = place_phrases(phrases, anchors, cum_weights, int(round(target)))
+        last_end = max((s + l for s, l in zip(starts, lengths)), default=0)
+        if last_end <= target or target >= ceiling:
+            break
+        target = min(last_end, ceiling)
+    return int(round(target))
+
+
+def place_phrases(
+    phrases: tuple[Phrase, ...], anchors: list[int],
+    cum_weights: list[float], typing_total: int,
+) -> tuple[list[int], list[int]]:
+    """Where each phrase starts, in frames.
+
+    A phrase starts when typing reaches its anchor, or as soon as the previous
+    one finishes -- whichever is later. That non-overlap rule is what makes a
+    sentence that overruns push the next one rather than talk over it.
+    """
+    lengths = [p.n_frames for p in phrases]
+    starts: list[int] = []
+    previous_end = 0
+    for i in range(len(phrases)):
+        desired = anchor_frame(anchors[i], cum_weights, typing_total)
+        start = max(desired, previous_end)
+        starts.append(start)
+        previous_end = start + lengths[i]
+    return starts, lengths
+
+
 def lay_out_phrases(
-    phrases: tuple[Phrase, ...], gap_frames: int
+    phrases: tuple[Phrase, ...], anchors: list[int],
+    cum_weights: list[float], typing_total: int,
 ) -> tuple[np.ndarray, list[int], list[int]]:
-    """Place phrases end to end with pauses between them.
+    """Place each phrase so it plays while the code it describes is on screen.
 
     Returns (audio, starts, lengths) in snippet-relative frames. Each phrase's
-    audio is padded to a whole number of frames so the next phrase starts
-    exactly where the captions say it does.
+    audio is padded to a whole frame so the next one starts exactly where the
+    captions say it does.
     """
-    n = len(phrases)
-    if n == 0:
+    if not phrases:
         return np.zeros(0, dtype=np.int16), [], []
 
-    lengths = [p.n_frames for p in phrases]
-    if gap_frames <= 0 or n == 1:
-        gaps = [0] * n
-    else:
-        # A short breath before the first sentence, fuller ones between them.
-        gaps = weighted_split(gap_frames, [0.5] + [1.0] * (n - 1))
-        gaps = [min(g, MAX_GAP_FRAMES) for g in gaps]
+    starts, lengths = place_phrases(phrases, anchors, cum_weights, typing_total)
 
     parts: list[np.ndarray] = []
-    starts: list[int] = []
     cursor = 0
     for i, phrase in enumerate(phrases):
-        if gaps[i]:
-            parts.append(np.zeros(gaps[i] * SPF, dtype=np.int16))
-            cursor += gaps[i]
-        starts.append(cursor)
+        if starts[i] > cursor:
+            parts.append(np.zeros((starts[i] - cursor) * SPF, dtype=np.int16))
+            cursor = starts[i]
         parts.append(phrase.samples)
         padding = lengths[i] * SPF - len(phrase.samples)
         if padding > 0:
@@ -350,7 +425,10 @@ def plan_intro(
     if not intro.phrases:
         return [], None, [], 0
 
-    audio, starts, lengths = lay_out_phrases(intro.phrases, gap_frames=0)
+    # No code to anchor to on the card, so the sentences run back to back.
+    audio, starts, lengths = lay_out_phrases(
+        intro.phrases, [0] * len(intro.phrases), [0.0, 1.0], 0
+    )
     captions = [
         caption
         for phrase, start, length in zip(intro.phrases, starts, lengths)
@@ -385,38 +463,45 @@ def plan_snippet(
     if pace not in ("narration", "fixed"):
         raise ValueError(f"pace must be 'narration' or 'fixed', got {pace!r}")
 
-    weights = typing_weights(snippet.code)
-    out_frames = len(snippet.output) * OUT_LINE_FRAMES
-    native = sum(p.n_frames for p in snippet.phrases)
+    code = snippet.code
+    weights = typing_weights(code)
+    total_weight = sum(weights) or 1.0
+    cumulative = [0.0] * (len(weights) + 1)
+    for i, weight in enumerate(weights):
+        cumulative[i + 1] = cumulative[i] + weight
 
-    if pace == "narration" and native:
-        total_weight = sum(weights)
-        # Aim for the narration plus natural pauses, then keep the result
-        # within a range that still reads as a person typing: slow enough to
-        # follow, fast enough that the voice is not stranded mid-snippet.
-        pause_budget = min(len(snippet.phrases) * MAX_GAP_FRAMES, native * PAUSE_RATIO)
-        target = native + pause_budget - out_frames
-        typing_total = min(
-            max(target, total_weight * MIN_FRAMES_PER_WEIGHT),
-            total_weight * MAX_FRAMES_PER_WEIGHT,
+    out_frames = len(snippet.output) * OUT_LINE_FRAMES
+    anchored = pace == "narration" and bool(snippet.phrases)
+    # Without anchors the sentences just run in order, so "after" still means
+    # what it always meant: narration once the typing and output are done.
+    anchors = (
+        resolve_anchors(snippet.phrases, len(code))
+        if anchored
+        else [0] * len(snippet.phrases)
+    )
+
+    if anchored:
+        typing_total = typing_total_for(
+            snippet.phrases, anchors, cumulative,
+            natural=total_weight * FRAMES_PER_WEIGHT,
+            floor=total_weight * MIN_FRAMES_PER_WEIGHT,
+            ceiling=total_weight * MAX_FRAMES_PER_WEIGHT,
         )
     else:
-        typing_total = sum(weights) * FRAMES_PER_WEIGHT
+        typing_total = int(round(total_weight * FRAMES_PER_WEIGHT))
 
-    typing_total = max(typing_total, 0)
-    counts = weighted_split(int(round(typing_total)), weights)
-
+    counts = weighted_split(typing_total, weights)
     spans: list[Span] = [
-        Span(VisualState(snippet.code[:i]), n) for i, n in enumerate(counts)
+        Span(VisualState(code[:i]), n) for i, n in enumerate(counts)
     ]
     for j in range(1, len(snippet.output) + 1):
-        spans.append(
-            Span(VisualState(snippet.code, snippet.output[:j]), OUT_LINE_FRAMES)
-        )
+        spans.append(Span(VisualState(code, snippet.output[:j]), OUT_LINE_FRAMES))
 
     body_frames = sum(s.n_frames for s in spans)
-    gap_budget = max(0, body_frames - native)
-    audio, starts, lengths = lay_out_phrases(snippet.phrases, gap_budget)
+    audio, starts, lengths = lay_out_phrases(
+        snippet.phrases, anchors, cumulative, typing_total
+    )
+    spoken_end = max((s + l for s, l in zip(starts, lengths)), default=0)
 
     captions = [
         caption
@@ -424,18 +509,14 @@ def plan_snippet(
         for caption in time_captions(phrase.text, start, start + length)
     ]
 
-    if pace == "narration" or narration_type == "parallel":
-        hold = max(MIN_HOLD_FRAMES, native + POST_PAD_FRAMES - body_frames)
-        start_frame = 0
-    else:
-        hold = max(MIN_HOLD_FRAMES, native + POST_PAD_FRAMES)
-        start_frame = body_frames
+    start_frame = 0 if (anchored or narration_type == "parallel") else body_frames
+    # The segment must outlast whichever finishes later: the code, or the voice.
+    segment = max(body_frames, start_frame + spoken_end)
+    hold = max(MIN_HOLD_FRAMES, segment + POST_PAD_FRAMES - body_frames)
 
     spans.append(Span(spans[-1].state, hold))
 
-    narration = (
-        Narration(audio, start_frame) if len(audio) else None
-    )
+    narration = Narration(audio, start_frame) if len(audio) else None
     return spans, narration, captions, body_frames + hold
 
 

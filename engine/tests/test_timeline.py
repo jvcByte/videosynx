@@ -229,14 +229,98 @@ def test_typing_never_outruns_the_readable_floor():
     )
 
 
-def test_typing_stretches_to_cover_a_long_narration():
-    """Typing slows to meet the voice rather than leaving it talking over nothing."""
+def test_a_long_narration_is_contained_by_its_segment():
+    """The voice may outlast the typing, but never the segment holding it."""
     code = "x = 1\n" * 40
-    narration = 60.0  # far longer than the natural typing time
+    narration = 60.0
     plan = build_plan([Snippet(code=code, phrases=(phrase("Long.", narration),))])
-    typing = sum(s.n_frames for s in plan.spans[: len(code) + 1])
-    assert typing >= narration * FPS - 2
     assert plan.narrations[0].start_frame == 0
+    assert plan.duration_s >= narration, "the voice runs past the end of the video"
+
+
+def test_close_anchors_queue_instead_of_slowing_the_video():
+    """Sentences anchored closer together than their length must not drag.
+
+    An earlier version forced every sentence to finish before the next anchor
+    was reached, which slowed typing to 4.5 chars/sec and doubled the video.
+    They queue instead.
+    """
+    from pycoding.timeline import FRAMES_PER_WEIGHT, typing_weights
+
+    code = "x = 1\n" * 40
+    phrases = (
+        Phrase("First sentence here.", _tone(3.0, 400), anchor=0),
+        Phrase("Second sentence here.", _tone(3.0, 600), anchor=4),
+        Phrase("Third sentence here.", _tone(3.0, 800), anchor=8),
+    )
+    plan = build_plan([Snippet(code=code, phrases=phrases)])
+    typing = sum(s.n_frames for s in plan.spans[: len(code) + 1])
+    natural = sum(typing_weights(code)) * FRAMES_PER_WEIGHT
+    assert typing <= natural * 1.5, "typing ballooned to fit the narration"
+
+    # Queued phrases sit end to end, so the audio is exactly as long as the
+    # three of them and nothing was dropped or laid on top of anything else.
+    assert len(plan.narrations[0].samples) == sum(p.n_frames for p in phrases) * SPF
+
+
+def test_narration_follows_the_code_it_describes():
+    """The reported problem, end to end.
+
+    The sentence about line 4 must be *heard* while line 4 is being typed,
+    not while line 1 is on screen. Checked against the laid-out audio rather
+    than the plan's own arithmetic.
+    """
+    from pycoding.narration import trim_silence
+    from pycoding.timeline import anchor_frame, resolve_anchors, typing_weights
+
+    code = "x = 1\n" * 8
+    line_at = [code.index("x = 1\n") + i * 6 for i in range(4)]
+    phrases = tuple(
+        Phrase(f"line {i} is being written.", trim_silence(_tone(0.4, 400 + i * 120)),
+               anchor=line_at[i])
+        for i in range(4)
+    )
+    plan = build_plan([Snippet(code=code, phrases=phrases)])
+
+    weights = typing_weights(code)
+    cumulative = [0.0] * (len(weights) + 1)
+    for i, w in enumerate(weights):
+        cumulative[i + 1] = cumulative[i] + w
+    typing_total = sum(s.n_frames for s in plan.spans[: len(code) + 1])
+    anchors = resolve_anchors(phrases, len(code))
+    expected = [anchor_frame(a, cumulative, typing_total) for a in anchors]
+
+    # Find where each sentence actually starts in the narration audio. Frame
+    # RMS, not |sample|: a tone crosses zero constantly, so a per-sample test
+    # counts thousands of false onsets.
+    samples = plan.narrations[0].samples.astype(np.float32)
+    n_frames = len(samples) // SPF
+    rms = np.sqrt((samples[: n_frames * SPF].reshape(n_frames, SPF) ** 2).mean(axis=1))
+    loud = rms > 500
+    onsets, i = [], 0
+    while i < n_frames:
+        if loud[i]:
+            start = i
+            while i < n_frames and loud[i]:
+                i += 1
+            if i - start >= 3:
+                onsets.append(start)
+        else:
+            i += 1
+
+    assert len(onsets) == len(phrases), (
+        f"{len(onsets)} sentences heard, {len(phrases)} expected"
+    )
+    # Each sentence must be heard while its own stretch of code is on screen:
+    # at or after its anchor is typed, and before the next anchor is reached.
+    for idx, (heard, want, phrase) in enumerate(zip(onsets, expected, phrases)):
+        limit = expected[idx + 1] if idx + 1 < len(expected) else typing_total
+        assert want - 2 <= heard <= limit, (
+            f"{phrase.text!r} is spoken at frame {heard}, but its code is typed "
+            f"at {want} and the next sentence's code starts at {limit}"
+        )
+    # And the anchors must be ordered, or the sentences run backwards.
+    assert expected == sorted(expected)
 
 
 def test_voice_starts_with_the_first_keystroke():
@@ -289,29 +373,25 @@ def _captioned_snippet(with_text: bool = True, per_sentence: float = 2.0) -> Sni
     )
 
 
-def test_captions_are_grouped_per_phrase():
+def test_no_caption_straddles_two_sentences():
     """The reported bug: captions drifted because they were proportioned
     across the whole narration rather than timed per spoken sentence.
 
-    Consecutive captions from the same sentence are adjacent; a gap between
-    them can only be the pause between two sentences.
+    Every caption must be drawn from exactly one sentence's words.
     """
     snippet = _captioned_snippet()
     plan = build_plan([snippet])
 
-    groups: list[list] = []
     for caption in plan.captions:
-        if groups and groups[-1][-1].end_frame == caption.start_frame:
-            groups[-1].append(caption)
-        else:
-            groups.append([caption])
+        owners = [p for p in snippet.phrases if caption.text.strip() in p.text]
+        assert len(owners) == 1, (
+            f"caption {caption.text!r} belongs to {len(owners)} sentences"
+        )
 
-    assert len(groups) == len(snippet.phrases), (
-        f"{len(groups)} caption groups for {len(snippet.phrases)} sentences — "
-        "a caption is straddling a sentence boundary"
+    # And between them the captions must reproduce the narration exactly.
+    assert " ".join(c.text for c in plan.captions).split() == (
+        " ".join(p.text for p in snippet.phrases).split()
     )
-    for group, spoken in zip(groups, snippet.phrases):
-        assert " ".join(c.text for c in group).split() == spoken.text.split()
 
 
 def test_captions_never_overlap_or_run_backwards():
