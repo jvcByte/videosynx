@@ -91,16 +91,59 @@ def rendered(tmp_path_factory) -> tuple[object, Path]:
     return plan, path
 
 
-def test_plan_arithmetic():
-    """Span lengths must follow directly from the timing constants."""
+def test_plan_arithmetic_fixed_pace():
+    """With fixed pacing, span lengths follow directly from the constants."""
     plan = build_plan(
-        [Snippet(code="ab", output=("one", "two"), narration=np.zeros(SPF * 3, dtype=np.int16))]
+        [Snippet(code="ab", output=("one", "two"), narration=np.zeros(SPF * 3, dtype=np.int16))],
+        narration_type="after", pace="fixed",
     )
     # 3 typing spans (empty, "a", "ab") x FRAMES_PER_CHAR(3) = 9
     # 2 output spans x OUT_LINE_FRAMES(4) = 8
     # narration 3 frames + POST_PAD(30) held on the last state = 33
     assert plan.total_frames == 9 + 8 + 33
     assert plan.narrations[0].start_frame == 9 + 8
+
+
+def test_narration_pace_starts_the_voice_with_the_first_keystroke():
+    """The reported bug: the voice waited for typing to finish."""
+    plan = build_plan(
+        [Snippet(code="ab", output=("one",), narration=np.zeros(SPF * 3, dtype=np.int16))]
+    )
+    assert plan.narrations[0].start_frame == 0
+
+
+def test_narration_pace_types_the_code_over_the_narration():
+    """When the narration is long enough, typing fills it instead of overshooting."""
+    code = "x = 1\n" * 40  # 240 chars
+    narration = np.zeros(SR * 20, dtype=np.int16)  # 20 seconds at 48 kHz
+    plan = build_plan([Snippet(code=code, output=(), narration=narration)])
+    # 20 s of narration is 600 frames; the 241 typing states stretch to fill it,
+    # so the segment is narration + post padding and nothing is typed after the
+    # voice stops.
+    assert plan.total_frames == 600 + 30
+    assert plan.narrations[0].start_frame == 0
+
+
+def test_typing_never_runs_faster_than_the_readability_floor():
+    """A short narration over long code must not turn typing into a paste."""
+    from pycoding.timeline import MIN_FRAMES_PER_CHAR
+
+    code = "x = 1\n" * 200  # 1200 chars
+    narration = np.zeros(SPF * 2, dtype=np.int16)  # 2 s — far too short
+    plan = build_plan([Snippet(code=code, output=(), narration=narration)])
+    typing_frames = (len(code) + 1) * MIN_FRAMES_PER_CHAR
+    assert plan.total_frames >= typing_frames
+    assert plan.narrations[0].start_frame == 0
+
+
+def test_split_evenly_preserves_the_total():
+    from pycoding.timeline import split_evenly
+
+    for total, parts in [(153, 40), (10, 10), (7, 30), (0, 5), (500, 1)]:
+        counts = split_evenly(total, parts)
+        assert len(counts) == parts
+        assert sum(counts) == total
+        assert max(counts) - min(counts) <= 1
 
 
 def test_video_frame_count_is_exact(rendered):

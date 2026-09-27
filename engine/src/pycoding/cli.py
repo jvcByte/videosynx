@@ -167,6 +167,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--width", type=int, default=1920)
     parser.add_argument("--height", type=int, default=1080)
     parser.add_argument("--narration-type", choices=["after", "parallel"], default="after")
+    parser.add_argument("--pace", choices=["narration", "fixed"], default="narration",
+                        help="'narration' times the typing to the voice; 'fixed' types "
+                             "at a constant rate regardless of narration length")
     parser.add_argument("--no-captions", action="store_true", help="render without captions")
     parser.add_argument("--execute", action="store_true",
                         help="actually run each snippet in the sandbox and show its real output")
@@ -181,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
             Snippet(s.code, s.output, s.narration, "") for s in snippets
         ]
 
-    plan = build_plan(snippets, narration_type=args.narration_type)
+    plan = build_plan(snippets, narration_type=args.narration_type, pace=args.pace)
     print(f"plan: {len(plan.spans)} spans, {plan.total_frames} frames, "
           f"{plan.duration_s:.2f}s, {len(plan.narrations)} narrations, "
           f"{len(plan.captions)} captions")

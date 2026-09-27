@@ -21,10 +21,26 @@ SR = 48000
 SPF = SR // FPS  # samples per frame -- 1600, exact
 
 # --- Timing (all in integer frames) --------------------------------------
-FRAMES_PER_CHAR = 3  # 100 ms/char — a deliberate, readable typing cadence
+FRAMES_PER_CHAR = 3  # 100 ms/char — the fixed cadence, used when pace="fixed"
 OUT_LINE_FRAMES = 4  # 133 ms per output line revealed
 POST_PAD_FRAMES = 30  # 1 s of breathing room after each snippet
 MIN_HOLD_FRAMES = 1  # a span is never zero-length
+# Floor for narration-paced typing: 1 frame per character is 30 chars/second,
+# beyond which the code stops reading as typing and starts reading as a paste.
+MIN_FRAMES_PER_CHAR = 1
+
+
+def split_evenly(total: int, parts: int) -> list[int]:
+    """Split *total* frames into *parts* integers differing by at most one.
+
+    Zero-length parts are allowed and mean "several changes land in one frame",
+    which is what makes typing faster than one character per frame possible
+    without ever breaking the integer frame grid.
+    """
+    if parts <= 0:
+        return []
+    base, extra = divmod(total, parts)
+    return [base + 1] * extra + [base] * (parts - extra)
 
 
 @dataclass(frozen=True)
@@ -103,41 +119,59 @@ class FramePlan:
 
 
 def plan_snippet(
-    snippet: Snippet, narration_type: str = "after"
+    snippet: Snippet, narration_type: str = "after", pace: str = "narration"
 ) -> tuple[list[Span], Narration | None, int]:
     """Build the spans for one snippet.
 
-    Returns (spans, narration, n_frames). ``cursor`` is the frame index of the
-    span list's first frame, used to place the narration.
+    ``pace`` controls how typing is timed:
+
+    - ``"narration"`` (default): the typing rate is derived from the narration
+      so the code finishes appearing roughly as the explanation ends, and the
+      voice starts with the first keystroke. This is what "explain it while the
+      code is being written" requires.
+    - ``"fixed"``: a constant FRAMES_PER_CHAR regardless of narration length.
+      Typing and narration then drift apart badly -- a 500 character snippet at
+      100 ms/char is 51 s of typing, which no narration of ~14 s survives.
+
+    Returns (spans, narration, n_frames) where n_frames is the segment length.
     """
     if narration_type not in ("after", "parallel"):
         raise ValueError(f"narration_type must be 'after' or 'parallel', got {narration_type!r}")
+    if pace not in ("narration", "fixed"):
+        raise ValueError(f"pace must be 'narration' or 'fixed', got {pace!r}")
 
-    spans: list[Span] = []
+    n_states = len(snippet.code) + 1  # one span per character, plus the empty state
+    out_frames = len(snippet.output) * OUT_LINE_FRAMES
+    narr_frames = ceil(len(snippet.narration) / SPF)  # the only rounding, and it rounds up
 
-    # Typing: one span per character, plus the initial empty state.
-    for i in range(len(snippet.code) + 1):
-        spans.append(Span(VisualState(snippet.code[:i]), FRAMES_PER_CHAR))
+    if pace == "narration" and narr_frames:
+        # Typing gets whatever the narration leaves after the output reveal,
+        # but never runs faster than MIN_FRAMES_PER_CHAR.
+        typing_total = max(narr_frames - out_frames, n_states * MIN_FRAMES_PER_CHAR)
+        typing_counts = split_evenly(typing_total, n_states)
+    else:
+        typing_counts = [FRAMES_PER_CHAR] * n_states
 
-    # Output reveal: one span per captured line.
+    spans: list[Span] = [
+        Span(VisualState(snippet.code[:i]), n) for i, n in enumerate(typing_counts)
+    ]
     for j in range(1, len(snippet.output) + 1):
         spans.append(
             Span(VisualState(snippet.code, snippet.output[:j]), OUT_LINE_FRAMES)
         )
 
     body_frames = sum(s.n_frames for s in spans)
-    narr_frames = ceil(len(snippet.narration) / SPF)  # the only rounding, and it rounds up
 
-    if narration_type == "parallel":
-        # Narration starts as typing begins; the segment runs until both finish.
+    if pace == "narration" or narration_type == "parallel":
+        # The voice starts on the first keystroke. Any narration left over after
+        # typing holds the final frame.
         hold = max(MIN_HOLD_FRAMES, narr_frames + POST_PAD_FRAMES - body_frames)
         start_frame = 0
     else:
-        # Narration starts once typing and output are done.
+        # Narration waits for typing and output to finish.
         hold = max(MIN_HOLD_FRAMES, narr_frames + POST_PAD_FRAMES)
         start_frame = body_frames
 
-    # Hold the final visual state while the narration plays out.
     spans.append(Span(spans[-1].state, hold))
 
     narration = (
@@ -247,7 +281,8 @@ def with_captions(spans: list[Span], captions: list[Caption]) -> list[Span]:
     return out
 
 
-def build_plan(snippets: list[Snippet], narration_type: str = "after") -> FramePlan:
+def build_plan(snippets: list[Snippet], narration_type: str = "after",
+               pace: str = "narration") -> FramePlan:
     """Build the complete frame plan for a tutorial.
 
     Each snippet starts from a blank editor, matching the engine's existing
@@ -262,7 +297,7 @@ def build_plan(snippets: list[Snippet], narration_type: str = "after") -> FrameP
     cursor = 0
 
     for snippet in snippets:
-        spans, narration, n_frames = plan_snippet(snippet, narration_type)
+        spans, narration, n_frames = plan_snippet(snippet, narration_type, pace)
         if narration is not None:
             narrations.append(
                 Narration(narration.samples, narration.start_frame + cursor)
