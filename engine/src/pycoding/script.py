@@ -8,6 +8,7 @@ so the entire thing runs offline against stand-ins.
 
 from __future__ import annotations
 
+import json
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,6 +75,42 @@ class Tutorial:
     plan: FramePlan
     snippets: list[Snippet]
     topic: str
+
+    def export(self, path: Path) -> Path:
+        """Write the generated script to JSON.
+
+        Without this the generated code exists only as pixels in the video,
+        which makes a bad run impossible to diagnose without paying for
+        another one.
+        """
+        data = {
+            "topic": self.topic,
+            "total_frames": self.plan.total_frames,
+            "duration_s": self.plan.duration_s,
+            "snippets": [
+                {
+                    "code": snippet.code,
+                    "output": list(snippet.output),
+                    "narration": [
+                        {
+                            "text": phrase.text,
+                            "anchor": phrase.anchor,
+                            "anchored": phrase.anchor is not None,
+                            "frames": phrase.n_frames,
+                        }
+                        for phrase in snippet.phrases
+                    ],
+                }
+                for snippet in self.snippets
+            ],
+            "captions": [
+                {"text": c.text, "start_frame": c.start_frame, "end_frame": c.end_frame}
+                for c in self.plan.captions
+            ],
+        }
+        path = Path(path)
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        return path
 
 
 def build_tutorial(

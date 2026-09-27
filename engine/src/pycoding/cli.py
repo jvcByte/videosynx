@@ -24,9 +24,11 @@ from pathlib import Path
 from rich.console import Console
 
 from .execute import run_snippet
+from .lesson import build_lesson, load_lesson
 from .narration import trim_silence
 from .prompts import sentences
 from .providers import (
+    DEFAULT_MODEL,
     ESpeakSpeaker,
     ElevenLabsSpeaker,
     GeminiWriter,
@@ -253,6 +255,8 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--demo", action="store_true",
                       help="render the built-in offline demo (no keys, no spend)")
     mode.add_argument("--topic", type=str, help="topic to generate a tutorial about")
+    mode.add_argument("--lesson", type=Path,
+                      help="render a hand-written lesson JSON instead of generating one")
 
     parser.add_argument("--out", type=Path, default=Path("tutorial.mp4"))
     parser.add_argument("--width", type=int, default=1920)
@@ -265,10 +269,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-intro", action="store_true", help="skip the opening title card")
     parser.add_argument("--execute", action="store_true",
                         help="run each snippet in the sandbox and show its real output")
+    parser.add_argument(
+        "--repl", action=argparse.BooleanOptionalAction, default=True,
+        help="echo bare expression results the way a REPL would, so a teaching "
+             "line like `letters[0]` shows its value (default: on)",
+    )
     parser.add_argument("--context", type=str, default="",
                         help="extra context for code generation (files, constraints)")
     parser.add_argument("--no-tts", action="store_true",
                         help="use offline speech even when ElevenLabs keys are present")
+    parser.add_argument("--save-script", type=Path,
+                        help="write the generated code and narration to this JSON file")
+    parser.add_argument("--model", type=str, default=DEFAULT_MODEL,
+                        help=f"Gemini model (default: {DEFAULT_MODEL}). Quota is "
+                             "per-model on the free tier, so a different model is "
+                             "often the way past a daily limit")
     parser.add_argument("--google-api-key", type=str,
                         default=os.environ.get("GEMINI_API_KEY", ""))
     parser.add_argument("--elevenlabs-api-key", type=str,
@@ -283,6 +298,16 @@ def main(argv: list[str] | None = None) -> int:
         intro = None if args.no_intro else Intro(TOPIC, narrate(speaker, INTRO_TEXT))
         plan = build_plan(snippets, narration_type=args.narration_type,
                           pace=args.pace, intro=intro)
+    elif args.lesson:
+        tutorial = build_lesson(
+            load_lesson(args.lesson),
+            speaker=_real_speaker(args),
+            execute=args.execute,
+            repl=args.repl,
+        )
+        plan = tutorial.plan
+        if args.save_script:
+            _console.log(f"[green]wrote {tutorial.export(args.save_script)}[/green]")
     else:
         if not args.google_api_key:
             raise SystemExit(
@@ -291,13 +316,15 @@ def main(argv: list[str] | None = None) -> int:
             )
         tutorial = build_tutorial(
             args.topic,
-            writer=GeminiWriter(args.google_api_key),
+            writer=GeminiWriter(args.google_api_key, model=args.model),
             speaker=_real_speaker(args),
             context=args.context,
             execute=args.execute,
             intro=not args.no_intro,
         )
         plan = tutorial.plan
+        if args.save_script:
+            _console.log(f"[green]wrote {tutorial.export(args.save_script)}[/green]")
 
     if args.no_captions:
         plan = replace(

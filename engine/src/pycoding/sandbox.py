@@ -70,7 +70,8 @@ def _interpreter() -> tuple[str, list[str]]:
     return sys.executable, []
 
 
-def _bwrap_command(code_path: Path, scratch: Path | None) -> list[str]:
+def _bwrap_command(code_path: Path, scratch: Path | None,
+                   runner: Path | None = None) -> list[str]:
     argv = ["bwrap"]
     for root in RO_BIND_ROOTS:
         if Path(root).exists():
@@ -82,6 +83,10 @@ def _bwrap_command(code_path: Path, scratch: Path | None) -> list[str]:
     python, binds = _interpreter()
     argv += binds
     argv += ["--ro-bind", str(code_path), "/work/snippet.py"]
+    if runner is not None:
+        # Bound as a plain file: the package itself lives under /home, which is
+        # masked, so the runner has to be self-contained.
+        argv += ["--ro-bind", str(runner), "/work/_runner.py"]
     if scratch is not None:
         argv += ["--bind", str(scratch), "/work/scratch"]
     argv += ["--chdir", "/work"]
@@ -97,8 +102,11 @@ def _bwrap_command(code_path: Path, scratch: Path | None) -> list[str]:
         "--setenv", "MPLBACKEND", "Agg",
         "--setenv", "PYTHONHASHSEED", "0",
         "--setenv", "PYTHONDONTWRITEBYTECODE", "1",
-        python, "/work/snippet.py",
     ]
+    if runner is not None:
+        argv += [python, "/work/_runner.py", "/work/snippet.py"]
+    else:
+        argv += [python, "/work/snippet.py"]
     return argv
 
 
@@ -148,6 +156,7 @@ def run_untrusted(
     memory_mb: int = DEFAULT_MEMORY_MB,
     max_output_bytes: int = MAX_OUTPUT_BYTES,
     filename: str = "snippet.py",
+    runner: Path | None = None,
 ) -> ExecResult:
     """Run *code* in an isolated sandbox and capture its output.
 
@@ -169,7 +178,7 @@ def run_untrusted(
     scratch = workdir / "scratch"
     scratch.mkdir(exist_ok=True)
 
-    argv = _bwrap_command(code_path, scratch)
+    argv = _bwrap_command(code_path, scratch, runner)
 
     started = time.monotonic()
     proc = subprocess.Popen(

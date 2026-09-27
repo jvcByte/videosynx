@@ -8,6 +8,7 @@ tests do -- no key, no quota, no spend.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import tempfile
@@ -16,16 +17,63 @@ from pathlib import Path
 from typing import Protocol
 
 import numpy as np
+from rich.console import Console
 
 from .timeline import SR
+
+_console = Console()
 
 DEFAULT_MODEL = "gemini-3.8-flash"
 DEFAULT_VOICE_MODEL = "eleven_v3"
 # Raw PCM at the timeline's own rate: no decode step, no MP3 encoder priming,
 # and the sample count is exactly what came back.
 VOICE_FORMAT = "pcm_48000"
+# Seconds. Long enough for a sentence, short enough that a stalled connection
+# fails the sentence rather than the job.
+TTS_TIMEOUT_S = 60
+TTS_RETRIES = 3
 
+# 503 "high demand" and 429 "rate limited" are routine on the free tier and
+# clear on their own; anything else is a real error and should not be retried
+# six times with backoff before surfacing.
 RETRIES = 4
+BACKOFF_CAP_S = 45
+TRANSIENT = ("429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE", "overloaded")
+# Free-tier quota is enforced per model, so a different model is usually the
+# way past a limit rather than a reason to wait.
+DEFAULT_FALLBACKS = (
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-flash-latest",
+)
+
+
+def _error_text(exc: Exception) -> str:
+    return str(getattr(exc, "body", None) or exc)
+
+
+def is_transient(exc: Exception) -> bool:
+    return any(marker in _error_text(exc) for marker in TRANSIENT)
+
+
+def is_daily_quota(exc: Exception) -> bool:
+    """A per-day quota will not clear while we wait, so retrying is pointless.
+
+    The free tier's 20-requests-per-day limit is per *model*, so the useful
+    response is to move to another model rather than to sleep.
+    """
+    text = _error_text(exc)
+    return "PerDay" in text or "per day" in text.lower()
+
+
+def retry_after(exc: Exception, attempt: int) -> float:
+    """Wait the API asked for, or an exponential backoff if it did not say."""
+    text = str(getattr(exc, "body", None) or exc)
+    hinted = re.search(r"retry[Dd]elay['\"]?\s*[:=]\s*['\"]?(\d+(?:\.\d+)?)s", text)
+    if hinted:
+        return min(float(hinted.group(1)) + 2, 70)
+    return min(2.0 ** attempt, BACKOFF_CAP_S)
 
 
 class ProviderError(RuntimeError):
@@ -51,34 +99,61 @@ class Speaker(Protocol):
 # ------------------------------------------------------------------ Gemini
 
 class GeminiWriter:
-    """Code and narration from Gemini."""
+    """Code and narration from Gemini.
 
-    def __init__(self, api_key: str, model: str = DEFAULT_MODEL):
+    Free-tier models are unreliable in two distinct ways: per-day request
+    quotas that are enforced per model, and 503s when a model is under load.
+    Both are common enough that a single model is not enough, so this walks a
+    fallback chain and only gives up when every model has failed.
+    """
+
+    def __init__(self, api_key: str, model: str = DEFAULT_MODEL,
+                 fallbacks: tuple[str, ...] = DEFAULT_FALLBACKS):
         if not api_key:
             raise ProviderError("a Gemini API key is required")
         import google.genai as genai
 
         self._client = genai.Client(api_key=api_key)
+        self._models = [model, *(m for m in fallbacks if m != model)]
         self._model = model
 
     def write(self, prompt: str) -> str:
-        last: Exception | None = None
+        failures: list[str] = []
+        for index, model in enumerate(self._models):
+            try:
+                return self._ask(model, prompt)
+            except ProviderError as exc:
+                failures.append(f"{model}: {exc}")
+                if index + 1 < len(self._models):
+                    _console.log(
+                        f"[yellow]{model} unavailable, trying "
+                        f"{self._models[index + 1]}[/yellow]"
+                    )
+        raise ProviderError("every model failed -- " + "; ".join(failures))
+
+    def _ask(self, model: str, prompt: str) -> str:
         for attempt in range(1, RETRIES + 1):
             try:
                 response = self._client.models.generate_content(
-                    model=self._model, contents=prompt
+                    model=model, contents=prompt
                 )
                 text = (response.text or "").strip()
                 if not text:
                     raise ProviderError("the model returned nothing")
                 return text
-            except Exception as exc:  # noqa: BLE001 - surfaced below if it persists
-                last = exc
-                if attempt == RETRIES:
-                    break
-                # Rate limits and demand spikes are normal on the free tier.
-                time.sleep(min(2 ** attempt, 30))
-        raise ProviderError(f"{self._model} failed after {RETRIES} attempts: {last}")
+            except Exception as exc:  # noqa: BLE001 - re-raised below
+                if is_daily_quota(exc):
+                    # Sleeping will not help; let the caller try another model.
+                    raise ProviderError(f"daily quota exhausted ({exc})") from exc
+                if not is_transient(exc) or attempt == RETRIES:
+                    raise ProviderError(str(exc)) from exc
+                wait = retry_after(exc, attempt)
+                _console.log(
+                    f"[yellow]{model} under load (attempt {attempt}/{RETRIES}), "
+                    f"retrying in {wait:.0f}s[/yellow]"
+                )
+                time.sleep(wait)
+        raise ProviderError(f"failed after {RETRIES} attempts")
 
 
 # -------------------------------------------------------------- ElevenLabs
@@ -94,31 +169,76 @@ class ElevenLabsSpeaker:
             raise ProviderError("an ElevenLabs voice ID is required")
         from elevenlabs.client import ElevenLabs
 
-        self._client = ElevenLabs(api_key=api_key)
+        # Explicit and tight. A stalled stream otherwise hangs the whole job:
+        # one run sat blocked for three hours with two seconds of CPU. The
+        # SDK's own retries are disabled so this module controls the budget.
+        self._client = ElevenLabs(api_key=api_key, timeout=TTS_TIMEOUT_S)
         self._voice_id = voice_id
         self._model_id = model_id
+        # Not every voice model accepts neighbour text -- eleven_v3 rejects it
+        # outright -- so this is discovered on first use rather than guessed.
+        self._context_supported = True
 
     def say(self, text: str, *, previous: str = "", following: str = "") -> np.ndarray:
+        if self._context_supported and (previous or following):
+            try:
+                return self._convert(text, previous, following)
+            except Exception as exc:  # noqa: BLE001 - re-raised unless it is this
+                if "unsupported_model" not in _error_text(exc):
+                    raise ProviderError(str(exc)) from exc
+                self._context_supported = False
+                _console.log(
+                    f"[yellow]{self._model_id} does not accept previous/next text; "
+                    "synthesising each sentence independently[/yellow]"
+                )
+        return self._convert(text, "", "")
+
+    def _convert(self, text: str, previous: str, following: str) -> np.ndarray:
         from elevenlabs import VoiceSettings
 
-        chunks = self._client.text_to_speech.convert(
-            voice_id=self._voice_id,
-            text=text,
-            model_id=self._model_id,
-            output_format=VOICE_FORMAT,
-            voice_settings=VoiceSettings(
-                stability=0.1,
-                similarity_boost=1.0,
-                style=0.5,
-                use_speaker_boost=True,
-            ),
-            previous_text=previous or None,
-            next_text=following or None,
-        )
-        pcm = np.frombuffer(b"".join(chunks), dtype=np.int16)
-        if len(pcm) == 0:
-            raise ProviderError("ElevenLabs returned no audio")
-        return pcm.copy()
+        kwargs: dict = {}
+        if previous:
+            kwargs["previous_text"] = previous
+        if following:
+            kwargs["next_text"] = following
+
+        last: Exception | None = None
+        for attempt in range(1, TTS_RETRIES + 1):
+            try:
+                chunks = self._client.text_to_speech.convert(
+                    voice_id=self._voice_id,
+                    text=text,
+                    model_id=self._model_id,
+                    output_format=VOICE_FORMAT,
+                    voice_settings=VoiceSettings(
+                        stability=0.1,
+                        similarity_boost=1.0,
+                        style=0.5,
+                        use_speaker_boost=True,
+                    ),
+                    request_options={
+                        "timeout_in_seconds": TTS_TIMEOUT_S,
+                        # This module owns the retry budget; stacked SDK retries
+                        # inside our own retries is how a stall became hours.
+                        "max_retries": 0,
+                    },
+                    **kwargs,
+                )
+                pcm = np.frombuffer(b"".join(chunks), dtype=np.int16)
+                if len(pcm) == 0:
+                    raise ProviderError("ElevenLabs returned no audio")
+                return pcm.copy()
+            except Exception as exc:  # noqa: BLE001 - re-raised below
+                last = exc
+                if attempt == TTS_RETRIES:
+                    break
+                wait = retry_after(exc, attempt)
+                _console.log(
+                    f"[yellow]speech failed (attempt {attempt}/{TTS_RETRIES}), "
+                    f"retrying in {wait:.0f}s[/yellow]"
+                )
+                time.sleep(wait)
+        raise ProviderError(f"ElevenLabs failed after {TTS_RETRIES} attempts: {last}")
 
 
 # ------------------------------------------------------------------ offline

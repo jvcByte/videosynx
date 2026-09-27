@@ -45,12 +45,25 @@ def transcript(result: ExecResult, command: str = COMMAND) -> list[str]:
     return lines
 
 
+ECHO_RUNNER = Path(__file__).with_name("echo_runner.py")
+
+
 def run_snippet(
     code: str,
     *,
     workdir: Path,
     timeout_s: int = DEFAULT_TIMEOUT_S,
+    repl: bool = False,
 ) -> Execution:
-    """Execute *code* in the sandbox and return its terminal transcript."""
-    result = run_untrusted(code, workdir=workdir, timeout_s=timeout_s)
+    """Execute *code* in the sandbox and return its terminal transcript.
+
+    With ``repl`` the snippet runs through the echo runner, so a bare
+    expression like ``letters[0]`` reports its value the way it would if the
+    viewer typed it themselves. That is the difference between a teaching
+    example showing a result and showing nothing.
+    """
+    result = run_untrusted(
+        code, workdir=workdir, timeout_s=timeout_s,
+        runner=ECHO_RUNNER if repl else None,
+    )
     return Execution(lines=tuple(transcript(result)), ok=result.ok)
