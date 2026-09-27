@@ -23,6 +23,8 @@ CODE_SIZE = 22
 TERM_SIZE = 20
 UI_SIZE = 16
 CAPTION_SIZE = 26
+TITLE_SIZE = 62
+SUBTITLE_SIZE = 22
 BOTTOM_PAD = 24  # blank rows kept below the cursor, like VS Code's cursorSurroundingLines
 CAPTION_H = 92  # a dedicated band, so clearing a caption never erases terminal output
 CAPTION_MAX_LINES = 2
@@ -43,6 +45,8 @@ class Editor:
         self.f_code = ImageFont.truetype(font_path, CODE_SIZE, layout_engine=ImageFont.Layout.BASIC)
         self.f_term = ImageFont.truetype(font_path, TERM_SIZE, layout_engine=ImageFont.Layout.BASIC)
         self.f_caption = ImageFont.truetype(font_path, CAPTION_SIZE)
+        self.f_title = ImageFont.truetype(font_path, TITLE_SIZE)
+        self.f_subtitle = ImageFont.truetype(font_path, SUBTITLE_SIZE)
         self.char_w = self.f_code.getlength("M")
 
         self._chrome = self._draw_chrome()
@@ -53,6 +57,7 @@ class Editor:
         self._drawn: list[list[tuple[str, str]]] = []
         self._drawn_output: tuple[str, ...] = ()
         self._drawn_caption: str | None = None
+        self._drawn_title: str | None = None
         self._scroll = 0
         self._drawn_scroll = 0
         self._cursor_line = 0
@@ -117,6 +122,14 @@ class Editor:
     # ------------------------------------------------------------------ state
     def apply(self, state: VisualState) -> None:
         """Update the canvas to *state*, repainting only what changed."""
+        if state.title != self._drawn_title:
+            self._switch_mode(state.title)
+        if state.title is not None:
+            # The card is static; only the caption under it changes.
+            if state.caption != self._drawn_caption:
+                self._redraw_caption(state.caption)
+            return
+
         if state.code != self._code:
             self._code = state.code
             self._spans = theme.highlight(state.code)
@@ -127,6 +140,51 @@ class Editor:
             self._redraw_output(state.output)
         if state.caption != self._drawn_caption:
             self._redraw_caption(state.caption)
+
+    def _switch_mode(self, title: str | None) -> None:
+        """Swap between the title card and the editor.
+
+        Both directions invalidate every tracked diff, so the next state
+        repaints from scratch rather than being diffed against a canvas that
+        was showing something else entirely.
+        """
+        self._drawn_title = title
+        self.canvas = self._chrome.copy()
+        self._code = None  # type: ignore[assignment]
+        self._spans = []
+        self._drawn = []
+        self._drawn_scroll = -1
+        self._cursor_line = 0
+        self._drawn_output = ()
+        self._drawn_caption = None
+        if title is not None:
+            self._paint_title_card(title)
+            self._redraw_caption(None)
+
+    def _paint_title_card(self, title: str) -> None:
+        """Draw the opening card: what the video is about, before any code."""
+        d = ImageDraw.Draw(self.canvas)
+        d.rectangle([0, 0, self.width, self.caption_top], fill=theme.CARD_BG)
+        # The editor's status bar would otherwise sit under the card reading
+        # "main" and a Python version, which means nothing before any code.
+        d.rectangle([0, self.height - STATUS_H, self.width, self.height], fill=theme.CARD_BG)
+
+        lines = _wrap_to_pixels(title, self.f_title, int(self.width * 0.8))[:3]
+        block_h = len(lines) * int(TITLE_SIZE * 1.25)
+        y = (self.caption_top - block_h) // 2 - int(TITLE_SIZE * 0.4)
+
+        for line in lines:
+            d.text((self.width // 2, y), line, font=self.f_title,
+                   fill=theme.CARD_FG, anchor="ma")
+            y += int(TITLE_SIZE * 1.25)
+
+        rule_w = int(self.width * 0.12)
+        y += int(TITLE_SIZE * 0.35)
+        d.rectangle([(self.width - rule_w) // 2, y, (self.width + rule_w) // 2, y + 4],
+                    fill=theme.STATUS_BG)
+
+        d.text((self.width // 2, y + int(TITLE_SIZE * 0.6)), "a pycoding tutorial",
+               font=self.f_subtitle, fill=theme.CARD_DIM, anchor="ma")
 
     def _update_scroll(self, cursor_line: int) -> None:
         """Keep the cursor on screen, holding BOTTOM_PAD rows below it."""

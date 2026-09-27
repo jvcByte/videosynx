@@ -24,6 +24,11 @@ ERROR_FG = "#f48771"
 CAPTION_BG = "#0d0d0d"
 CAPTION_FG = "#ffffff"
 
+# Opening title card
+CARD_BG = "#101418"
+CARD_FG = "#ffffff"
+CARD_DIM = "#7d8590"
+
 # Traffic lights
 DOT_COLORS = ("#ff5f57", "#febc2e", "#28c840")
 

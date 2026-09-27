@@ -25,9 +25,20 @@ from .narration import decode_pcm, trim_silence
 from .render import render_plan
 from .sandbox import assert_sandbox_available
 from .srt import write_srt
-from .timeline import SR, Phrase, Snippet, build_plan
+from .timeline import SR, Intro, Phrase, Snippet, build_plan
 
 SPEECH_WPM = 165  # espeak-ng pace; roughly a calm tutorial delivery
+
+TOPIC = "Python List Comprehensions"
+
+# A viewer arriving cold has no idea what they are looking at. The opening
+# card says what the video covers before any code starts moving.
+INTRO_TEXT = (
+    "In this video we'll look at how Python builds new lists out of existing "
+    "ones. We'll start with a simple comprehension, then write a function that "
+    "counts names by their first letter. Finally we'll run some code that "
+    "fails on purpose."
+)
 
 
 def split_sentences(text: str) -> list[str]:
@@ -193,6 +204,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="'narration' times the typing to the voice; 'fixed' types "
                              "at a constant rate regardless of narration length")
     parser.add_argument("--no-captions", action="store_true", help="render without captions")
+    parser.add_argument("--no-intro", action="store_true", help="skip the opening title card")
     parser.add_argument("--execute", action="store_true",
                         help="actually run each snippet in the sandbox and show its real output")
     args = parser.parse_args(argv)
@@ -207,10 +219,16 @@ def main(argv: list[str] | None = None) -> int:
             for s in snippets
         ]
 
-    plan = build_plan(snippets, narration_type=args.narration_type, pace=args.pace)
+    intro = None if args.no_intro else Intro(TOPIC, narrate(INTRO_TEXT))
+
+    plan = build_plan(snippets, narration_type=args.narration_type, pace=args.pace,
+                      intro=intro)
     print(f"plan: {len(plan.spans)} spans, {plan.total_frames} frames, "
           f"{plan.duration_s:.2f}s, {len(plan.narrations)} narrations, "
           f"{len(plan.captions)} captions")
+    if intro is not None:
+        card_frames = sum(s.n_frames for s in plan.spans if s.state.title is not None)
+        print(f"      title card: {card_frames / 30:.1f}s")
 
     path = render_plan(plan, args.out, width=args.width, height=args.height)
     print(f"wrote {path}")

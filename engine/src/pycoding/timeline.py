@@ -37,6 +37,7 @@ MAX_FRAMES_PER_WEIGHT = 8.0   # ~4 chars/sec: slowest we will stretch to
 # of the spoken audio.
 MAX_GAP_FRAMES = 45           # 1.5 s
 PAUSE_RATIO = 0.4
+INTRO_TAIL_FRAMES = 45        # 1.5 s on the title card after the voice stops
 
 OUT_LINE_FRAMES = 4  # 133 ms per output line revealed
 POST_PAD_FRAMES = 30  # 1 s of breathing room after each snippet
@@ -67,14 +68,18 @@ class Phrase:
 
 @dataclass(frozen=True)
 class VisualState:
-    """What the editor looks like at one moment.
+    """What the screen looks like at one moment.
 
     Immutable so the renderer can cheaply compare states to find what changed.
+    When ``title`` is set the renderer shows a title card instead of the
+    editor, which is how the video opens: a viewer arriving cold needs to be
+    told what the video is about before any code starts moving.
     """
 
     code: str
     output: tuple[str, ...] = ()
     caption: str | None = None
+    title: str | None = None
 
 
 @dataclass(frozen=True)
@@ -100,6 +105,18 @@ class Narration:
 
     samples: np.ndarray
     start_frame: int
+
+
+@dataclass(frozen=True)
+class Intro:
+    """The opening title card, and what is said over it."""
+
+    title: str
+    phrases: tuple[Phrase, ...] = ()
+
+    @property
+    def subtitle(self) -> str:
+        return "a pycoding tutorial"
 
 
 @dataclass(frozen=True)
@@ -322,6 +339,39 @@ def lay_out_phrases(
     return np.concatenate(parts), starts, lengths
 
 
+def plan_intro(
+    intro: Intro, tail_frames: int = INTRO_TAIL_FRAMES
+) -> tuple[list[Span], Narration | None, list[Caption], int]:
+    """Build the title card that opens the video.
+
+    The card holds for the length of its narration plus a beat, so the first
+    snippet does not start the instant the narrator stops.
+    """
+    if not intro.phrases:
+        return [], None, [], 0
+
+    audio, starts, lengths = lay_out_phrases(intro.phrases, gap_frames=0)
+    captions = [
+        caption
+        for phrase, start, length in zip(intro.phrases, starts, lengths)
+        for caption in time_captions(phrase.text, start, start + length)
+    ]
+    total = sum(lengths) + tail_frames
+
+    edges = sorted({0, total} | {c.start_frame for c in captions}
+                   | {c.end_frame for c in captions})
+    spans: list[Span] = []
+    for start, end in zip(edges, edges[1:]):
+        if end <= start:
+            continue
+        caption = next(
+            (c.text for c in captions if c.start_frame <= start < c.end_frame), None
+        )
+        spans.append(Span(VisualState("", caption=caption, title=intro.title), end - start))
+
+    return spans, Narration(audio, 0), captions, total
+
+
 def plan_snippet(
     snippet: Snippet, narration_type: str = "after", pace: str = "narration"
 ) -> tuple[list[Span], Narration | None, list[Caption], int]:
@@ -390,7 +440,10 @@ def plan_snippet(
 
 
 def build_plan(
-    snippets: list[Snippet], narration_type: str = "after", pace: str = "narration"
+    snippets: list[Snippet],
+    narration_type: str = "after",
+    pace: str = "narration",
+    intro: Intro | None = None,
 ) -> FramePlan:
     """Build the complete frame plan for a tutorial.
 
@@ -403,7 +456,15 @@ def build_plan(
     all_spans: list[Span] = []
     narrations: list[Narration] = []
     captions: list[Caption] = []
-    cursor = 0
+
+    if intro is not None and intro.phrases:
+        intro_spans, intro_narration, intro_captions, intro_frames = plan_intro(intro)
+        all_spans.extend(intro_spans)
+        if intro_narration is not None:
+            narrations.append(intro_narration)
+        captions.extend(intro_captions)
+
+    cursor = sum(s.n_frames for s in all_spans)
 
     for snippet in snippets:
         spans, narration, snippet_captions, n_frames = plan_snippet(

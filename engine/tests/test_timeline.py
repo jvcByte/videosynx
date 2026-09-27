@@ -19,6 +19,7 @@ from pycoding.timeline import (
     FPS,
     SPF,
     SR,
+    Intro,
     Phrase,
     Snippet,
     build_plan,
@@ -388,6 +389,82 @@ def test_srt_timestamps_and_layout():
     assert first[0] == "1"
     assert " --> " in first[1]
     assert first[2] == plan.captions[0].text
+
+
+# ------------------------------------------------------------------ intro
+
+def _intro() -> Intro:
+    return Intro("Python List Comprehensions",
+                 (phrase("In this video we build lists.", 2.0),
+                  phrase("Then we count some names.", 2.0)))
+
+
+def test_intro_opens_with_a_title_card():
+    """A viewer arriving cold should be told what the video is before any code."""
+    plan = build_plan([_captioned_snippet()], intro=_intro())
+    titled = [s for s in plan.spans if s.state.title is not None]
+    assert titled, "no title card in the plan"
+    assert all(s.state.title == "Python List Comprehensions" for s in titled)
+    # It comes first, and nothing after it is still showing a card.
+    assert plan.spans[0].state.title is not None
+    titles = [s.state.title is not None for s in plan.spans]
+    assert titles == sorted(titles, reverse=True), "title card is not contiguous at the start"
+
+
+def test_intro_duration_follows_its_narration():
+    from pycoding.timeline import INTRO_TAIL_FRAMES
+
+    intro = _intro()
+    plan = build_plan([_captioned_snippet()], intro=intro)
+    card_frames = sum(s.n_frames for s in plan.spans if s.state.title is not None)
+    spoken = sum(p.n_frames for p in intro.phrases)
+    assert card_frames == spoken + INTRO_TAIL_FRAMES
+
+
+def test_intro_captions_are_shown_on_the_card():
+    """The intro is narrated, so it must be captioned like everything else."""
+    plan = build_plan([_captioned_snippet()], intro=_intro())
+    card_frames = sum(s.n_frames for s in plan.spans if s.state.title is not None)
+
+    on_card = {
+        s.state.caption for s in plan.spans
+        if s.state.title is not None and s.state.caption
+    }
+    intro_captions = {c.text for c in plan.captions if c.start_frame < card_frames}
+    assert on_card == intro_captions
+    assert on_card, "the intro was narrated with no captions on screen"
+
+
+def test_intro_shifts_the_snippets_without_changing_them():
+    """Snippets must be identical, just moved later."""
+    plain = build_plan([_captioned_snippet()])
+    with_intro = build_plan([_captioned_snippet()], intro=_intro())
+    card_frames = sum(s.n_frames for s in with_intro.spans if s.state.title is not None)
+    assert with_intro.total_frames == plain.total_frames + card_frames
+    assert with_intro.narrations[1].start_frame - with_intro.narrations[0].start_frame >= 0
+    # The snippet's own narration starts exactly where it did, plus the card.
+    assert with_intro.narrations[-1].start_frame == plain.narrations[-1].start_frame + card_frames
+
+
+def test_no_intro_means_no_title_card():
+    plan = build_plan([_captioned_snippet()])
+    assert all(s.state.title is None for s in plan.spans)
+
+
+def test_intro_without_narration_is_ignored():
+    plan = build_plan([_captioned_snippet()], intro=Intro("Empty", ()))
+    assert all(s.state.title is None for s in plan.spans)
+
+
+def test_title_card_renders(tmp_path):
+    """Smoke test: the card path must actually produce frames."""
+    plan = build_plan(
+        [Snippet(code="x = 1\n", output=("1",), phrases=(phrase("We set x.", 1.0),))],
+        intro=_intro(),
+    )
+    path = tmp_path / "card.mp4"
+    render_plan(plan, path, width=W, height=H)
+    assert _count_video_frames(path) == plan.total_frames
 
 
 # ------------------------------------------------------------------- misc
