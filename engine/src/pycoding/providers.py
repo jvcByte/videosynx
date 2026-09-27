@@ -230,6 +230,12 @@ class ElevenLabsSpeaker:
                 return pcm.copy()
             except Exception as exc:  # noqa: BLE001 - re-raised below
                 last = exc
+                if "quota_exceeded" in _error_text(exc):
+                    # Retrying cannot help, and a half-narrated video is worse
+                    # than none: fail the job so nobody is charged for it.
+                    raise ProviderError(
+                        f"ElevenLabs quota exhausted: {_error_text(exc)[:300]}"
+                    ) from exc
                 if attempt == TTS_RETRIES:
                     break
                 wait = retry_after(exc, attempt)
