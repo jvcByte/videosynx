@@ -156,17 +156,33 @@ def load_lesson(path: Path | str) -> Lesson:
     return parse_lesson(data, source=str(path))
 
 
-def lesson_from_script(writer: Writer, text: str) -> Lesson:
+def lesson_from_text(text: str, *, writer: Writer | None = None,
+                     local: bool = False) -> Lesson:
     """Turn submitted script text into a lesson.
 
-    A script that is *already* lesson JSON is rendered verbatim. Only prose
-    goes through the model to be structured -- a caller who has already done
-    the work should not have their content rewritten underneath them.
+    Lesson JSON is rendered as written either way: a caller who has already
+    done the work should not have their content rewritten underneath them.
+
+    Prose is the interesting case. With a model available it is structured by
+    the model, which reads better. Without one -- local mode, or an exhausted
+    allowance -- it is parsed mechanically instead, which is what lets local
+    mode take pasted text at all.
     """
     data = parse_json_object(text)
     if isinstance(data, dict) and data.get("sections"):
         _console.log("[blue]Rendering the submitted lesson[/blue]")
         return parse_lesson(data, source="the submitted script")
+
+    if local:
+        from .prose import lesson_from_prose  # circular at module level
+
+        _console.log("[blue]Structuring the script on this machine[/blue]")
+        lesson = lesson_from_prose(text)
+        _console.log(f"[green]{len(lesson.sections)} slides from the script[/green]")
+        return lesson
+
+    if writer is None:
+        raise ValueError("structuring prose needs a model; use local mode instead")
     return script_to_lesson(writer, text)
 
 

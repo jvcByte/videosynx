@@ -20,8 +20,8 @@ from pycoding_api.app import (
     Mode,
     SubmitRequest,
     create_app,
+    can_render_locally,
     job_label,
-    needs_a_model,
 )
 from pycoding_api.quota import TIERS, QuotaExceeded, submit_within_quota, used_today
 from pycoding_api.settings import KOKORO_VOICES as KOKORO_VOICE_IDS
@@ -188,28 +188,26 @@ LESSON_JSON = json.dumps({
 })
 
 
-def test_a_topic_has_to_be_written_from_nothing():
-    assert needs_a_model(SubmitRequest(topic="decorators")) is True
+def test_a_topic_leaves_local_mode_nothing_to_work_from():
+    assert can_render_locally(SubmitRequest(topic="decorators")) is False
 
 
-def test_a_lesson_path_is_rendered_as_written():
-    assert needs_a_model(SubmitRequest(lesson="/tmp/lesson.json")) is False
+def test_local_mode_takes_prose():
+    """It structures prose on this machine, which is the point: a script is
+    what someone actually has to hand when the allowance is gone."""
+    assert can_render_locally(SubmitRequest(script="Scene 1. A manager speaks."))
 
 
-def test_prose_has_to_be_structured_first():
-    assert needs_a_model(SubmitRequest(script="Scene 1. A manager speaks.")) is True
+def test_local_mode_takes_lesson_json():
+    assert can_render_locally(SubmitRequest(script=LESSON_JSON))
 
 
-def test_lesson_json_is_rendered_as_written():
-    assert needs_a_model(SubmitRequest(script=LESSON_JSON)) is False
-    # Whitespace and a leading newline should not change the answer.
-    assert needs_a_model(SubmitRequest(script=f"\n\n  {LESSON_JSON}\n")) is False
+def test_local_mode_takes_a_lesson_path():
+    assert can_render_locally(SubmitRequest(lesson="/tmp/lesson.json"))
 
 
-def test_a_script_that_is_not_a_lesson_is_not_mistaken_for_one():
-    assert needs_a_model(SubmitRequest(script='{"title": "no sections"}')) is True
-    assert needs_a_model(SubmitRequest(script='{"sections": "not a list"}')) is False
-    assert needs_a_model(SubmitRequest(script="{not json")) is True
+def test_an_empty_script_leaves_nothing_to_work_from():
+    assert can_render_locally(SubmitRequest(topic="decorators", script="   ")) is False
 
 
 @requires_db
@@ -226,12 +224,23 @@ def test_local_mode_refuses_a_topic_instead_of_spending(client):
 
 
 @requires_db
-def test_local_mode_accepts_content_that_needs_no_model(client):
+def test_local_mode_accepts_lesson_json(client):
     response = client.post("/jobs", headers=auth(), json={
         "script": LESSON_JSON, "generation": "local"})
 
     assert response.status_code == 202
     assert stored_options(response.json()["id"])["generation"] == "local"
+
+
+@requires_db
+def test_local_mode_accepts_pasted_prose(client):
+    """The case the mode exists for: a script in hand, no allowance left."""
+    response = client.post("/jobs", headers=auth(), json={
+        "script": "Scene 1 — The Deadline: A manager wants this in two weeks.\n"
+                  "Scene 2 — The Answer: Start from a model that knows language.",
+        "generation": "local"})
+
+    assert response.status_code == 202
 
 
 @requires_db

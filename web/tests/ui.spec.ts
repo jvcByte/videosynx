@@ -158,8 +158,34 @@ test("the composer says what a submission will cost", async ({ page }) => {
 
   // Lesson JSON is rendered as written, so it does not.
   await page.getByLabel("Script").fill(LESSON_JSON);
+  await expect(page.locator(".compose-cost")).toContainText("No model call");
+
+  // Prose still costs in auto mode: the model has to structure it.
+  await page.getByLabel("Script").fill("Scene 1 — The deadline. A manager speaks.");
   await expect(page.locator(".compose-cost"))
-    .toContainText("No model call, no cost");
+    .toContainText("Counts against your daily allowance");
+});
+
+test("local mode renders pasted prose with no model at all", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByLabel("Generation").selectOption("local");
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.locator(".saved")).toBeVisible();
+  await page.getByRole("button", { name: "Close" }).click();
+
+  // Prose is the case the mode exists for: a script in hand, nothing left to
+  // spend. This is what a plain topic cannot do.
+  await page.getByLabel("Script").fill(
+    "Scene 1 — The Deadline: A manager wants this in two weeks. " +
+    "The engineer looks at the pile.");
+  await expect(page.locator(".compose-cost")).toContainText("No model call");
+  await expect(page.getByRole("button", { name: "Generate" })).toBeEnabled();
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByLabel("Generation").selectOption("auto");
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.locator(".saved")).toBeVisible();
 });
 
 test("local mode refuses a topic rather than spending", async ({ page }) => {

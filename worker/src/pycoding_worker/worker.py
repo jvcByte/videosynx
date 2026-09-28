@@ -211,7 +211,7 @@ class EngineRenderer:
 
         from pycoding.lesson import (
             build_lesson,
-            lesson_from_script,
+            lesson_from_text,
             load_lesson,
         )
         from pycoding.providers import GeminiWriter
@@ -246,16 +246,12 @@ class EngineRenderer:
         # mode's whole promise is that nothing is spent -- so it is not left to
         # one caller to keep. Prose counts as needing a model, because it has
         # to be structured first; lesson JSON does not.
-        if generation == "local":
-            from pycoding.prompts import parse_json_object
-
-            data = parse_json_object(script) if script else None
-            if not (lesson_path or (isinstance(data, dict) and data.get("sections"))):
-                raise Refused(
-                    "local mode renders content you supply and never calls a "
-                    "model, so it cannot write a tutorial from a topic or "
-                    "structure prose. Supply lesson JSON."
-                )
+        if generation == "local" and not (script or lesson_path):
+            raise Refused(
+                "local mode works from content you supply and never calls a "
+                "model, so it cannot write a tutorial from a topic. Paste a "
+                "script, or supply lesson JSON."
+            )
 
         beat("building", 0.1)
         speaker = self._speaker(options.get("tts") or self.tts, options.get("voice"))
@@ -266,7 +262,8 @@ class EngineRenderer:
                   else GeminiWriter(os.environ.get("GEMINI_API_KEY", "")))
 
         if script:
-            lesson = lesson_from_script(writer, script)
+            lesson = lesson_from_text(script, writer=writer,
+                                      local=generation == "local")
             tutorial = build_lesson(lesson, speaker=speaker, execute=self.execute)
         elif lesson_path:
             tutorial = build_lesson(load_lesson(lesson_path), speaker=speaker,

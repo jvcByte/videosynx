@@ -77,9 +77,10 @@ class SubmitRequest(BaseModel):
                     "with no code. Left out, the saved setting is used.")
     generation: Literal["auto", "local"] | None = Field(
         default=None,
-        description="'local' promises never to call a model. It cannot write "
-                    "a tutorial from a topic, so a submission that would need "
-                    "one is refused rather than quietly spending.")
+        description="'local' promises never to call a model. It renders what "
+                    "you supply -- lesson JSON, or prose it structures on this "
+                    "machine -- so a bare topic is refused rather than "
+                    "quietly spending.")
     lesson: str | None = Field(
         default=None,
         description="Path to a lesson JSON on the worker's machine. Kept for "
@@ -95,30 +96,14 @@ class SubmitRequest(BaseModel):
         return self
 
 
-def is_structured_lesson(text: str) -> bool:
-    """Whether a script is already lesson JSON, which renders as written."""
-    stripped = text.strip()
-    if not stripped.startswith("{"):
-        return False
-    try:
-        data = json.loads(stripped)
-    except json.JSONDecodeError:
-        return False
-    return isinstance(data, dict) and bool(data.get("sections"))
+def can_render_locally(body: SubmitRequest) -> bool:
+    """Whether local mode has anything to work from.
 
-
-def needs_a_model(body: SubmitRequest) -> bool:
-    """Whether anything in this submission has to be written from nothing.
-
-    A lesson path renders as written and a script that is already lesson JSON
-    renders as written -- the renderer does both on its own, at no cost. A
-    topic has to be written, and prose has to be structured first, so both
-    cost a call.
+    It takes lesson JSON, a lesson file, or prose -- which it structures on
+    this machine. Everything except a topic, which only exists once something
+    has written it, and writing is the one thing local mode will not do.
     """
-    if body.script and body.script.strip():
-        # A script wins over a topic, so it settles the question.
-        return not is_structured_lesson(body.script)
-    return not body.lesson
+    return bool((body.script or "").strip() or body.lesson)
 
 
 def job_label(body: SubmitRequest) -> str:
@@ -390,14 +375,14 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         # Refused here rather than queued and failed: the whole promise of
         # local mode is that nothing is spent, and an allowance that is
         # already gone is exactly when someone would reach for it.
-        if options.get("generation") == "local" and needs_a_model(body):
+        if options.get("generation") == "local" and not can_render_locally(body):
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail={
                     "error": "local_mode_needs_content",
-                    "message": "Local mode renders what you supply and never "
-                               "calls a model, so it cannot write a tutorial "
-                               "from a topic. Paste lesson JSON, or set "
+                    "message": "Local mode works from content you supply and "
+                               "never calls a model, so it cannot write a "
+                               "tutorial from a topic. Paste a script, or set "
                                "generation back to auto.",
                 },
             )

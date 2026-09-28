@@ -15,7 +15,7 @@ import pytest
 
 from pycoding.lesson import (
     build_lesson,
-    lesson_from_script,
+    lesson_from_text,
     load_lesson,
     parse_lesson,
     script_to_lesson,
@@ -319,17 +319,46 @@ def test_parse_lesson_rejects_a_section_that_is_neither_code_nor_explain():
 
 def test_a_script_that_is_already_a_lesson_is_not_sent_to_the_model():
     """A caller who has already done the work should not have it rewritten."""
-    lesson = lesson_from_script(NeverCalled(["unused"]), json.dumps(SCRIPT_JSON))
+    lesson = lesson_from_text(json.dumps(SCRIPT_JSON), writer=NeverCalled(["unused"]))
     assert lesson.title == "Authored elsewhere"
     assert len(lesson.sections) == 1
 
 
 def test_a_prose_script_goes_through_the_model_once():
     writer = ScriptedWriter([json.dumps(SCRIPT_JSON)])
-    lesson = lesson_from_script(writer, "Scene 1: someone explains a thing.")
+    lesson = lesson_from_text("Scene 1: someone explains a thing.", writer=writer)
     assert lesson.title == "Authored elsewhere"
     assert len(writer.prompts) == 1
     assert "someone explains a thing" in writer.prompts[0]
+
+
+def test_local_mode_structures_prose_without_a_model():
+    """This is what makes local mode work on pasted text.
+
+    The writer is one that raises if it is called at all, so this passes only
+    if nothing reached out to a model.
+    """
+    lesson = lesson_from_text(
+        "Scene 1 — The Deadline: A manager wants this in two weeks. "
+        "The engineer looks at the pile. Then at a blank screen.\n"
+        "Scene 2 — The Answer: Start from a model that already knows language. "
+        "Specialise it for the job instead of teaching one from zero.\n",
+        writer=NeverCalled(["unused"]), local=True)
+
+    assert [s.slide.heading for s in lesson.sections] == ["The Deadline", "The Answer"]
+    assert lesson.sections[0].sentences[0] == "A manager wants this in two weeks."
+
+
+def test_local_mode_still_renders_lesson_json_as_written():
+    lesson = lesson_from_text(json.dumps(SCRIPT_JSON),
+                              writer=NeverCalled(["unused"]), local=True)
+    assert lesson.title == "Authored elsewhere"
+
+
+def test_auto_mode_without_a_writer_says_so():
+    """Rather than failing with an AttributeError halfway through."""
+    with pytest.raises(ValueError, match="needs a model"):
+        lesson_from_text("Some prose that would need structuring.", local=False)
 
 
 def test_a_model_that_answers_in_prose_is_refused_readably():

@@ -164,10 +164,17 @@ or the structuring of prose.
 So there is a mode that never calls a model at all:
 
 **Settings → Generation → Local only**, or `"generation": "local"` on a
-submission. It renders lesson JSON as written. It cannot invent a tutorial
-from a topic, and it does not pretend to — a submission that would need a
-model is refused *before it is queued*, so nothing is spent and nothing fails
-later:
+submission.
+
+It takes **prose as well as lesson JSON**, and it structures prose itself — a
+script pasted in is split at its scene markers, its hard-wrapped lines are
+rejoined into sentences, and each scene becomes a slide with its own words on
+it. It does not summarise and it does not invent, so what you pasted is what
+gets filmed.
+
+What it cannot do is invent a tutorial from a bare topic, and it does not
+pretend to — that is refused *before it is queued*, so nothing is spent and
+nothing fails later:
 
 ```bash
 curl -s -X POST localhost:8000/jobs \
@@ -219,7 +226,7 @@ offer a voice that dies at synthesis.
 ## 3. Tests
 
 ```bash
-$PYCODING/.venv/bin/pytest                  # 260 tests
+$PYCODING/.venv/bin/pytest                  # 274 tests
 cd $PYCODING/web && npx playwright test     # 3 browser tests
 ```
 

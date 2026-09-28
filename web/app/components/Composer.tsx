@@ -56,8 +56,14 @@ export function Composer({
   // Pillow, ffmpeg and Kokoro -- so the only thing that costs anything is
   // *writing* the content, and lesson JSON does not need writing.
   const structured = isStructuredLesson(script);
-  const needsModel = scriptActive ? !structured : true;
-  const refused = generation === "local" && needsModel;
+  // In local mode nothing is sent at all -- it structures prose on this
+  // machine. In auto mode the model does the writing, and lesson JSON is the
+  // one thing it does not have to write.
+  const writtenForYou = generation === "local"
+    ? false
+    : scriptActive ? !structured : true;
+  // Only a bare topic is left with nothing local mode can work from.
+  const refused = generation === "local" && !scriptActive;
 
   return (
     <form className="card compose" onSubmit={onSubmit}>
@@ -147,10 +153,10 @@ export function Composer({
           model, per day, and running out is a normal thing that happens. */}
       <p className={`compose-cost${refused ? " is-blocked" : ""}`}>
         {refused
-          ? "Local mode is on and this needs a model to write it. Paste lesson JSON, or switch generation back to auto."
-          : needsModel
+          ? "Local mode is on, and a topic is the one thing it cannot work from. Paste a script, or switch generation back to auto."
+          : writtenForYou
             ? "A model writes the code and narration. Counts against your daily allowance."
-            : "Renders as written, on this machine. No model call, no cost."}
+            : "Structured on this machine, at no cost. No model call."}
       </p>
     </form>
   );
