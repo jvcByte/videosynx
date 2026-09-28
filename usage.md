@@ -128,7 +128,7 @@ Then `pycoding`, `pycoding-api` and `pycoding-worker` work as plain commands.
 | flag | what it does |
 |---|---|
 | `--execute` | run snippets for real; without it, no terminal output |
-| `--tts kokoro\|elevenlabs\|espeak` | voice. `auto` prefers ElevenLabs, then Kokoro |
+| `--tts kokoro\|elevenlabs\|espeak` | voice. `auto` prefers Kokoro (free, local), then ElevenLabs, then espeak |
 | `--voice af_heart` | pick among Kokoro's 54 voices |
 | `--lesson FILE` | render authored content instead of generating it |
 | `--save-script out.json` | dump the generated code and narration for inspection |
@@ -146,7 +146,8 @@ code generation.
 
 The only thing that bills is `--tts elevenlabs`, at roughly **$0.65–1.30 per
 lesson** (4,000 characters). Your ElevenLabs allowance is 10,000 characters per
-period — under three lessons — which is why `auto` falls back to Kokoro.
+period — under three lessons — so `auto` uses Kokoro instead. Ask for
+`--tts elevenlabs` when the allowance covers it and you want the better voice.
 
 Cloudflare R2 has no egress fees but bills for storage; the local backend
 (`PYCODING_ARTIFACTS`, default `/tmp/pycoding/artifacts`) is used when
@@ -201,6 +202,11 @@ origin is in `CORS_ORIGINS`.
 **Video plays with no sound**
 Check `--tts`. The offline fallback is `espeak-ng`; if that is missing the
 narrator is a tone, which is easy to mistake for silence.
+
+**The voice sounds robotic**
+That is espeak-ng, the last resort. Every run prints the voice it chose —
+look for the `voice:` line. `--tts kokoro` gives a neural voice locally at
+no cost; `--tts elevenlabs` is the best and the only one that bills.
 
 ---
 

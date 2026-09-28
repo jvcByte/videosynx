@@ -157,6 +157,7 @@ class EngineRenderer:
         )
 
         choice = tts or self.tts
+        log.info("voice: %s", choice)
         if choice == "elevenlabs":
             key = os.environ.get("ELEVENLABS_API_KEY", "")
             voice = os.environ.get("ELEVENLABS_VOICE_ID", "")

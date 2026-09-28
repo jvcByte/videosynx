@@ -232,36 +232,49 @@ def _offline_speaker() -> Speaker:
     return ToneSpeaker()
 
 
-def _real_speaker(args) -> Speaker:
-    """Pick the voice: ElevenLabs if asked for, Kokoro if present, else espeak."""
-    choice = "espeak" if args.no_tts else args.tts
-
-    if choice == "auto":
-        choice = "elevenlabs" if (args.elevenlabs_api_key and args.elevenlabs_voice_id) else "kokoro"
-
+def _make_speaker(choice: str, args) -> Speaker:
+    """Build one speaker, or raise. Never quietly downgrades."""
     if choice == "elevenlabs":
-        missing = [
-            name for name, value in (
-                ("--elevenlabs-api-key", args.elevenlabs_api_key),
-                ("--elevenlabs-voice-id", args.elevenlabs_voice_id),
-            ) if not value
-        ]
-        if missing:
-            raise SystemExit(
-                f"missing {', '.join(missing)} (or set ELEVENLABS_API_KEY / "
-                "ELEVENLABS_VOICE_ID). Use --tts kokoro or --tts espeak to "
-                "narrate locally instead."
+        if not (args.elevenlabs_api_key and args.elevenlabs_voice_id):
+            raise ProviderError(
+                "ELEVENLABS_API_KEY / ELEVENLABS_VOICE_ID not set"
             )
         return ElevenLabsSpeaker(args.elevenlabs_api_key, args.elevenlabs_voice_id)
-
     if choice == "kokoro":
-        try:
-            return KokoroSpeaker(voice=args.voice)
-        except ProviderError as exc:
-            _console.log(f"[yellow]{exc}[/yellow]")
-            _console.log("[yellow]falling back to espeak[/yellow]")
-
+        return KokoroSpeaker(voice=args.voice)
     return _offline_speaker()
+
+
+def choose_speaker(args, *, allow_paid: bool = True) -> Speaker:
+    """Pick the voice, for every mode.
+
+    An explicit --tts is honoured or fails loudly; nothing is substituted
+    behind the user's back. `auto` prefers Kokoro, which is free, local and
+    cannot run out of credit partway through a video the way a paid API can.
+    Pass --tts elevenlabs when the best voice is wanted and the allowance is
+    known to cover it.
+
+    `allow_paid=False` is for --demo, whose whole promise is that it spends
+    nothing, so it must never reach for ElevenLabs implicitly.
+    """
+    if args.no_tts:
+        _console.log("[yellow]--no-tts: offline speech[/yellow]")
+        return _offline_speaker()
+
+    if args.tts != "auto":
+        return _make_speaker(args.tts, args)
+
+    chain = ["kokoro"] + (["elevenlabs"] if allow_paid else []) + ["espeak"]
+    for choice in chain:
+        try:
+            speaker = _make_speaker(choice, args)
+            _console.log(f"[blue]voice: {choice}[/blue]")
+            return speaker
+        except ProviderError as exc:
+            _console.log(f"[yellow]{choice} unavailable: {exc}[/yellow]")
+
+    _console.log("[yellow]no local voice available; using a tone[/yellow]")
+    return ToneSpeaker()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -323,7 +336,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.demo:
-        speaker = _offline_speaker()
+        speaker = choose_speaker(args, allow_paid=False)
         snippets = _demo_snippets(speaker, execute=args.execute)
         intro = None if args.no_intro else Intro(TOPIC, narrate(speaker, INTRO_TEXT))
         plan = build_plan(snippets, narration_type=args.narration_type,
@@ -331,7 +344,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.lesson:
         tutorial = build_lesson(
             load_lesson(args.lesson),
-            speaker=_real_speaker(args),
+            speaker=choose_speaker(args),
             execute=args.execute,
             repl=args.repl,
         )
@@ -347,7 +360,7 @@ def main(argv: list[str] | None = None) -> int:
         tutorial = build_tutorial(
             args.topic,
             writer=GeminiWriter(args.google_api_key, model=args.model),
-            speaker=_real_speaker(args),
+            speaker=choose_speaker(args),
             context=args.context,
             execute=args.execute,
             intro=not args.no_intro,
