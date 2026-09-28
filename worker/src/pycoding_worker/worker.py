@@ -146,22 +146,31 @@ class EngineRenderer:
         self.execute = execute
         self.storage = storage
 
-    def _speaker(self):
-        from pycoding.cli import _real_speaker
-        from pycoding.providers import KokoroSpeaker, ProviderError
+    def _speaker(self, tts: str | None = None):
+        import os
 
-        class _Args:
-            no_tts = False
-            tts = self.tts
-            voice = "af_heart"
-            elevenlabs_api_key = ""
-            elevenlabs_voice_id = ""
+        from pycoding.providers import (
+            ESpeakSpeaker,
+            ElevenLabsSpeaker,
+            KokoroSpeaker,
+            ProviderError,
+        )
 
-        args = _Args()
-        try:
-            return _real_speaker(args)
-        except ProviderError:
-            return KokoroSpeaker()
+        choice = tts or self.tts
+        if choice == "elevenlabs":
+            key = os.environ.get("ELEVENLABS_API_KEY", "")
+            voice = os.environ.get("ELEVENLABS_VOICE_ID", "")
+            if key and voice:
+                return ElevenLabsSpeaker(key, voice)
+            # Paid tier with no key configured: better a good local voice than
+            # a failed job.
+            choice = "kokoro"
+        if choice in ("kokoro", "auto"):
+            try:
+                return KokoroSpeaker()
+            except ProviderError:
+                return ESpeakSpeaker()
+        return ESpeakSpeaker()
 
     def __call__(self, job: Job, beat: Beat) -> tuple[str, float]:
         import os
@@ -174,7 +183,9 @@ class EngineRenderer:
         out = self.output_dir / f"{job.id}.mp4"
 
         beat("building", 0.1)
-        speaker = self._speaker()
+        # The job carries the voice its tier is allowed, written at submit
+        # time. Honouring it here is what makes the tier mean anything.
+        speaker = self._speaker(job.options.get("tts") or self.tts)
 
         lesson_path = job.options.get("lesson")
         if lesson_path:

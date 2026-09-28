@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from .db import Queue, new_owner
+from .storage import from_env
 from .worker import EngineRenderer, Worker
 
 
@@ -42,7 +43,12 @@ def main(argv: list[str] | None = None) -> int:
 
     worker = Worker(
         queue,
-        EngineRenderer(args.out, tts=args.tts, execute=not args.no_execute),
+        EngineRenderer(
+            args.out,
+            tts=args.tts,
+            execute=not args.no_execute,
+            storage=from_env(),
+        ),
         owner=new_owner(),
     )
     print(f"worker {worker.owner} watching {args.dsn}")
