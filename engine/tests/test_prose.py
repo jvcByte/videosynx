@@ -98,6 +98,32 @@ def test_a_heading_is_not_a_paragraph():
     )
 
 
+def test_emphasis_markers_are_not_read_aloud():
+    """A script is written with markup in it, and the markup is not words.
+
+    Left in, `**` is spoken by the voice and printed in the caption. A real
+    script -- one that opens a bold run and never closes it -- came out with a
+    narration ending in a literal `"**`.
+    """
+    lesson = lesson_from_prose(
+        "Scene 1 — The Trap: The model **memorises** the examples rather than "
+        "the pattern, and it scores well until new data arrives.\n"
+        'Core line: "The model did not learn the problem. It learned the '
+        'examples."**\n'
+        "Scene 2 — Next: Reach for `feature extraction` first when the data is "
+        "thin, and only then consider changing the model.\n"
+    )
+    said = " ".join(s for section in lesson.sections for s in section.sentences)
+    headings = " ".join(section.slide.heading for section in lesson.sections)
+
+    assert "*" not in said and "`" not in said, said
+    assert "*" not in headings and "`" not in headings, headings
+    # Stripped, not dropped: the words those markers wrapped are still there.
+    assert "memorises" in said
+    assert "It learned the examples." in said
+    assert "feature extraction first" in said
+
+
 def test_empty_input_is_refused():
     for empty in ("", "   \n\n  "):
         with pytest.raises(ValueError, match="empty"):

@@ -23,6 +23,12 @@ GUTTER_W = 80
 LINE_H = 34
 CODE_SIZE = 22
 TERM_SIZE = 20
+# A column too long for its box is set smaller rather than cut off. The floor
+# is where it stops shrinking and starts being hard to read, which is a bad
+# outcome but still better than a sentence that ends mid-clause on screen while
+# the voice reads the rest of it.
+COLUMN_SCALES = (1.0, 0.92, 0.84, 0.76, 0.68)
+MIN_TERM_SIZE = 13
 UI_SIZE = 16
 CAPTION_SIZE = 26
 TITLE_SIZE = 62
@@ -59,6 +65,7 @@ class Editor:
         self.f_title = ImageFont.truetype(font_path, TITLE_SIZE)
         self.f_subtitle = ImageFont.truetype(font_path, SUBTITLE_SIZE)
         self.char_w = self.f_code.getlength("M")
+        self._term_fonts: dict[int, ImageFont.FreeTypeFont] = {}
 
         self._chrome = self._draw_chrome()
         self.canvas = self._chrome.copy()
@@ -210,16 +217,27 @@ class Editor:
         d.rectangle([0, self.height - STATUS_H, self.width, self.height],
                     fill=self.style.paper)
 
-        heading_lines = _wrap_to_pixels(slide.heading, self.f_title, int(self.width * 0.8))[:2]
+        heading_lines = _wrap_to_pixels(slide.heading, self.f_title, int(self.width * 0.8))
         heading_h = len(heading_lines) * int(TITLE_SIZE * 1.2)
         rule_gap = int(TITLE_SIZE * 0.25) + 4 + int(TITLE_SIZE * 0.75)
+
+        pieces = slide.pieces
+        show_note = bool(slide.note) and pieces and slide.revealed >= pieces
+        note_h = int(TITLE_SIZE * 0.45) + CAPTION_SIZE if show_note else 0
+
+        # What the content may occupy once the margin, the heading, the rule
+        # and the note are paid for. A column wanting more than this is set
+        # smaller; it is never shortened.
+        budget = (self.caption_top - int(self.height * 0.07)
+                  - heading_h - rule_gap - note_h)
 
         # One branch per content type, in the same order as Slide.pieces -- that
         # property is the single source of truth for how much is on screen, so
         # the two must not drift apart.
         col_w = wrapped = box_h = 0
+        col_font = self.f_term
         if slide.columns:
-            col_w, _, wrapped, box_h = self._layout_columns(slide)
+            col_w, wrapped, box_h, col_font = self._layout_columns(slide, budget)
             content_h = box_h
         elif slide.sequence:
             content_h = self._sequence_height(slide)
@@ -227,10 +245,6 @@ class Editor:
             content_h = self._diagram_height()
         else:
             content_h = 0
-
-        pieces = slide.pieces
-        show_note = bool(slide.note) and pieces and slide.revealed >= pieces
-        note_h = int(TITLE_SIZE * 0.45) + CAPTION_SIZE if show_note else 0
 
         total = heading_h + rule_gap + content_h + note_h
         y = max(int(self.height * 0.07), (self.caption_top - total) // 2)
@@ -247,7 +261,7 @@ class Editor:
         y += 4 + int(TITLE_SIZE * 0.75)
 
         if slide.columns:
-            self._paint_columns(d, slide, y, col_w, wrapped, box_h)
+            self._paint_columns(d, slide, y, col_w, wrapped, box_h, col_font)
         elif slide.sequence:
             self._paint_sequence(d, slide, y)
         elif slide.diagram:
@@ -278,25 +292,54 @@ class Editor:
         )
         self.canvas.paste(image, ((self.width - width) // 2, y))
 
-    def _layout_columns(self, slide):
-        """Work out column geometry and wrapped lines before drawing anything."""
+    def _column_font(self, size: int):
+        """Terminal type at another size. Cached: the wrap is recomputed a few
+        times per slide, and a font is expensive to open."""
+        if size == TERM_SIZE:
+            return self.f_term
+        if size not in self._term_fonts:
+            self._term_fonts[size] = ImageFont.truetype(
+                self.font_path, size, layout_engine=ImageFont.Layout.BASIC)
+        return self._term_fonts[size]
+
+    def _layout_columns(self, slide, budget: int):
+        """Work out the type size, geometry and wrapped lines before drawing.
+
+        Every word is kept. The box grows to hold what the column says, and a
+        column that would still run past the caption band is set smaller.
+
+        It used to wrap each line to at most two and throw the rest away. That
+        is not a layout that ran out of room -- the discarded text was measured
+        against a cap of 2, never against the slide -- so a sentence would end
+        mid-clause on screen while the voice read the rest of it, and the two
+        would silently disagree.
+        """
         count = len(slide.columns)
         available = int(self.width * 0.82)
         gap = 44
         col_w = (available - gap * (count - 1)) // count
-        wrapped = [
-            [w for line in lines
-             for w in _wrap_to_pixels(line, self.f_term, col_w - 60)[:2]]
-            for _, lines in slide.columns
-        ]
-        rows = max((len(w) for w in wrapped), default=0)
-        box_h = int(SUBTITLE_SIZE * 2.4) + rows * int(TERM_SIZE * 1.6) + 32
-        return col_w, (self.width - available) // 2, wrapped, box_h
+        wrap_w = col_w - 60
+
+        chosen = None
+        for scale in COLUMN_SCALES:
+            size = max(MIN_TERM_SIZE, int(TERM_SIZE * scale))
+            font = self._column_font(size)
+            wrapped = [
+                [w for line in lines for w in _wrap_to_pixels(line, font, wrap_w)]
+                for _, lines in slide.columns
+            ]
+            rows = max((len(w) for w in wrapped), default=0)
+            box_h = int(SUBTITLE_SIZE * 2.4) + rows * int(size * 1.6) + 32
+            chosen = (col_w, wrapped, box_h, font)
+            if box_h <= budget:
+                break
+        return chosen
 
     def _sequence_height(self, slide) -> int:
         return 96 + (96 if slide.revealed >= 2 else 44)
 
-    def _paint_columns(self, d, slide, y: int, col_w: int, wrapped, box_h: int) -> None:
+    def _paint_columns(self, d, slide, y: int, col_w: int, wrapped, box_h: int,
+                       font) -> None:
         """Side-by-side panels, revealed one per sentence."""
         gap = 44
         x0 = (self.width - (col_w * len(slide.columns) + gap * (len(slide.columns) - 1))) // 2
@@ -315,9 +358,9 @@ class Editor:
                    fill=self.style.accent, anchor="la")
             ty = y + 24 + int(SUBTITLE_SIZE * 2.4)
             for line in wrapped[i]:
-                d.text((x + 30, ty), line, font=self.f_term,
+                d.text((x + 30, ty), line, font=font,
                        fill=self.style.ink, anchor="la")
-                ty += int(TERM_SIZE * 1.6)
+                ty += int(font.size * 1.6)
 
     def _paint_sequence(self, d, slide, y: int) -> None:
         """Boxes in a row, with the index numbers revealed beneath them.

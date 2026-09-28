@@ -57,9 +57,26 @@ _SCENE = re.compile(r"^(?:scene|step|beat)\b", re.IGNORECASE)
 _LABEL = re.compile(r"^(?:video\s+)?(?:script|lesson|title)\s*[:\-—]\s*", re.IGNORECASE)
 
 
+# Scripts get written with emphasis in them, and the markers are not words.
+# Left in, `**` is read aloud by the voice and printed in the caption -- which
+# is how one narration came to end with a literal `"**`. Paired markers go
+# first, then any that were left unpaired, because a script that opens `**`
+# and never closes it is common and the stray is just as unreadable.
+_EMPHASIS = re.compile(r"\*+([^*]+)\*+", re.DOTALL)
+_INLINE_CODE = re.compile(r"`([^`]*)`")
+_LOOSE_MARKER = re.compile(r"[*`]")
+
+
+def _plain(text: str) -> str:
+    """The words, with the writing's markup taken off."""
+    text = _INLINE_CODE.sub(r"\1", text)
+    text = _EMPHASIS.sub(r"\1", text)
+    return _LOOSE_MARKER.sub("", text)
+
+
 def _tidy(title: str) -> str:
     """A heading for a slide: no wrapping punctuation, and not a paragraph."""
-    cleaned = title.strip().strip("—–-:. ").strip()
+    cleaned = _plain(title).strip().strip("—–-:. ").strip()
     if len(cleaned) > MAX_HEADING_CHARS:
         # Cut at a word boundary rather than mid-word, and say so.
         cleaned = f"{cleaned[:MAX_HEADING_CHARS].rsplit(' ', 1)[0]}…"
@@ -156,7 +173,7 @@ def lesson_from_prose(text: str, *,
 
     built: list[ExplainSection] = []
     for name, lines in sections:
-        body = " ".join(line for line in lines if line)
+        body = _plain(" ".join(line for line in lines if line))
         if len(body.split()) < MIN_SECTION_WORDS:
             continue
         said = sentences(body)

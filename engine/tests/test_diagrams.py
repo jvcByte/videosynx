@@ -206,6 +206,81 @@ def test_a_long_label_does_not_overflow_its_shape():
     assert draw(wide).size == SIZE
 
 
+# --------------------------------------------------------- explain columns
+
+def column_lines(text: str, width: int = 1280, height: int = 720):
+    """What the slide would actually put on screen for a one-column slide."""
+    from pycoding.render.editor import Editor
+    from pycoding.timeline import Slide
+
+    editor = Editor(width, height, FONT)
+    slide = Slide(heading="A Heading", columns=(("", (text,)),), revealed=1)
+    heading_h = int(editor.f_title.size * 1.2)
+    rule_gap = int(editor.f_title.size * 0.25) + 4 + int(editor.f_title.size * 0.75)
+    budget = editor.caption_top - int(height * 0.07) - heading_h - rule_gap
+    _, wrapped, box_h, _ = editor._layout_columns(slide, budget)
+    return wrapped[0], box_h, budget
+
+
+def test_a_long_column_keeps_every_word():
+    """A sentence too long for two lines used to lose its tail.
+
+    The wrap was capped at two lines per entry, so the rest was discarded --
+    measured against the cap, never against the slide. On screen the sentence
+    simply stopped, mid-clause, while the voice read the rest of it.
+
+    This is the real one from a rendered lesson: at 720p, the free tier's
+    resolution, its last two words were the ones being dropped.
+    """
+    text = ('End Transition: Don\'t end with a generic "That\'s all for this '
+            'lesson." End by establishing the mental habit the next lessons can '
+            'build on: before fine-tuning, diagnose the problem and choose the '
+            'strategy.')
+    lines, box_h, budget = column_lines(text)
+
+    assert " ".join(lines).split() == text.split(), (
+        "words were dropped from the column: "
+        f"{set(text.split()) - set(' '.join(lines).split())}"
+    )
+    assert box_h <= budget, "the box was allowed to run past the caption band"
+
+
+def test_a_slide_full_of_long_sentences_still_fits():
+    """The worst case the parser actually produces: four long sentences in one
+    column is what a slide holds, so it is the one that has to fit."""
+    sentence = (
+        "The engineer must weigh how much labelled data exists, how close the "
+        "task is to what the model already knows, how much compute the run can "
+        "afford, and how much the difference in quality is worth to the "
+        "business making the decision."
+    )
+    lines, box_h, budget = column_lines(" ".join([sentence] * 4))
+    assert box_h <= budget, f"{box_h} does not fit {budget}"
+
+
+def test_words_are_kept_even_when_nothing_can_make_them_fit():
+    """Past the smallest type there is nowhere left to shrink to.
+
+    The guarantee that still holds is that no word is discarded. Overflowing
+    the slide is visible and looks wrong; a sentence that stops mid-clause
+    looks finished and is a lie, which is the failure this replaced.
+    """
+    text = " ".join(["transfer learning"] * 220)
+    lines, _, _ = column_lines(text)
+    assert " ".join(lines).split() == text.split(), "words were dropped"
+
+
+def test_an_ordinary_column_is_left_at_full_size():
+    """The fit must not shrink everything -- only what does not fit."""
+    from pycoding.render.editor import Editor
+    from pycoding.timeline import Slide
+
+    editor = Editor(1280, 720, FONT)
+    slide = Slide(heading="H", columns=(("", ("A short line.",)),), revealed=1)
+    _, _, _, font = editor._layout_columns(slide, 400)
+    assert font.size == editor.f_term.size
+
+
 # -------------------------------------------------------------- determinism
 
 DETERMINISM_SRC = str(Path(__file__).resolve().parents[1] / "src")
