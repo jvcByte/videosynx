@@ -36,6 +36,10 @@ tutorials — which is why Kokoro exists).
 
 ---
 
+> **Running it:** see [usage.md](usage.md) for copy-pasteable commands, the
+> flags that matter, configuration, and troubleshooting. The short version is
+> below.
+
 ## Try it offline
 
 No keys, no quota, no spend. Hardcoded snippets and local speech:
