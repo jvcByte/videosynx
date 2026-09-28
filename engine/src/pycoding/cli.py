@@ -265,6 +265,13 @@ def _real_speaker(args) -> Speaker:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Credentials usually live in a .env; loading it means one command
+    # instead of an export line before every run.
+    from .dotenv import load
+
+    if load():
+        _console.log("[blue]loaded .env[/blue]")
+
     parser = argparse.ArgumentParser(
         description="Generate narrated coding tutorial videos."
     )

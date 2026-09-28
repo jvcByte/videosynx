@@ -7,6 +7,8 @@ the point of putting the two services behind protocols.
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pytest
 
@@ -288,3 +290,27 @@ def test_scripted_writer_replays_and_records():
     # Past the end it keeps returning the last response rather than stopping.
     assert writer.write("third") == "b"
     assert writer.prompts == ["first", "second", "third"]
+
+
+# ------------------------------------------------------------------- dotenv
+
+def test_env_file_is_parsed(tmp_path, monkeypatch):
+    from pycoding.dotenv import load, parse
+
+    assert parse('A=1\n# comment\n\nB = "two words" \n') == {
+        "A": "1", "B": "two words"
+    }
+    # A shell export is an instruction for this run; a stored default must not
+    # override it.
+    monkeypatch.setenv("A", "from-shell")
+    path = tmp_path / ".env"
+    path.write_text("A=from-file\nB=from-file\n")
+    assert load(path) == ["B"]
+    assert os.environ["A"] == "from-shell"
+    assert os.environ["B"] == "from-file"
+
+
+def test_a_missing_env_file_is_not_an_error(tmp_path):
+    from pycoding.dotenv import load
+
+    assert load(tmp_path / "nope.env") == []

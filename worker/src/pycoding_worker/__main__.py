@@ -13,6 +13,10 @@ from .worker import EngineRenderer, Worker
 
 
 def main(argv: list[str] | None = None) -> int:
+    from pycoding.dotenv import load
+
+    load()
+
     parser = argparse.ArgumentParser(description="pycoding render worker.")
     parser.add_argument("--dsn", default="postgresql:///pycoding",
                         help="Postgres connection string")

@@ -10,6 +10,10 @@ from .app import create_app
 
 
 def main(argv: list[str] | None = None) -> int:
+    from pycoding.dotenv import load
+
+    load()
+
     parser = argparse.ArgumentParser(description="pycoding HTTP API.")
     parser.add_argument("--dsn", default=os.environ.get("PYCODING_DSN", "postgresql:///pycoding"))
     parser.add_argument("--host", default="127.0.0.1")
