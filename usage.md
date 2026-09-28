@@ -198,9 +198,9 @@ Free tiers rename their models fairly often, so each list is overridable rather
 than hardcoded to a name that may not exist by the time you read this:
 
 ```bash
-GROQ_MODELS="llama-3.3-70b-versatile,llama-3.1-8b-instant"
+GROQ_MODELS="openai/gpt-oss-120b,openai/gpt-oss-20b"
 HF_MODELS="meta-llama/Llama-3.3-70B-Instruct"
-OPENROUTER_MODELS="meta-llama/llama-3.3-70b-instruct:free"
+OPENROUTER_MODELS="nvidia/nemotron-3.5-lightning:free,qwen/qwen3.8-27b:free"
 ```
 
 A comma-separated list, tried in order; the first is the default and the rest
@@ -277,7 +277,7 @@ offer a voice that dies at synthesis.
 ## 3. Tests
 
 ```bash
-$PYCODING/.venv/bin/pytest                  # 301 tests
+$PYCODING/.venv/bin/pytest                  # 305 tests
 cd $PYCODING/web && npx playwright test     # 3 browser tests
 ```
 
@@ -343,6 +343,19 @@ Credentials load from `$PYCODING/.env` automatically at startup. A shell
 `export` still wins over the file, so you can override one value for a single
 run without editing anything.
 
+**The file is found from wherever you start the command**, searching upward to
+the repository root, so a worker started from `web/` gets the same credentials
+as one started from the root. It did not always: the path was resolved against
+the working directory, so a process started one level down found no `.env` at
+all, loaded no key, and failed much later with "no model key is configured"
+while the key sat in a file directly above it.
+
+`GEMINI_API_KEY` is tried first, then the free fallbacks above. Every model
+name shipped here has been checked against the live service — the first
+versions of all three were wrong, because free tiers retire and rename models
+constantly. If one stops working, check that provider's own model list and
+override it rather than waiting for a release.
+
 | variable | needed for |
 |---|---|
 | `GEMINI_API_KEY` | `--topic` runs (not `--demo` or `--lesson`). Tried first |
@@ -386,6 +399,13 @@ elsewhere instead of stopping — see
 **`ElevenLabs quota exhausted`**
 The account is out of characters. Use `--tts kokoro` — the videos are otherwise
 identical.
+
+**`no model key is configured`**
+The keys are in `.env` and the process did not read it. Start the worker again
+from anywhere in the repository — it searches upward for the file now, so this
+should not happen, but a worker started before that change and left running
+will still be carrying the empty environment it started with. A long-running
+worker reads `.env` once, at startup, so a newly added key needs a restart.
 
 **The UI says "Could not reach the API"**
 With the browser involved this is usually CORS, not the server being down.

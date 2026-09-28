@@ -36,10 +36,38 @@ def parse(text: str) -> dict[str, str]:
     return values
 
 
-def load(path: Path | str = ".env", *, override: bool = False) -> list[str]:
-    """Apply *path* to the environment. Returns the names that were set."""
-    file = Path(path)
-    if not file.is_file():
+def find(start: Path | None = None) -> Path | None:
+    """The nearest .env at or above *start*, or None.
+
+    A .env that only loads when the process happens to have been started in
+    the directory holding it is a trap. Nothing fails at startup: the key is
+    simply absent, and it surfaces much later -- as a render that dies saying
+    no model key is configured, while the key is sitting in a file one
+    directory up. Running `pycoding-worker` from `web/` after `npm run dev`
+    is exactly how that happens.
+
+    The walk stops at the repository root when there is one, so a .env beside
+    an unrelated checkout higher up is not picked up by accident.
+    """
+    here = (start or Path.cwd()).resolve()
+    for directory in (here, *here.parents):
+        candidate = directory / ".env"
+        if candidate.is_file():
+            return candidate
+        if (directory / ".git").exists():
+            break
+    return None
+
+
+def load(path: Path | str | None = None, *, override: bool = False) -> list[str]:
+    """Apply the .env to the environment. Returns the names that were set.
+
+    With no *path*, the nearest one at or above the working directory is used,
+    so a command run from a subdirectory finds the same file as one run from
+    the root. A path given explicitly is used as given.
+    """
+    file = Path(path) if path is not None else find()
+    if file is None or not file.is_file():
         return []
 
     applied = []

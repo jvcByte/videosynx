@@ -219,15 +219,27 @@ GROQ_URL = "https://api.groq.com/openai/v1"
 HUGGINGFACE_URL = "https://router.huggingface.co/v1"
 OPENROUTER_URL = "https://openrouter.ai/api/v1"
 
-# Free-tier model ids. They are renamed fairly often, so each list can be
-# overridden from the environment rather than needing a code change.
-GROQ_MODELS = ("llama-3.3-70b-versatile", "llama-3.1-8b-instant")
+# Free-tier model ids, checked against each service rather than remembered --
+# every one of these was wrong when first written. Free tiers retire and
+# rename models constantly, so each list can be overridden from the
+# environment rather than needing a code change to fix.
+GROQ_MODELS = ("openai/gpt-oss-120b", "openai/gpt-oss-20b")
 HUGGINGFACE_MODELS = ("meta-llama/Llama-3.3-70B-Instruct",)
-OPENROUTER_MODELS = ("meta-llama/llama-3.3-70b-instruct:free",)
+OPENROUTER_MODELS = ("nvidia/nemotron-3.5-lightning:free", "qwen/qwen3.8-27b:free")
+
+
+# Every provider here sits behind Cloudflare, which answers a request with no
+# User-Agent -- urllib sends "Python-urllib/3.x" by default -- with a 403 and
+# nothing else. Groq returns the bare string "error code: 1010" and Hugging
+# Face an HTML error page, so the failure reads as a broken key or a bad model
+# name rather than a missing header. Sent from one place so every request
+# carries it.
+USER_AGENT = "pycoding/0.1 (+https://github.com/pycoding)"
 
 
 def _post_json(url: str, body: bytes, headers: dict, timeout: float) -> dict:
     """One HTTPS POST. Separate so a test can stand in for the network."""
+    headers = {"User-Agent": USER_AGENT, **headers}
     request = urllib.request.Request(url, data=body, method="POST", headers=headers)
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read())

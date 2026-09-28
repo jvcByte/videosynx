@@ -603,6 +603,41 @@ def test_an_openai_compatible_writer_reads_a_reply():
     assert writer.write("prompt") == "hello"
 
 
+def test_every_request_carries_a_user_agent():
+    """Cloudflare answers a request without one with a 403 and no explanation.
+
+    urllib's default is "Python-urllib/3.x", which is what it got. Groq replies
+    with the bare string "error code: 1010" and Hugging Face with an HTML page,
+    so it reads as a bad key or a retired model name -- anything but the header
+    that is actually missing. Everything here is behind the same edge.
+    """
+    from pycoding.providers import _post_json
+
+    # Asserted at the one place a request is actually made, so a caller that
+    # builds its own headers still gets one. _post_json is what the writers
+    # call unless a test has stood in for the network, and a test standing in
+    # for the network is not what gets blocked.
+    import urllib.request
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b'{"ok": true}'
+
+    def fake_urlopen(request, timeout=None):
+        captured.update(request.headers)
+        return FakeResponse()
+
+    real = urllib.request.urlopen
+    urllib.request.urlopen = fake_urlopen
+    try:
+        _post_json("https://example.test/v1", b"{}", {"Content-Type": "application/json"}, 5)
+    finally:
+        urllib.request.urlopen = real
+    assert captured.get("User-agent") or captured.get("User-Agent"), captured
+
+
 def test_a_writer_falls_through_its_own_models_before_giving_up():
     from pycoding.providers import OpenAICompatWriter
 
@@ -717,8 +752,8 @@ def test_a_model_list_can_be_corrected_without_a_code_change(no_keys, monkeypatc
     # A value that names no models at all is a typo, not an instruction to
     # offer none -- which would fail on an empty list rather than use one.
     monkeypatch.setenv("GROQ_MODELS", " , ")
-    assert default_writer()._models == ["llama-3.3-70b-versatile",
-                                        "llama-3.1-8b-instant"]
+    from pycoding.providers import GROQ_MODELS
+    assert default_writer()._models == list(GROQ_MODELS)
 
 
 def test_no_keys_at_all_names_the_ones_that_would_work(no_keys):
@@ -753,3 +788,40 @@ def test_a_missing_env_file_is_not_an_error(tmp_path):
     from pycoding.dotenv import load
 
     assert load(tmp_path / "nope.env") == []
+
+
+def test_the_env_file_is_found_from_a_subdirectory(tmp_path, monkeypatch):
+    """A worker started from `web/` after `npm run dev` had no key at all.
+
+    Nothing failed at startup -- the key was simply absent -- so it surfaced
+    minutes later as a render dying with "no model key is configured" while
+    the key sat in a file one directory up.
+    """
+    from pycoding.dotenv import find
+
+    (tmp_path / ".git").mkdir()          # the repository root
+    (tmp_path / ".env").write_text("FOUND=1\n")
+    nested = tmp_path / "web" / "app"
+    nested.mkdir(parents=True)
+
+    assert find(nested) == tmp_path / ".env"
+    assert find(tmp_path) == tmp_path / ".env"
+
+
+def test_the_search_stops_at_the_repository_root(tmp_path):
+    """A .env above the checkout is somebody else's and is not ours to read."""
+    from pycoding.dotenv import find
+
+    (tmp_path / ".env").write_text("OUTSIDE=1\n")
+    repo = tmp_path / "checkout"
+    (repo / ".git").mkdir(parents=True)
+    (repo / "src").mkdir()
+
+    assert find(repo / "src") is None
+
+
+def test_no_env_file_anywhere_is_not_an_error(tmp_path):
+    from pycoding.dotenv import find
+
+    (tmp_path / ".git").mkdir()
+    assert find(tmp_path) is None
