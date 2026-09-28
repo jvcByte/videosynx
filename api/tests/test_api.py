@@ -425,6 +425,89 @@ def test_the_job_row_carries_its_retry_state(client):
     assert job["not_before"] is not None, "a job is claimable from the start"
 
 
+def _fail(job_id: str, *, code: str = "provider_quota",
+          message: str = "every model failed") -> None:
+    """Stand in for the worker giving up on a job."""
+    with psycopg.connect(DSN, autocommit=True) as conn:
+        conn.execute(
+            "update jobs set status='failed', attempt=max_attempts, "
+            "error_code=%s, error_message=%s, finished_at=now() where id=%s",
+            (code, message, job_id),
+        )
+
+
+@requires_db
+def test_health_answers_to_both_spellings(client):
+    """/healthz is what a load balancer probes by default, and a 404 there
+    reads as a broken service rather than a wrong path."""
+    assert client.get("/health").json() == {"ok": True}
+    assert client.get("/healthz").json() == {"ok": True}
+
+
+@requires_db
+def test_a_failed_job_can_be_retried_from_the_page(client):
+    """A job that has given up is the one thing a user can see and do nothing
+    about."""
+    job_id = client.post("/jobs", json={"topic": "a topic"},
+                         headers=auth()).json()["id"]
+    _fail(job_id)
+
+    r = client.post(f"/jobs/{job_id}/retry", headers=auth())
+    assert r.status_code == 202, r.text
+    body = r.json()
+    assert body["status"] == "queued"
+    assert body["attempt"] == 0, "a retry that keeps its spent attempts"
+    assert body["error_code"] is None and body["error_message"] is None
+    assert body["finished_at"] is None
+    # And it is claimable straight away rather than waiting out a backoff.
+    assert body["not_before"] is not None
+
+
+@requires_db
+def test_retrying_does_not_cost_an_allowance(client):
+    """The row already exists and the work is the same work. Charging again
+    would make recovering from a failure cost another of three daily jobs."""
+    job_id = client.post("/jobs", json={"topic": "a topic"},
+                         headers=auth()).json()["id"]
+    before = client.get("/me/quota", headers=auth()).json()["used_today"]
+
+    _fail(job_id)
+    assert client.post(f"/jobs/{job_id}/retry",
+                       headers=auth()).status_code == 202
+
+    assert client.get("/me/quota", headers=auth()).json()["used_today"] == before
+
+
+@requires_db
+def test_only_a_failed_job_can_be_retried(client):
+    job_id = client.post("/jobs", json={"topic": "a topic"},
+                         headers=auth()).json()["id"]
+
+    # Still queued, so there is nothing to retry -- and the refusal says so
+    # rather than leaving the caller to guess what it is now.
+    r = client.post(f"/jobs/{job_id}/retry", headers=auth())
+    assert r.status_code == 409
+    assert r.json()["detail"]["error"] == "not_failed"
+    assert r.json()["detail"]["status"] == "queued"
+
+    with psycopg.connect(DSN, autocommit=True) as conn:
+        conn.execute("update jobs set status='succeeded' where id=%s", (job_id,))
+    r = client.post(f"/jobs/{job_id}/retry", headers=auth())
+    assert r.status_code == 409, "a finished video was put back in the queue"
+
+
+@requires_db
+def test_a_job_that_is_not_yours_cannot_be_retried(client):
+    """Same answer as a job that does not exist, so the route cannot be used
+    to find out whose job ids are real."""
+    job_id = client.post("/jobs", json={"topic": "mine"},
+                         headers=auth("user-a")).json()["id"]
+    _fail(job_id)
+
+    r = client.post(f"/jobs/{job_id}/retry", headers=auth("user-b"))
+    assert r.status_code == 404
+
+
 @requires_db
 def test_topic_is_validated(client):
     assert client.post("/jobs", json={"topic": "ab"}, headers=auth()).status_code == 422

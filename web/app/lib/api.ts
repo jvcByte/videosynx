@@ -161,6 +161,9 @@ export const api = {
   videoUrl: (id: string) => request<{ url: string; duration_s: number | null }>(
     `/jobs/${id}/video`
   ),
+  /** Put a job that has given up back in the queue. Costs no allowance. */
+  retry: (id: string) =>
+    request<Job>(`/jobs/${id}/retry`, { method: "POST" }),
 };
 
 export const PENDING: JobStatus[] = [

@@ -322,6 +322,30 @@ test("a job that failed and is coming back reads as Retrying", async ({ page }) 
   await expect(row.locator(".job-note")).toContainText("trying again");
 });
 
+test("a failed job can be retried from the page", async ({ page }) => {
+  // A job that has given up, written straight to the row: there is no worker
+  // here, and this is about what the page offers for it.
+  execFileSync("psql", [
+    DSN, "-q", "-c",
+    `insert into jobs (user_id, topic, tier, status, attempt, max_attempts,
+                       error_code, error_message, finished_at)
+     values ('e2e-user', 'a job that has given up', 'free', 'failed', 7, 7,
+             'provider_quota', 'every model failed: quota', now())`,
+  ]);
+
+  await page.goto("/");
+  const row = page.locator('[data-testid="job"]:has-text("a job that has given up")');
+  await expect(row.locator(".status")).toHaveText("Failed");
+
+  // The one thing a failed job left you able to do.
+  await row.getByRole("button", { name: "Try again" }).click();
+
+  // Straight back into the queue without a reload, and it costs no allowance
+  // -- the row already exists and the work is the same work.
+  await expect(row).toHaveAttribute("data-status", "queued", { timeout: 10_000 });
+  await expect(row.locator(".status")).toHaveText("Queued");
+});
+
 test("a rejected submission explains itself", async ({ page }) => {
   // Exhaust the free allowance so the next submit is refused.
   const headers = { "Content-Type": "application/json", ...DEV_USER };

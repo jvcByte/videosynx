@@ -263,7 +263,12 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
 
     # ------------------------------------------------------------------ meta
 
+    # Both spellings. /healthz is what a load balancer or an orchestrator
+    # probes by default, and a 404 there reads as a broken service rather
+    # than a wrong path -- which is exactly how a stray probe on this machine
+    # looked for a while.
     @app.get("/health")
+    @app.get("/healthz")
     def health() -> dict:
         with _connect(dsn) as conn:
             conn.execute("select 1")
@@ -468,6 +473,57 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
             # is not this caller's business.
             raise HTTPException(status.HTTP_404_NOT_FOUND, "no such job")
         return JobResponse(**row)
+
+    @app.post("/jobs/{job_id}/retry", response_model=JobResponse,
+              status_code=status.HTTP_202_ACCEPTED)
+    def retry_job(job_id: str, user: User = Depends(current_user)) -> JobResponse:
+        """Put a job that has given up back in the queue.
+
+        Retrying does not cost an allowance. It re-runs the work this row
+        already describes -- the attempt it repeats was counted when the job
+        was submitted, and a job that failed has not produced anything to
+        charge for. Charging again would mean the way to recover from a
+        failure is to spend another of three daily jobs on the same video.
+
+        The attempt count starts over rather than continuing, because the
+        budget is there to stop a job looping on its own, and someone asking
+        for it by hand has seen the error and decided it is worth another go.
+        """
+        row = _job_or_404(job_id)
+        if row["user_id"] != user.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "no such job")
+        if row["status"] != "failed":
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={"error": "not_failed", "status": row["status"]},
+            )
+        with _connect(dsn) as conn:
+            fresh = conn.execute(
+                """
+                update jobs
+                   set status = 'queued'::job_status,
+                       attempt = 0,
+                       not_before = now(),
+                       error_code = null,
+                       error_message = null,
+                       stage = null,
+                       progress = 0,
+                       started_at = null,
+                       finished_at = null,
+                       lease_owner = null,
+                       lease_expires_at = null
+                 where id = %s and user_id = %s and status = 'failed'
+                returning *
+                """,
+                (job_id, user.id),
+            ).fetchone()
+        if fresh is None:
+            # The status was read a moment ago and the update is conditional
+            # on it, so a worker cannot have taken it: this is another request
+            # getting there first.
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                detail={"error": "not_failed"})
+        return JobResponse(**fresh)
 
     @app.get("/jobs/{job_id}/video")
     def get_video(job_id: str, user: User = Depends(current_user)) -> dict:

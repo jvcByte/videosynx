@@ -143,6 +143,22 @@ export default function Home() {
     }
   }
 
+  async function onRerun(job: Job) {
+    setPlayError(null);
+    try {
+      const fresh = await api.retry(job.id);
+      // Written straight in rather than waiting for the next poll, so the row
+      // stops saying Failed the moment it stops being true.
+      setJobs((current) =>
+        current.map((row) => (row.id === fresh.id ? fresh : row))
+      );
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => refresh(), POLL_MS);
+    } catch (err) {
+      setPlayError(err instanceof ApiError ? err.message : "Could not retry the job");
+    }
+  }
+
   async function onDownload(job: Job) {
     setPlayError(null);
     try {
@@ -238,6 +254,7 @@ export default function Home() {
             onPlay={onPlay}
             onDownload={onDownload}
             onRetry={refresh}
+            onRerun={onRerun}
           />
         </div>
       </main>

@@ -290,6 +290,20 @@ The one thing not retried is a job that was **refused** rather than attempted
 spent, and the same input is refused in exactly the same way, so repeating it
 would only delay the answer.
 
+Once a job *has* run out of attempts it says **Failed**, and the card offers
+**Try again** — the one thing a failure left you able to do:
+
+```bash
+curl -s -X POST localhost:8000/jobs/<id>/retry -H 'X-Dev-User: me:free'
+```
+
+That puts it back in the queue with a full attempt budget. **It costs no
+allowance**: the row already exists and the work is the same work, and charging
+again would mean the way to recover from a failure is to spend another of three
+daily jobs on the same video. Only a failed job can be retried — a job that is
+still running, or one that has already produced a video, is refused with a 409
+saying which state it is actually in.
+
 Deleting the wait is not an option worth wanting: a retry that starts a second
 after the failure finds conditions exactly as they were, which is what the old
 two-attempts-one-second-apart behaviour amounted to.
@@ -334,7 +348,7 @@ offer a voice that dies at synthesis.
 ## 3. Tests
 
 ```bash
-$PYCODING/.venv/bin/pytest                  # 322 tests
+$PYCODING/.venv/bin/pytest                  # 327 tests
 cd $PYCODING/web && npx playwright test     # 3 browser tests
 ```
 
@@ -435,6 +449,14 @@ path, or activate it.
 
 **`createdb: database "pycoding" already exists`**
 Not an error. Continue.
+
+**`GET /healthz` returns 404**
+It should not — the API answers to both `/health` and `/healthz`, because the
+second is what a load balancer or orchestrator probes by default and a 404
+there reads as a broken service rather than a wrong path. If you still see
+404s, something is probing a port this API is not on: check what else on the
+machine serves that path, since two projects both defaulting to port 8000 will
+answer for each other.
 
 **A job sits at `queued` forever**
 No worker is running. Start one — the API only enqueues.

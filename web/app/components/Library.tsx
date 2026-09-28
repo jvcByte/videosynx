@@ -18,13 +18,17 @@ export function Library({
   onPlay,
   onDownload,
   onRetry,
+  onRerun,
 }: {
   jobs: Job[];
   loaded: boolean;
   failed: boolean;
   onPlay: (job: Job) => void;
   onDownload: (job: Job) => void;
+  /** Reload the library, which is what the failed-to-load state offers. */
   onRetry: () => void;
+  /** Put a job that has given up back in the queue. */
+  onRerun: (job: Job) => void;
 }) {
   return (
     <section className="library">
@@ -63,7 +67,8 @@ export function Library({
       ) : (
         <ul className="jobs">
           {jobs.map((job) => (
-            <JobCard key={job.id} job={job} onPlay={onPlay} onDownload={onDownload} />
+            <JobCard key={job.id} job={job} onPlay={onPlay}
+                     onDownload={onDownload} onRerun={onRerun} />
           ))}
         </ul>
       )}
@@ -75,10 +80,12 @@ function JobCard({
   job,
   onPlay,
   onDownload,
+  onRerun,
 }: {
   job: Job;
   onPlay: (job: Job) => void;
   onDownload: (job: Job) => void;
+  onRerun: (job: Job) => void;
 }) {
   return (
     <li className="job" data-testid="job" data-status={job.status}>
@@ -144,6 +151,13 @@ function JobCard({
               no cost — or switch generation to local only in Settings.
             </p>
           )}
+          {/* The one thing a failed job left you able to do. It costs no
+              allowance: the row already exists and the work is the same. */}
+          <div className="job-actions">
+            <button className="ghost" onClick={() => onRerun(job)}>
+              Try again
+            </button>
+          </div>
         </>
       )}
 
