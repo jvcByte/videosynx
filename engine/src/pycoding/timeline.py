@@ -71,6 +71,101 @@ class Phrase:
 
 
 @dataclass(frozen=True)
+class Node:
+    """One shape in a diagram."""
+
+    id: str
+    label: str = ""
+    shape: str = "box"  # box | round | cylinder | cloud | document | person | stack
+    repeat: int = 1  # n copies stacked, for "a lot of these"
+
+
+@dataclass(frozen=True)
+class Edge:
+    """An arrow between two nodes, by id."""
+
+    source: str
+    target: str
+    label: str = ""
+
+
+@dataclass(frozen=True)
+class Diagram:
+    """A node-and-edge illustration.
+
+    One generic model rather than a shape per concept: the layouts cover flow,
+    layering, hierarchy and cycles, which is most of what a concept has to
+    show. Reach for a diagram whenever the idea is positional -- what connects
+    to what, or what sits on top of what. Text in boxes is the fallback, not
+    the default.
+    """
+
+    layout: str = "row"  # one of LAYOUTS
+    nodes: tuple[Node, ...] = ()
+    edges: tuple[Edge, ...] = ()
+
+
+SHAPES = ("box", "round", "cylinder", "cloud", "document", "person", "stack")
+LAYOUTS = ("row", "column", "grid", "cycle", "tree", "stack")
+
+
+def _bounded_int(value, default: int, low: int, high: int) -> int:
+    try:
+        return max(low, min(int(value), high))
+    except (TypeError, ValueError):
+        return default
+
+
+def parse_diagram(raw) -> Diagram | None:
+    """Build a Diagram from a wire dict, or None if it cannot be used.
+
+    A malformed diagram drops the diagram, not the slide: the heading and the
+    narration are still worth showing.
+
+    Everything here is defensive, because the input is model output. An id
+    that is missing or repeated is dropped rather than trusted -- edges address
+    nodes by id, so a duplicate would make the whole drawing ambiguous.
+    """
+    if not isinstance(raw, dict):
+        return None
+
+    nodes: list[Node] = []
+    for item in raw.get("nodes") or []:
+        if not isinstance(item, dict):
+            continue
+        node_id = str(item.get("id", "")).strip()[:40]
+        if not node_id or any(node.id == node_id for node in nodes):
+            continue
+        shape = str(item.get("shape", "box")).strip().lower()
+        nodes.append(Node(
+            id=node_id,
+            label=str(item.get("label", "")).strip()[:60],
+            shape=shape if shape in SHAPES else "box",
+            repeat=_bounded_int(item.get("repeat"), 1, 1, 5),
+        ))
+    if not nodes:
+        return None
+
+    known = {node.id for node in nodes}
+    edges: list[Edge] = []
+    for item in raw.get("edges") or []:
+        if not isinstance(item, (list, tuple)) or len(item) < 2:
+            continue
+        source, target = str(item[0]), str(item[1])
+        if source not in known or target not in known:
+            continue  # an arrow to nowhere is a typo, not a feature
+        label = str(item[2]).strip()[:40] if len(item) > 2 else ""
+        edges.append(Edge(source, target, label))
+
+    layout = str(raw.get("layout", "row")).strip().lower()
+    return Diagram(
+        layout=layout if layout in LAYOUTS else "row",
+        nodes=tuple(nodes),
+        edges=tuple(edges),
+    )
+
+
+@dataclass(frozen=True)
 class Slide:
     """A concept illustration, revealed a piece at a time as the voice explains.
 
@@ -85,8 +180,26 @@ class Slide:
     # A row of boxes with their index underneath, for anything positional:
     # indexing, slicing, negative indices, membership.
     sequence: tuple[str, ...] = ()
+    # Nodes and arrows, for anything with structure: flow, layers, hierarchy.
+    diagram: Diagram | None = None
     note: str = ""
-    revealed: int = 0  # how many columns (or boxes) are on screen so far
+    revealed: int = 0  # how many pieces are on screen so far
+
+    @property
+    def pieces(self) -> int:
+        """How many things there are to reveal, one per narrated sentence.
+
+        This is the only definition of that count, and its order is the order
+        the renderer dispatches in -- so the two cannot disagree about how much
+        of the slide is on screen. It used to be written twice.
+        """
+        if self.columns:
+            return len(self.columns)
+        if self.sequence:
+            return len(self.sequence)
+        if self.diagram:
+            return len(self.diagram.nodes)
+        return 0
 
 
 @dataclass(frozen=True)
@@ -281,6 +394,22 @@ def time_captions(text: str, start_frame: int, end_frame: int) -> list[Caption]:
         captions.append(Caption(chunk, previous, stop))
         previous = stop
     return [c for c in captions if c.end_frame > c.start_frame]
+
+
+def without_captions(plan: FramePlan) -> FramePlan:
+    """The same timeline with nothing burned into the caption band.
+
+    The spans keep their frame counts, so dropping captions cannot shift the
+    sync -- it only stops the band being drawn.
+    """
+    return replace(
+        plan,
+        spans=tuple(
+            Span(replace(span.state, caption=None), span.n_frames)
+            for span in plan.spans
+        ),
+        captions=(),
+    )
 
 
 def with_captions(spans: list[Span], captions: list[Caption]) -> list[Span]:
@@ -507,7 +636,7 @@ class Explanation:
 
     @property
     def pieces(self) -> int:
-        return len(self.slide.columns) or len(self.slide.sequence)
+        return self.slide.pieces
 
 
 def plan_explanation(

@@ -293,6 +293,16 @@ class KokoroSpeaker:
         from kokoro_onnx import Kokoro
 
         self._kokoro = Kokoro(str(model), str(voices))
+        # An unknown voice name would otherwise fail at synthesis, which on a
+        # render is minutes in and after everything else has been paid for.
+        # Catch it while the model is still open, and fall back.
+        get_voices = getattr(self._kokoro, "get_voices", None)
+        known = set(get_voices()) if callable(get_voices) else set()
+        if known and voice not in known:
+            _console.log(
+                f"[yellow]unknown voice {voice!r}; using {DEFAULT_KOKORO_VOICE}[/yellow]"
+            )
+            voice = DEFAULT_KOKORO_VOICE
         self._voice = voice
         self._speed = speed
 

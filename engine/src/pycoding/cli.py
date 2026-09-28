@@ -40,9 +40,9 @@ from .providers import (
 )
 from .render import render_plan
 from .sandbox import assert_sandbox_available
-from .script import build_tutorial
+from .script import MODES, build_tutorial
 from .srt import write_srt
-from .timeline import FPS, Intro, Phrase, Snippet, Span, build_plan
+from .timeline import FPS, Intro, Phrase, Snippet, Span, build_plan, without_captions
 
 _console = Console()
 
@@ -304,6 +304,10 @@ def main(argv: list[str] | None = None) -> int:
                              "at a constant rate regardless of narration length")
     parser.add_argument("--no-captions", action="store_true", help="render without captions")
     parser.add_argument("--no-intro", action="store_true", help="skip the opening title card")
+    parser.add_argument("--mode", choices=list(MODES), default="both",
+                        help="'both' explains the idea then writes code; 'coding' "
+                             "is code alone; 'illustration' is drawn explanation "
+                             "alone, with no code on screen")
     parser.add_argument("--execute", action="store_true",
                         help="run each snippet in the sandbox and show its real output")
     parser.add_argument(
@@ -317,8 +321,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="use offline speech even when ElevenLabs keys are present")
     parser.add_argument("--tts", choices=["auto", "elevenlabs", "kokoro", "espeak"],
                         default="auto",
-                        help="voice engine. 'auto' prefers ElevenLabs when keys are "
-                             "set, then Kokoro, then espeak")
+                        help="voice engine. 'auto' prefers Kokoro, which is local "
+                             "and cannot run out of credit mid-video, then "
+                             "ElevenLabs, then espeak")
     parser.add_argument("--voice", type=str, default=DEFAULT_KOKORO_VOICE,
                         help=f"Kokoro voice (default: {DEFAULT_KOKORO_VOICE})")
     parser.add_argument("--save-script", type=Path,
@@ -364,19 +369,14 @@ def main(argv: list[str] | None = None) -> int:
             context=args.context,
             execute=args.execute,
             intro=not args.no_intro,
+            mode=args.mode,
         )
         plan = tutorial.plan
         if args.save_script:
             _console.log(f"[green]wrote {tutorial.export(args.save_script)}[/green]")
 
     if args.no_captions:
-        plan = replace(
-            plan,
-            spans=tuple(
-                Span(replace(s.state, caption=None), s.n_frames) for s in plan.spans
-            ),
-            captions=(),
-        )
+        plan = without_captions(plan)
 
     _console.log(
         f"plan: {len(plan.spans)} spans, {plan.total_frames} frames, "

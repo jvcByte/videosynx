@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import tempfile
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from rich.console import Console
@@ -18,18 +18,32 @@ from rich.console import Console
 from .execute import run_snippet
 from .narration import trim_silence
 from .prompts import (
+    MAX_SLIDES,
     code_prompt,
+    concept_prompt,
     intro_prompt,
     narration_prompt,
     parse_anchored,
     parse_code,
+    parse_slides,
     sentences,
 )
-from .providers import Speaker, Writer
+from .providers import ProviderError, Speaker, Writer
 from .sandbox import DEFAULT_TIMEOUT_S, assert_sandbox_available
-from .timeline import Explanation, FramePlan, Intro, Phrase, Snippet, build_plan
+from .timeline import Explanation, FramePlan, Intro, Phrase, Slide, Snippet, build_plan
 
 _console = Console()
+
+# Which halves of a tutorial to produce.
+MODES = ("coding", "illustration", "both")
+
+# What to ask the model for, and how much of it to accept: (wording, cap).
+# An illustration-only video has no code, so its slides have to carry the whole
+# runtime rather than merely introduce it.
+SLIDE_PLAN = {
+    "both": ("one to three", MAX_SLIDES),
+    "illustration": ("four to six", 6),
+}
 
 
 def resolve_marker(code: str, marker: str) -> int | None:
@@ -70,6 +84,41 @@ def speak_plain(speaker: Speaker, text: str) -> tuple[Phrase, ...]:
     )
 
 
+def concept_slides(
+    writer: Writer, speaker: Speaker, topic: str, context: str = "",
+    *, slide_range: str = "one to three", limit: int = MAX_SLIDES,
+) -> list[Explanation]:
+    """The slides that explain the idea before the first line of code.
+
+    Without these the video opens on a production example and never says what
+    the topic means -- the viewer is shown a string being parsed before anyone
+    has told them what a string is.
+    """
+    _console.log("[blue]Writing the concept slides[/blue]")
+    slides: list[Explanation] = []
+    raw_slides = writer.write(concept_prompt(topic, context, slide_range))
+    for raw in parse_slides(raw_slides, limit):
+        phrases = tuple(
+            phrase
+            for sentence in raw["narration"]  # one entry per spoken sentence
+            for phrase in speak_plain(speaker, sentence)
+        )
+        if not phrases:
+            continue
+        slides.append(
+            Explanation(
+                slide=Slide(heading=raw["heading"], columns=raw["columns"],
+                            diagram=raw.get("diagram"), note=raw["note"]),
+                phrases=phrases,
+            )
+        )
+    if slides:
+        _console.log(f"[green]{len(slides)} concept slides[/green]")
+    else:
+        _console.log("[yellow]No concept slides; the video opens on the code[/yellow]")
+    return slides
+
+
 @dataclass
 class Tutorial:
     plan: FramePlan
@@ -91,6 +140,13 @@ class Tutorial:
                 {
                     "kind": "explain",
                     "heading": section.slide.heading,
+                    # The whole slide, so a bad one can be inspected and
+                    # hand-edited into a lesson rather than guessed at.
+                    "columns": [[title, list(lines)]
+                                for title, lines in section.slide.columns],
+                    "diagram": (asdict(section.slide.diagram)
+                                if section.slide.diagram else None),
+                    "note": section.slide.note,
                     "narration": [
                         {"text": p.text, "frames": p.n_frames}
                         for p in section.phrases
@@ -123,28 +179,26 @@ class Tutorial:
         return path
 
 
-def build_tutorial(
-    topic: str,
-    *,
+def code_sections(
     writer: Writer,
     speaker: Speaker,
+    topic: str,
     context: str = "",
+    *,
     execute: bool = True,
-    intro: bool = True,
+    max_snippets: int | None = None,
     timeout_s: int = DEFAULT_TIMEOUT_S,
     workdir: Path | None = None,
-) -> Tutorial:
-    """Generate a complete render plan for *topic*.
-
-    The work directory is temporary and always cleaned up: the old pipeline
-    left every job's intermediate files behind forever.
-    """
-    if not topic.strip():
-        raise ValueError("topic must not be empty")
-
+) -> list[Snippet]:
+    """Write, run and narrate the coded half of a tutorial."""
     _console.log(f"[blue]Writing code for:[/blue] {topic}")
-    raw_code = writer.write(code_prompt(topic, context))
-    snippets_code = parse_code(raw_code)
+    snippets_code = parse_code(writer.write(code_prompt(topic, context)))
+    if max_snippets is not None and len(snippets_code) > max_snippets:
+        # The tier caps how much renders. Say so, rather than quietly
+        # dropping the tail and leaving a video that stops mid-thought.
+        _console.log(f"[yellow]keeping {max_snippets} of {len(snippets_code)} "
+                     f"snippets (tier limit)[/yellow]")
+        snippets_code = snippets_code[:max_snippets]
     _console.log(f"[green]{len(snippets_code)} snippets[/green]")
 
     if execute:
@@ -180,15 +234,70 @@ def build_tutorial(
             built.append(
                 Snippet(code=code, output=output, phrases=speak_anchored(speaker, code, pairs))
             )
+    return built
+
+
+def build_tutorial(
+    topic: str,
+    *,
+    writer: Writer,
+    speaker: Speaker,
+    context: str = "",
+    execute: bool = True,
+    intro: bool = True,
+    mode: str = "both",
+    max_snippets: int | None = None,
+    timeout_s: int = DEFAULT_TIMEOUT_S,
+    workdir: Path | None = None,
+) -> Tutorial:
+    """Generate a complete render plan for *topic*.
+
+    ``mode`` decides which halves are produced: ``coding`` is code alone,
+    ``illustration`` is slides alone, ``both`` is one after the other, concepts
+    first. An illustration-only video has no code to run, so it needs no
+    sandbox and its slides have to carry the whole runtime -- hence the larger
+    slide count.
+
+    The work directory is temporary and always cleaned up: the old pipeline
+    left every job's intermediate files behind forever.
+    """
+    if not topic.strip():
+        raise ValueError("topic must not be empty")
+    if mode not in MODES:
+        raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
+
+    concepts: list[Explanation] = []
+    if mode != "coding":
+        # Concepts first, then examples: the viewer needs to know what the
+        # thing is before watching it being typed.
+        slide_range, limit = SLIDE_PLAN[mode]
+        concepts = concept_slides(writer, speaker, topic, context,
+                                  slide_range=slide_range, limit=limit)
+
+    built: list[Snippet] = []
+    if mode != "illustration":
+        built = code_sections(writer, speaker, topic, context, execute=execute,
+                              max_snippets=max_snippets, timeout_s=timeout_s,
+                              workdir=workdir)
 
     card = None
     if intro:
         _console.log("[blue]Writing the opening[/blue]")
-        card = Intro(topic, speak_plain(speaker, writer.write(intro_prompt(topic))))
+        try:
+            opening = writer.write(intro_prompt(topic))
+        except ProviderError as exc:
+            # The title card is framing, not content, and it is written last --
+            # after the concept slides, the code and every line of narration
+            # have already been generated and paid for. Failing the job here
+            # throws all of that away, and --no-intro proves it is optional.
+            _console.log(f"[yellow]No title card: {exc}[/yellow]")
+        else:
+            card = Intro(topic, speak_plain(speaker, opening))
 
-    plan = build_plan(built, intro=card)
+    sections: list[Snippet | Explanation] = [*concepts, *built]
+    plan = build_plan(sections, intro=card)
     _console.log(
         f"[green]Plan:[/green] {plan.total_frames} frames, {plan.duration_s:.1f}s, "
         f"{len(plan.captions)} captions"
     )
-    return Tutorial(plan=plan, sections=built, topic=topic)
+    return Tutorial(plan=plan, sections=sections, topic=topic)

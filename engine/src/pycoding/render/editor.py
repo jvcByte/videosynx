@@ -11,6 +11,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 from ..timeline import VisualState
 from . import theme
+from .diagram import render_diagram
+from .style import DEFAULT_STYLE, STYLES, Style
 
 TITLE_H = 36
 TAB_H = 36
@@ -28,13 +30,22 @@ SUBTITLE_SIZE = 22
 BOTTOM_PAD = 24  # blank rows kept below the cursor, like VS Code's cursorSurroundingLines
 CAPTION_H = 92  # a dedicated band, so clearing a caption never erases terminal output
 CAPTION_MAX_LINES = 2
+DIAGRAM_FRACTION = 0.46  # of the canvas height; leaves room for heading and note
 
 
 class Editor:
-    def __init__(self, width: int, height: int, font_path: str, filename: str = "snippet.py"):
+    def __init__(self, width: int, height: int, font_path: str,
+                 filename: str = "snippet.py", style: Style | None = None,
+                 watermark: str | None = None):
         self.width = width
         self.height = height
         self.filename = filename
+        self.font_path = font_path
+        self.watermark = watermark
+        # How a concept slide is drawn. The editor chrome and the caption band
+        # keep their own colours -- a code editor is not a sketch, and the
+        # caption band sits below both.
+        self.style = style or STYLES[DEFAULT_STYLE]
         # Scale the panel with the canvas so 720p (free tier) and 1080p both work.
         panel_h = min(PANEL_H, max(80, height // 3))
         self.caption_top = height - STATUS_H - CAPTION_H
@@ -173,6 +184,20 @@ class Editor:
         if state.caption != self._drawn_caption:
             self._redraw_caption(state.caption)
 
+        if self.watermark:
+            self._paint_watermark()
+
+    def _paint_watermark(self) -> None:
+        """A corner mark, for tiers that ask for one.
+
+        Painted on every state change rather than once into the chrome: a slide
+        or a title card repaints the whole canvas, so a mark drawn only into
+        the chrome would survive exactly until the first slide.
+        """
+        d = ImageDraw.Draw(self.canvas)
+        d.text((self.width - 28, self.caption_top - 34), self.watermark,
+               font=self.f_ui, fill=self.style.dim, anchor="rm")
+
     def _paint_slide(self, slide) -> None:
         """Draw a concept illustration.
 
@@ -181,20 +206,29 @@ class Editor:
         starts once the narration says so.
         """
         d = ImageDraw.Draw(self.canvas)
-        d.rectangle([0, 0, self.width, self.caption_top], fill=theme.CARD_BG)
-        d.rectangle([0, self.height - STATUS_H, self.width, self.height], fill=theme.CARD_BG)
+        d.rectangle([0, 0, self.width, self.caption_top], fill=self.style.paper)
+        d.rectangle([0, self.height - STATUS_H, self.width, self.height],
+                    fill=self.style.paper)
 
         heading_lines = _wrap_to_pixels(slide.heading, self.f_title, int(self.width * 0.8))[:2]
         heading_h = len(heading_lines) * int(TITLE_SIZE * 1.2)
         rule_gap = int(TITLE_SIZE * 0.25) + 4 + int(TITLE_SIZE * 0.75)
 
+        # One branch per content type, in the same order as Slide.pieces -- that
+        # property is the single source of truth for how much is on screen, so
+        # the two must not drift apart.
+        col_w = wrapped = box_h = 0
         if slide.columns:
             col_w, _, wrapped, box_h = self._layout_columns(slide)
             content_h = box_h
-        else:
+        elif slide.sequence:
             content_h = self._sequence_height(slide)
+        elif slide.diagram:
+            content_h = self._diagram_height()
+        else:
+            content_h = 0
 
-        pieces = len(slide.columns) or len(slide.sequence)
+        pieces = slide.pieces
         show_note = bool(slide.note) and pieces and slide.revealed >= pieces
         note_h = int(TITLE_SIZE * 0.45) + CAPTION_SIZE if show_note else 0
 
@@ -203,25 +237,46 @@ class Editor:
 
         for line in heading_lines:
             d.text((self.width // 2, y), line, font=self.f_title,
-                   fill=theme.CARD_FG, anchor="ma")
+                   fill=self.style.ink, anchor="ma")
             y += int(TITLE_SIZE * 1.2)
 
         rule_w = int(self.width * 0.09)
         y += int(TITLE_SIZE * 0.25)
         d.rectangle([(self.width - rule_w) // 2, y, (self.width + rule_w) // 2, y + 4],
-                    fill=theme.STATUS_BG)
+                    fill=self.style.accent)
         y += 4 + int(TITLE_SIZE * 0.75)
 
         if slide.columns:
             self._paint_columns(d, slide, y, col_w, wrapped, box_h)
         elif slide.sequence:
             self._paint_sequence(d, slide, y)
+        elif slide.diagram:
+            self._paint_diagram(slide, y)
         y += content_h
 
         # The takeaway lands last, once everything it summarises is on screen.
         if show_note:
             d.text((self.width // 2, y + int(TITLE_SIZE * 0.45)), slide.note,
-                   font=self.f_caption, fill=theme.CARD_DIM, anchor="ma")
+                   font=self.f_caption, fill=self.style.dim, anchor="ma")
+
+    def _diagram_height(self) -> int:
+        return max(120, int(self.height * DIAGRAM_FRACTION))
+
+    def _paint_diagram(self, slide, y: int) -> None:
+        """Draw the node-and-edge illustration.
+
+        Drawn into its own layer and pasted, rather than drawn straight onto
+        the canvas: the diagram renderer supersamples to antialias its curves,
+        and that has to happen before the strokes reach the frame.
+        """
+        width = int(self.width * 0.88)
+        height = self._diagram_height()
+        image = render_diagram(
+            slide.diagram, (width, height),
+            key=slide.heading, style=self.style,
+            revealed=slide.revealed, font_path=self.font_path,
+        )
+        self.canvas.paste(image, ((self.width - width) // 2, y))
 
     def _layout_columns(self, slide):
         """Work out column geometry and wrapped lines before drawing anything."""
@@ -251,16 +306,17 @@ class Editor:
                 # Not said yet: an empty frame, so the shape of what is coming
                 # is visible without giving it away.
                 d.rounded_rectangle([x, y, x + col_w, y + box_h], radius=14,
-                                    outline=theme.SLIDE_DIM, width=2)
+                                    outline=self.style.ghost, width=2)
                 continue
             d.rounded_rectangle([x, y, x + col_w, y + box_h], radius=14,
-                                fill=theme.SLIDE_PANEL, outline=theme.SLIDE_LINE, width=2)
+                                fill=self.style.panel, outline=self.style.panel_line,
+                                width=2)
             d.text((x + 30, y + 24), title, font=self.f_subtitle,
-                   fill=theme.STATUS_BG, anchor="la")
+                   fill=self.style.accent, anchor="la")
             ty = y + 24 + int(SUBTITLE_SIZE * 2.4)
             for line in wrapped[i]:
                 d.text((x + 30, ty), line, font=self.f_term,
-                       fill=theme.CARD_FG, anchor="la")
+                       fill=self.style.ink, anchor="la")
                 ty += int(TERM_SIZE * 1.6)
 
     def _paint_sequence(self, d, slide, y: int) -> None:
@@ -278,23 +334,27 @@ class Editor:
         for i, value in enumerate(items):
             x = x0 + i * (box_w + gap)
             d.rounded_rectangle([x, y, x + box_w, y + box_h], radius=12,
-                                fill=theme.SLIDE_PANEL, outline=theme.SLIDE_LINE, width=2)
+                                fill=self.style.panel, outline=self.style.panel_line,
+                                width=2)
             d.text((x + box_w // 2, y + box_h // 2), value, font=self.f_code,
-                   fill=theme.CARD_FG, anchor="mm")
+                   fill=self.style.ink, anchor="mm")
+            # Positive and negative indices are two different readings of the
+            # same box, so they have to look different.
             if slide.revealed >= 1:
                 d.text((x + box_w // 2, y + box_h + 30), str(i),
-                       font=self.f_caption, fill=theme.STATUS_BG, anchor="mm")
+                       font=self.f_caption, fill=self.style.accent, anchor="mm")
             if slide.revealed >= 2:
                 d.text((x + box_w // 2, y + box_h + 72), str(i - len(items)),
-                       font=self.f_caption, fill=theme.ERROR_FG, anchor="mm")
+                       font=self.f_caption, fill=self.style.ink, anchor="mm")
 
     def _paint_title_card(self, title: str) -> None:
         """Draw the opening card: what the video is about, before any code."""
         d = ImageDraw.Draw(self.canvas)
-        d.rectangle([0, 0, self.width, self.caption_top], fill=theme.CARD_BG)
+        d.rectangle([0, 0, self.width, self.caption_top], fill=self.style.paper)
         # The editor's status bar would otherwise sit under the card reading
         # "main" and a Python version, which means nothing before any code.
-        d.rectangle([0, self.height - STATUS_H, self.width, self.height], fill=theme.CARD_BG)
+        d.rectangle([0, self.height - STATUS_H, self.width, self.height],
+                    fill=self.style.paper)
 
         lines = _wrap_to_pixels(title, self.f_title, int(self.width * 0.8))[:3]
         block_h = len(lines) * int(TITLE_SIZE * 1.25)
@@ -302,16 +362,16 @@ class Editor:
 
         for line in lines:
             d.text((self.width // 2, y), line, font=self.f_title,
-                   fill=theme.CARD_FG, anchor="ma")
+                   fill=self.style.ink, anchor="ma")
             y += int(TITLE_SIZE * 1.25)
 
         rule_w = int(self.width * 0.12)
         y += int(TITLE_SIZE * 0.35)
         d.rectangle([(self.width - rule_w) // 2, y, (self.width + rule_w) // 2, y + 4],
-                    fill=theme.STATUS_BG)
+                    fill=self.style.accent)
 
         d.text((self.width // 2, y + int(TITLE_SIZE * 0.6)), "a pycoding tutorial",
-               font=self.f_subtitle, fill=theme.CARD_DIM, anchor="ma")
+               font=self.f_subtitle, fill=self.style.dim, anchor="ma")
 
     def _update_scroll(self, cursor_line: int) -> None:
         """Keep the cursor on screen, holding BOTTOM_PAD rows below it."""

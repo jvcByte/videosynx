@@ -9,7 +9,10 @@ comprehensions while `numbers = range(15)` was being typed.
 
 from __future__ import annotations
 
+import json
 import re
+
+from .timeline import parse_diagram
 
 MARKER = "@@"
 
@@ -82,6 +85,166 @@ narrator says what the video is about and what the viewer will do.
 5. Do not repeat the topic as a bare title -- make it a spoken sentence.
 """
 
+CONCEPT_PROMPT = """Write the concept slides that open a tutorial video on the topic below.
+
+**Topic:** {topic}
+{context}
+This video teaches the idea before it shows any code. Over these slides the
+narrator says what the thing *is* and gives the viewer the words for it. Code
+comes afterwards, so these slides must not describe code.
+
+**Draw the idea; do not describe it in text.** A slide carries either a
+`diagram` of labelled shapes joined by arrows, or `columns` of text. Prefer the
+diagram whenever the idea is positional -- what connects to what, what sits on
+top of what, what happens in what order. Reach for text columns only when there
+is genuinely nothing to draw.
+
+Return JSON: {slide_range} slides, as a list of objects in exactly this shape:
+
+[
+  {{
+    "heading": "How a request reaches a worker",
+    "diagram": {{
+      "layout": "row",
+      "nodes": [
+        {{"id": "req", "label": "Request", "shape": "box"}},
+        {{"id": "q", "label": "Queue", "shape": "cylinder"}},
+        {{"id": "w", "label": "Worker", "shape": "person"}}
+      ],
+      "edges": [["req", "q", "enqueue"], ["q", "w", "claim"]]
+    }},
+    "note": "The queue is what lets the web tier stay fast.",
+    "narration": [
+      "A sentence spoken over the heading, before any shape is on screen.",
+      "A sentence spoken as the first shape appears.",
+      "A sentence spoken as the second shape appears.",
+      "A sentence spoken as the third shape appears.",
+      "A closing sentence that lands the note."
+    ]
+  }},
+  {{
+    "heading": "Feature extraction or fine-tuning",
+    "columns": [
+      ["Feature extraction", ["the model stays frozen", "a small model learns"]],
+      ["Fine-tuning", ["the model itself changes", "more data needed"]]
+    ],
+    "note": "Two strategies with different trade-offs.",
+    "narration": ["One.", "Two.", "Three.", "Four."]
+  }}
+]
+
+**Diagram vocabulary:**
+- `layout`: row, column, grid, cycle, tree, stack
+- `shape`: box, round, cylinder, cloud, document, person, stack
+- an edge is `[source_id, target_id]`, or `[source_id, target_id, "label"]`
+- node `id`s must be unique, and every edge must name an id that exists
+- add `"repeat": 3` to a node for "a lot of these" (2 to 5 stacked copies)
+- use `stack` for layers, `cycle` for a loop, `tree` for one-to-many
+
+**Instructions:**
+1. The first slide answers "what is this?" in plain language, for someone who
+   has never met the idea. Do not mention the scenario or any real system yet.
+2. Later slides may narrow toward the problem the video goes on to solve.
+3. Three to five shapes per diagram, or two to three columns of text. Keep
+   every label and every line under forty characters.
+4. `narration` must hold exactly one sentence more than there are things to
+   reveal -- nodes for a diagram, columns for a text slide. The first is spoken
+   over the heading alone, then one per shape as it appears, then a closing
+   sentence. Three nodes need five sentences; the diagram example above has
+   exactly that.
+5. Each sentence is under twenty words, and must not read the labels back word
+   for word -- say it in speech, not as a caption.
+6. The note is one sentence: what to remember from that slide.
+7. No code, no backticks, no function calls, no markdown.
+"""
+
+SCRIPT_PROMPT = """Turn the video script below into the lesson JSON a renderer consumes.
+
+Return only the JSON, with no commentary and no markdown fences.
+
+{
+  "title": "the video's title",
+  "intro": "one or two sentences spoken over the title card",
+  "sections": [
+    {
+      "name": "a short label for this section",
+      "explain": {
+        "heading": "what this slide says, as a heading",
+        "diagram": {
+          "layout": "row",
+          "nodes": [{"id": "a", "label": "Request", "shape": "box"}],
+          "edges": []
+        },
+        "note": "the one sentence to remember"
+      },
+      "narration": ["one sentence", "one sentence", "one sentence"]
+    },
+    {
+      "name": "a section that shows code",
+      "code": "print('the actual code, runnable on its own')",
+      "narration": [["print(", "one sentence about that fragment"]]
+    }
+  ],
+  "outro": ""
+}
+
+**Rules:**
+1. Every narration entry is exactly ONE sentence. This is not a style
+   preference: each sentence reveals one thing on screen, so two sentences
+   packed into one entry puts the slide ahead of the voice.
+2. An `explain` section's narration needs exactly two more sentences than
+   there are things to reveal -- one over the heading, one per node or column,
+   one closing. Three nodes need five sentences.
+3. Prefer a `diagram` over `columns` whenever the script describes something
+   positional: what connects to what, what sits on top of what, what happens
+   in what order. Use `columns` only for a genuine contrast of text.
+4. Diagram vocabulary: `layout` is row, column, grid, cycle, tree or stack;
+   `shape` is box, round, cylinder, cloud, document, person or stack; an edge
+   is [source, target] or [source, target, "label"]. Node ids must be unique
+   and every edge must name an id that exists.
+5. Use a `code` section only where the script actually contains code. Each
+   narration marker must be copied character for character from that code and
+   appear in it exactly once. Omit `code` sections entirely if the script has
+   no code in it.
+6. Keep the script's own words wherever you can. Do not invent claims,
+   examples or numbers that are not in it.
+7. Keep every heading, label and line under forty characters.
+
+**The script:**
+
+{script}
+"""
+
+
+def _first_json(text: str, pattern: str):
+    """The first JSON value matching *pattern* in *text*, or None.
+
+    Models wrap JSON in prose and fences. Digging it out in one place stops
+    every caller doing the same thing with a slightly different regex.
+    """
+    match = re.search(pattern, text, re.DOTALL)
+    if not match:
+        return None
+    try:
+        return json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+
+
+def parse_json_object(text: str):
+    return _first_json(text, r"\{.*\}")
+
+
+def parse_json_array(text: str):
+    return _first_json(text, r"\[.*\]")
+
+
+def script_prompt(text: str) -> str:
+    # str.replace, not str.format: the prompt is mostly JSON, and doubling
+    # every brace to survive .format() makes it unreadable.
+    return SCRIPT_PROMPT.replace("{script}", text)
+
+
 _BLOCK = re.compile(rf"^\s*{re.escape(MARKER)}\s*(.*?)\s*{re.escape(MARKER)}\s*$")
 
 
@@ -96,6 +259,54 @@ def narration_prompt(code: str) -> str:
 
 def intro_prompt(topic: str) -> str:
     return INTRO_PROMPT.format(topic=topic)
+
+
+def concept_prompt(topic: str, context: str = "",
+                   slide_range: str = "one to three") -> str:
+    block = f"\n**Context:** {context}\n" if context else "\n"
+    return CONCEPT_PROMPT.format(topic=topic, context=block, slide_range=slide_range)
+
+
+MAX_SLIDES = 3
+
+
+def parse_slides(text: str, limit: int = MAX_SLIDES) -> list[dict]:
+    """Pull the concept slides out of a model response.
+
+    Returns [] rather than raising. The concept phase improves the opening; a
+    model that answers in prose instead should cost the viewer an introduction,
+    not the whole job.
+    """
+    raw = parse_json_array(text)
+    if not isinstance(raw, list):
+        return []
+
+    slides: list[dict] = []
+    for item in raw[:limit]:
+        if not isinstance(item, dict) or not str(item.get("heading", "")).strip():
+            continue
+        columns: list[tuple[str, tuple[str, ...]]] = []
+        for entry in item.get("columns") or []:
+            if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+                continue
+            title, lines = entry
+            if not isinstance(lines, (list, tuple)) or not lines:
+                continue
+            columns.append((str(title), tuple(str(line) for line in lines)))
+        diagram = parse_diagram(item.get("diagram"))
+        narration = [str(s) for s in item.get("narration") or [] if str(s).strip()]
+        # A slide with nothing to reveal never reveals anything; one with no
+        # narration is a silent still. Either is worse than no slide at all.
+        if not (columns or diagram) or not narration:
+            continue
+        slides.append({
+            "heading": str(item["heading"]),
+            "columns": tuple(columns),
+            "diagram": diagram,
+            "note": str(item.get("note", "")),
+            "narration": narration,
+        })
+    return slides
 
 
 def parse_code(text: str) -> list[str]:

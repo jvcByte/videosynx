@@ -1,0 +1,282 @@
+{
+  "title": "Lesson 15.1 — When to Fine-Tune — and When Not To",
+  "intro": "This is lesson fifteen point one: when to fine-tune, and when not to. We will follow one engineer at a Nigerian fintech startup, from a two-week deadline to a working decision. By the end you will have a framework for choosing a strategy, instead of reaching for fine-tuning by default.",
+  "sections": [
+    {
+      "name": "The two-week deadline",
+      "explain": {
+        "heading": "The Two-Week Deadline",
+        "columns": [
+          ["The Pile", ["Transaction complaints", "Account requests", "Fraud reports"]],
+          ["The Deadline", ["Two weeks", "Categorize every message", "Build an AI model"]]
+        ],
+        "note": "Where do you even start?"
+      },
+      "narration": [
+        "This is a growing fintech startup in Lagos.",
+        "An engineer has just been handed a pile of customer support messages.",
+        "A manager says: we need an AI system that can categorize these in two weeks.",
+        "The engineer looks at the pile, then at a blank screen labeled Build AI Model."
+      ]
+    },
+    {
+      "name": "Don't build from zero",
+      "explain": {
+        "heading": "Don't Build From Zero",
+        "columns": [
+          ["Training From Scratch", ["Thousands labeled by hand", "Servers for weeks", "Months on the calendar"]],
+          ["Starting From Pre-Trained", ["Already knows language", "Fine-tune on your data", "Weeks, not months"]]
+        ],
+        "note": "Start with a model that already knows a lot — and specialize it for your job."
+      },
+      "narration": [
+        "The obvious move is to build a model from zero.",
+        "That means labeling thousands of examples by hand, renting servers, and watching months flip past on the calendar.",
+        "Then everything freezes, because a pre-trained model drops into the scene as a machine that has already done most of the work.",
+        "You don't have to teach a model everything from zero.",
+        "You can start with a model that already knows a lot, and specialize it for your job."
+      ]
+    },
+    {
+      "name": "The real question",
+      "explain": {
+        "heading": "The Real Question",
+        "columns": [
+          ["The Question Everyone Asks", ["How do I fine-tune?"]],
+          ["The Question That Matters", ["Should I fine-tune at all?"]]
+        ],
+        "note": "Data · Task similarity · Performance · Time · Compute"
+      },
+      "narration": [
+        "Now put two giant buttons on the screen: fine-tune, and don't fine-tune yet.",
+        "The engineer reaches toward one, then stops.",
+        "Because the decision engineers actually need to make is a different one.",
+        "Five factors settle it: your data, how similar your task is, the performance you need, your time, and your compute."
+      ]
+    },
+    {
+      "name": "A skilled worker",
+      "explain": {
+        "heading": "A Skilled Worker, Not a Blank Slate",
+        "columns": [
+          ["Already Learned", ["Thousands of books", "Articles and messages", "Years of language"]],
+          ["Now Specializes In", ["Customer support emails", "A much smaller stack"]]
+        ],
+        "note": "It doesn't start that education over — it specializes what the model already knows."
+      },
+      "narration": [
+        "Think of the pre-trained model as an experienced worker.",
+        "This worker has already spent years reading books, articles, messages and documents.",
+        "Then we hand the worker a much smaller stack, labeled customer support emails.",
+        "A pre-trained model has already learned general patterns from enormous amounts of data.",
+        "Fine-tuning doesn't start that education over, it specializes what the model already knows."
+      ]
+    },
+    {
+      "name": "What fine-tuning changes",
+      "explain": {
+        "heading": "What Fine-Tuning Actually Changes",
+        "columns": [
+          ["After Pre-Training", ["Billions of dials, settled", "General language patterns"]],
+          ["After Fine-Tuning", ["Small, targeted adjustments", "Task-specific data"]]
+        ],
+        "note": "It already knew language. Now it specializes in our problem."
+      },
+      "narration": [
+        "So what actually changes inside the model when you fine-tune?",
+        "Picture billions of tiny adjustable dials, the parameters and the weights.",
+        "During fine-tuning, only relatively small adjustments are made, using task-specific data.",
+        "A general language model becomes a customer support specialist.",
+        "It already knew language, and now it specializes in our problem."
+      ]
+    },
+    {
+      "name": "Standing on what exists",
+      "explain": {
+        "heading": "Standing on What Already Exists",
+        "columns": [
+          ["Lower Floors — General", ["Word relationships", "Sentence structure", "Context clues", "Similar meanings"]],
+          ["Upper Floors — Task-Specific", ["Customer complaints", "Medical terminology", "Financial language"]]
+        ],
+        "note": "Transfer learning: reuse knowledge learned for one problem on another related problem."
+      },
+      "narration": [
+        "This is standing on what already exists.",
+        "Picture a tall building, where the lower floors hold general patterns.",
+        "The upper floors adapt to your task, whether that is customer complaints, medical terminology, or financial language.",
+        "This is transfer learning.",
+        "Reuse knowledge that was learned for one problem when you solve another related problem."
+      ]
+    },
+    {
+      "name": "The trap",
+      "explain": {
+        "heading": "The Trap: A Model That Memorizes",
+        "columns": [
+          ["On Training Data", ["300 labeled emails", "98% accuracy — looks brilliant"]],
+          ["On Anything New", ["Validation: 60%", "Real world: 55%"]]
+        ],
+        "note": "The model didn't learn the problem. It learned the examples."
+      },
+      "narration": [
+        "Now for the trap, back to the fintech emails with only three hundred of them labeled.",
+        "During training the model becomes increasingly confident, and accuracy reaches ninety-eight percent.",
+        "Then completely new emails arrive, and the numbers collapse to sixty percent, then fifty-five.",
+        "The model didn't learn the problem.",
+        "It learned the examples.",
+        "It stuffed individual emails into a filing cabinet, instead of finding the pattern that connects them."
+      ]
+    },
+    {
+      "name": "Catastrophic forgetting",
+      "explain": {
+        "heading": "When Fine-Tuning Goes Too Far",
+        "columns": [
+          ["The Library", ["Years of general knowledge", "Everything pre-training built"]],
+          ["After Aggressive Tuning", ["Books ripped off the shelves", "Replaced by 300 copies"]]
+        ],
+        "note": "Overfitting — and catastrophic forgetting: pre-trained knowledge, damaged."
+      },
+      "narration": [
+        "Fine-tuning can also go too far.",
+        "Picture the pre-trained model as a large library, holding years of general knowledge.",
+        "Fine-tune it aggressively on a tiny stack of emails, and it starts ripping books off the shelves, replacing them with copies of your three hundred examples.",
+        "That is overfitting, and when it damages knowledge the model already had, it is called catastrophic forgetting.",
+        "The cause is simple: too much adjustment on too little data."
+      ]
+    },
+    {
+      "name": "Two roads",
+      "explain": {
+        "heading": "Two Roads",
+        "columns": [
+          ["Feature Extraction", ["Model stays frozen", "Data passes through it", "Only a small model learns"]],
+          ["Fine-Tuning", ["Data enters the model", "Parts of the model change", "It becomes specialized"]]
+        ],
+        "note": "Two different strategies, with different trade-offs."
+      },
+      "narration": [
+        "So there are two roads.",
+        "On the left, feature extraction, where the pre-trained model stays frozen and only a small model on top of it learns.",
+        "On the right, fine-tuning, where data enters the model and parts of the model change.",
+        "These aren't two versions of the same technique.",
+        "They're two different strategies with different trade-offs."
+      ]
+    },
+    {
+      "name": "The data scale",
+      "explain": {
+        "heading": "The Data Scale Changes the Decision",
+        "columns": [
+          ["Small Dataset", ["Feature extraction", "Model stays frozen"]],
+          ["Medium Dataset", ["Layer-wise fine-tuning", "Unlock some layers"]],
+          ["Large Dataset", ["Full fine-tuning", "Adapt every layer"]]
+        ],
+        "note": "How much data you have changes how much of the model you can safely adapt."
+      },
+      "narration": [
+        "The amount of data you have changes which road you take.",
+        "With a very small dataset, use feature extraction, and keep the model frozen.",
+        "With a medium dataset, use layer-wise fine-tuning, and unlock some of the layers.",
+        "With a large dataset, you can fine-tune fully and adapt the whole model.",
+        "The amount of data you have changes how much of the model you can safely adapt."
+      ]
+    },
+    {
+      "name": "The decision board",
+      "explain": {
+        "heading": "The Engineer's Decision Board",
+        "columns": [
+          ["About the Model", ["Is there a related", "pre-trained model?"]],
+          ["About the Data", ["How much labeled data?", "How different is my task?"]],
+          ["About the Budget", ["How much time and compute?", "How important is peak performance?"]]
+        ],
+        "note": "Feature extraction · Layer-wise · Full fine-tuning"
+      },
+      "narration": [
+        "So here is the engineer's decision board.",
+        "Ask about the model: is there a related pre-trained model I can start from?",
+        "Ask about the data: how much labeled data do I have, and how different is my task?",
+        "Ask about the budget: how much time and compute do I have, and how important is peak performance?",
+        "Every answer sends a glowing path toward one of three strategies."
+      ]
+    },
+    {
+      "name": "The Nigerian fintech case",
+      "explain": {
+        "heading": "The Nigerian Fintech Case",
+        "columns": [
+          ["The Constraints", ["1,200 labeled interactions", "Two weeks", "One GPU"]],
+          ["The Requirements", ["90%+ accuracy", "Related pre-trained model"]],
+          ["The Path", ["Layer-wise fine-tuning", "Unfreeze the upper layers"]]
+        ],
+        "note": "Data size, task difference, timeline, compute, and performance — all point the same way."
+      },
+      "narration": [
+        "Now let's walk the fintech case through the board.",
+        "The constraints are twelve hundred labeled interactions, a two-week timeline, and one GPU.",
+        "The requirements are ninety percent accuracy or better, with a related pre-trained language model available.",
+        "The data is too small to retrain everything, but large enough to safely unfreeze part of the model.",
+        "So the board lands on layer-wise fine-tuning."
+      ]
+    },
+    {
+      "name": "Red flags",
+      "explain": {
+        "heading": "Red Flags",
+        "columns": [
+          ["Stop and Fix First", ["Too little data", "Wrong pre-trained model", "Poor-quality labels"]],
+          ["Fine-Tuning Won't Fix", ["Knowledge the model lacks", "Extreme time pressure"]]
+        ],
+        "note": "Having data doesn't automatically mean you should fine-tune."
+      },
+      "narration": [
+        "Before you commit, watch for the red flags.",
+        "Too little data, the wrong pre-trained model, poor-quality labels.",
+        "A task that needs knowledge the model doesn't have, or extreme time pressure.",
+        "Each one blocks the path toward fine-tuning.",
+        "Having data doesn't automatically mean you should fine-tune.",
+        "Sometimes the smartest move is to fix the problem before training anything."
+      ]
+    },
+    {
+      "name": "The final decision",
+      "explain": {
+        "heading": "The Final Decision",
+        "columns": [
+          ["Fine-Tuning Is Not the Default", ["One tool in your toolbox", "Not the first move"]],
+          ["The Engineer's Job", ["Balance performance and cost", "Balance risk, time, resources"]]
+        ],
+        "note": "Choose the strategy with the right balance — not the most powerful one."
+      },
+      "narration": [
+        "So we are back to the two buttons.",
+        "This time the engineer doesn't reach immediately, because the five decision factors appear around them.",
+        "The choice comes only after weighing performance, cost, risk, time, and resources.",
+        "Fine-tuning is not the default.",
+        "It is one tool in your toolbox, and choosing it is an engineering decision."
+      ]
+    },
+    {
+      "name": "Summary",
+      "explain": {
+        "heading": "Ask Whether — Then How Much",
+        "columns": [
+          ["Feature Extraction", ["Very little data", "Freeze the model"]],
+          ["Layer-Wise Fine-Tuning", ["Medium data", "Unlock some layers"]],
+          ["Full Fine-Tuning", ["Lots of data", "Adapt every layer"]]
+        ],
+        "note": "Data · Task similarity · Performance · Time · Compute"
+      },
+      "narration": [
+        "Look at where we started: a pile of customer emails.",
+        "Very little data, and they go through feature extraction with the model frozen.",
+        "A medium amount, and they go through layer-wise fine-tuning, unlocking some of the layers.",
+        "Plenty of data, and they go through full fine-tuning, adapting every layer.",
+        "Above them, the five decision factors stay visible.",
+        "So from this point forward, when you see a fine-tuning problem, don't start by asking how to train the model.",
+        "Start by asking whether the model should be changed at all, and how much."
+      ]
+    }
+  ]
+}

@@ -34,10 +34,19 @@ from pathlib import Path
 from rich.console import Console
 
 from .execute import run_snippet
-from .providers import Speaker
+from .prompts import parse_json_object, script_prompt
+from .providers import Speaker, Writer
 from .sandbox import DEFAULT_TIMEOUT_S, assert_sandbox_available
 from .script import Tutorial, speak_anchored, speak_plain
-from .timeline import Explanation, Intro, Phrase, Slide, Snippet, build_plan
+from .timeline import (
+    Explanation,
+    Intro,
+    Phrase,
+    Slide,
+    Snippet,
+    build_plan,
+    parse_diagram,
+)
 
 _console = Console()
 
@@ -78,6 +87,7 @@ def _load_explain(raw: dict, name: str) -> ExplainSection:
         heading=str(spec.get("heading", name)),
         columns=columns,
         sequence=tuple(str(v) for v in spec.get("sequence", [])),
+        diagram=parse_diagram(spec.get("diagram")),
         note=str(spec.get("note", "")),
     )
     sentences = tuple(str(s) for s in raw.get("narration", []) if str(s).strip())
@@ -86,36 +96,94 @@ def _load_explain(raw: dict, name: str) -> ExplainSection:
     return ExplainSection(name=name, slide=slide, sentences=sentences)
 
 
-def load_lesson(path: Path | str) -> Lesson:
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+def parse_lesson(data, source: str = "lesson") -> Lesson:
+    """Validate a plain dict and build a Lesson.
+
+    Split out from :func:`load_lesson` so model-written lessons go through
+    exactly the checks a hand-written file does. The generated path is the one
+    more likely to be malformed, not less, and a lesson that fails here fails
+    with a readable message instead of somewhere deep in the renderer.
+    """
+    if not isinstance(data, dict):
+        raise ValueError(f"{source}: expected a JSON object, not {type(data).__name__}")
 
     sections: list[Section | ExplainSection] = []
-    for i, raw in enumerate(data.get("sections", []), start=1):
-        name = raw.get("name", f"Section {i}")
+    for i, raw in enumerate(data.get("sections") or [], start=1):
+        if not isinstance(raw, dict):
+            raise ValueError(f"{source}: section {i} is not an object")
+        name = str(raw.get("name", f"Section {i}"))
         if "explain" in raw:
             sections.append(_load_explain(raw, name))
             continue
 
-        code = raw["code"]
-        narration = [(str(marker), str(sentence)) for marker, sentence in raw["narration"]]
+        if "code" not in raw:
+            raise ValueError(
+                f"{source}: section {i} ({name}) has neither code nor explain"
+            )
+        code = str(raw["code"])
+        narration = [(str(marker), str(sentence))
+                     for marker, sentence in raw.get("narration") or []]
         for marker, _ in narration:
             if marker and marker not in code:
                 # Anchors are how a sentence is lined up with the screen; a
                 # marker that is not in the code means it will drift.
                 raise ValueError(
-                    f"section {i} ({name}): narration marker "
+                    f"{source}: section {i} ({name}): narration marker "
                     f"{marker!r} does not appear in the code"
                 )
         sections.append(Section(name=name, code=code, narration=narration))
 
     if not sections:
-        raise ValueError(f"{path}: no sections")
+        raise ValueError(f"{source}: no sections")
+
+    title = str(data.get("title", "")).strip()
+    if not title:
+        raise ValueError(f"{source}: no title")
     return Lesson(
-        title=data["title"],
+        title=title,
         sections=sections,
-        intro=data.get("intro", ""),
-        outro=data.get("outro", ""),
+        intro=str(data.get("intro", "")),
+        outro=str(data.get("outro", "")),
     )
+
+
+def load_lesson(path: Path | str) -> Lesson:
+    path = Path(path)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path}: not valid JSON ({exc})") from exc
+    return parse_lesson(data, source=str(path))
+
+
+def lesson_from_script(writer: Writer, text: str) -> Lesson:
+    """Turn submitted script text into a lesson.
+
+    A script that is *already* lesson JSON is rendered verbatim. Only prose
+    goes through the model to be structured -- a caller who has already done
+    the work should not have their content rewritten underneath them.
+    """
+    data = parse_json_object(text)
+    if isinstance(data, dict) and data.get("sections"):
+        _console.log("[blue]Rendering the submitted lesson[/blue]")
+        return parse_lesson(data, source="the submitted script")
+    return script_to_lesson(writer, text)
+
+
+def script_to_lesson(writer: Writer, text: str) -> Lesson:
+    """Turn a written script into a lesson, with a model doing the structuring.
+
+    The result goes through :func:`parse_lesson`, so a model that answers in
+    prose, returns a truncated object, or emits a slide with nothing in it
+    fails here rather than part-way through a render.
+    """
+    _console.log("[blue]Structuring the script[/blue]")
+    data = parse_json_object(writer.write(script_prompt(text)))
+    if data is None:
+        raise ValueError("the model did not return lesson JSON for this script")
+    lesson = parse_lesson(data, source="the generated lesson")
+    _console.log(f"[green]{len(lesson.sections)} sections from the script[/green]")
+    return lesson
 
 
 def build_lesson(
@@ -164,10 +232,12 @@ def build_lesson(
 
     if lesson.outro and snippets:
         # The closing remark plays over the final held frame, so it anchors to
-        # the end of the last snippet.
+        # the end of the last section. A slide has no code to anchor to, and
+        # does not need one: its phrases are laid out back to back regardless.
         last = snippets[-1]
+        end = len(last.code) if isinstance(last, Snippet) else 0
         closing = tuple(
-            Phrase(p.text, p.samples, len(last.code))
+            Phrase(p.text, p.samples, end)
             for p in speak_plain(speaker, lesson.outro)
         )
         snippets[-1] = replace(last, phrases=last.phrases + closing)

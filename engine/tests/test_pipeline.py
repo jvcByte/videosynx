@@ -7,23 +7,26 @@ the point of putting the two services behind protocols.
 
 from __future__ import annotations
 
+import json
 import os
 
 import numpy as np
 import pytest
 
 from pycoding.prompts import (
+    MAX_SLIDES,
     code_prompt,
     intro_prompt,
     narration_prompt,
     parse_anchored,
     parse_code,
+    parse_slides,
     sentences,
 )
 from pycoding.providers import ProviderError, ScriptedWriter
 from pycoding.render import render_plan
-from pycoding.script import build_tutorial, resolve_marker, speak_anchored
-from pycoding.timeline import SR, Phrase
+from pycoding.script import SLIDE_PLAN, build_tutorial, resolve_marker, speak_anchored
+from pycoding.timeline import SR, Explanation, Phrase, Snippet
 
 CODE = (
     "total = 0\n"
@@ -206,15 +209,45 @@ def test_unanchored_sentences_get_spread_not_stacked():
 
 # ------------------------------------------------------------- build_tutorial
 
-def _scripted(include_intro: bool = True) -> ScriptedWriter:
-    responses = [
-        f"Here you go:\n```python\n{CODE}```\n",
-        NARRATION,
-        "In this video we build up a running total step by step. "
-        "We start with a loop, then add each number into it."
-        if include_intro else "",
+CONCEPTS = """Here are the slides:
+
+```json
+[
+  {
+    "heading": "A running total",
+    "columns": [
+      ["Start at zero", ["nothing counted yet"]],
+      ["Add as you go", ["each step updates it"]]
+    ],
+    "note": "A running total is a value you carry forward.",
+    "narration": [
+      "First, the idea of a running total.",
+      "It starts at zero, with nothing counted yet.",
+      "Then each step adds to it.",
+      "A running total is a value you carry forward."
     ]
-    return ScriptedWriter([r for r in responses if r])
+  }
+]
+```
+"""
+
+
+def _scripted_for(mode: str = "both", include_intro: bool = True) -> ScriptedWriter:
+    """Responses in the order the given mode asks for them."""
+    responses: list[str] = []
+    if mode != "coding":
+        responses.append(CONCEPTS)
+    if mode != "illustration":
+        responses.append(f"Here you go:\n```python\n{CODE}```\n")
+        responses.append(NARRATION)
+    if include_intro:
+        responses.append("In this video we build up a running total step by step. "
+                         "We start with a loop, then add each number into it.")
+    return ScriptedWriter(responses)
+
+
+def _scripted(include_intro: bool = True) -> ScriptedWriter:
+    return _scripted_for("both", include_intro)
 
 
 def test_build_tutorial_produces_a_renderable_plan():
@@ -226,17 +259,185 @@ def test_build_tutorial_produces_a_renderable_plan():
     plan = tutorial.plan
     assert plan.total_frames > 0
     assert plan.captions, "no captions were produced"
-    assert len(tutorial.sections) == 1
-    # Intro card, then the snippet.
+    # The concept slide, then the snippet.
+    assert len(tutorial.sections) == 2
+    # Intro card, then the slide, then the code.
     assert plan.spans[0].state.title == "Running totals"
+    assert any(s.state.slide for s in plan.spans)
     assert any(s.state.code for s in plan.spans)
     # The narration prompt was built from the generated code.
-    assert CODE in writer.prompts[1]
+    assert any(CODE in prompt for prompt in writer.prompts)
+
+
+# ------------------------------------------------------------- concept phase
+# Without a concept phase the video opens on a production example and never
+# says what the topic means: a string is parsed before anyone has said what a
+# string is.
+
+def test_concept_slides_come_before_the_code():
+    tutorial = build_tutorial("Running totals", writer=_scripted(),
+                              speaker=ToneSpeaker(), execute=False)
+    kinds = [type(s).__name__ for s in tutorial.sections]
+    assert kinds == ["Explanation", "Snippet"]
+
+    # And on screen, not just in the section list.
+    first_slide = next(i for i, s in enumerate(tutorial.plan.spans)
+                       if s.state.slide is not None)
+    first_code = next(i for i, s in enumerate(tutorial.plan.spans) if s.state.code)
+    assert first_slide < first_code
+
+
+def test_the_concept_slide_carries_its_columns_and_note():
+    tutorial = build_tutorial("Running totals", writer=_scripted(),
+                              speaker=ToneSpeaker(), execute=False)
+    slide = tutorial.sections[0].slide
+    assert slide.heading == "A running total"
+    assert [title for title, _ in slide.columns] == ["Start at zero", "Add as you go"]
+    assert slide.note == "A running total is a value you carry forward."
+
+
+def test_the_slide_reveals_one_column_per_sentence():
+    tutorial = build_tutorial("Running totals", writer=_scripted(),
+                              speaker=ToneSpeaker(), execute=False)
+    seen: list[int] = []
+    for span in tutorial.plan.spans:
+        if span.state.slide is not None:
+            if not seen or seen[-1] != span.state.slide.revealed:
+                seen.append(span.state.slide.revealed)
+    # Heading alone, then one column per sentence, then the note.
+    assert seen == [0, 1, 2]
+
+
+# ------------------------------------------------------------------- modes
+# A viewer who wants a coding walkthrough should not sit through slides, and
+# one who wants the idea drawn out should not be shown code at all.
+
+def build(mode: str, **kwargs):
+    return build_tutorial("Running totals", writer=_scripted_for(mode),
+                          speaker=ToneSpeaker(), execute=False, mode=mode, **kwargs)
+
+
+def test_mode_coding_has_code_and_no_slides():
+    tutorial = build("coding")
+    assert tutorial.sections and all(isinstance(s, Snippet) for s in tutorial.sections)
+    assert not any(span.state.slide for span in tutorial.plan.spans)
+    assert any(span.state.code for span in tutorial.plan.spans)
+
+
+def test_mode_illustration_has_slides_and_no_code():
+    tutorial = build("illustration")
+    assert all(isinstance(s, Explanation) for s in tutorial.sections)
+    assert any(span.state.slide for span in tutorial.plan.spans)
+    assert not any(span.state.code for span in tutorial.plan.spans)
+
+
+def test_mode_both_produces_both_and_is_the_default():
+    explicit, default = build("both"), build_tutorial(
+        "Running totals", writer=_scripted(), speaker=ToneSpeaker(), execute=False)
+    for tutorial in (explicit, default):
+        kinds = {type(s).__name__ for s in tutorial.sections}
+        assert kinds == {"Explanation", "Snippet"}
+
+
+def test_an_unknown_mode_is_refused():
+    with pytest.raises(ValueError, match="mode must be one of"):
+        build("podcast")
+
+
+def test_illustration_mode_asks_for_more_slides_than_both():
+    """With no code to carry the runtime, the slides have to."""
+    assert SLIDE_PLAN["illustration"][1] > SLIDE_PLAN["both"][1]
+
+
+def test_max_snippets_caps_the_code():
+    """The tier declares this cap, so something has to enforce it."""
+    many = "here:\n" + "".join(
+        f"```python\nprint({i})\n```\n" for i in range(5)
+    )
+    writer = ScriptedWriter([CONCEPTS, many] + [NARRATION] * 5 +
+                            ["A short intro."])
+    tutorial = build_tutorial("Running totals", writer=writer,
+                              speaker=ToneSpeaker(), execute=False, max_snippets=2)
+    assert len([s for s in tutorial.sections if isinstance(s, Snippet)]) == 2
+
+
+def test_no_cap_keeps_every_snippet():
+    many = "here:\n" + "".join(
+        f"```python\nprint({i})\n```\n" for i in range(5)
+    )
+    writer = ScriptedWriter([CONCEPTS, many] + [NARRATION] * 5 +
+                            ["A short intro."])
+    tutorial = build_tutorial("Running totals", writer=writer,
+                              speaker=ToneSpeaker(), execute=False)
+    assert len([s for s in tutorial.sections if isinstance(s, Snippet)]) == 5
+
+
+def test_a_video_still_renders_when_the_concepts_cannot_be_parsed():
+    """Degrade to opening on the code, rather than failing the job."""
+    writer = ScriptedWriter([
+        "I would rather describe it in prose than give you JSON.",
+        f"```python\n{CODE}```\n",
+        NARRATION,
+        "A short intro.",
+    ])
+    tutorial = build_tutorial("Running totals", writer=writer,
+                              speaker=ToneSpeaker(), execute=False)
+    assert all(isinstance(s, Snippet) for s in tutorial.sections)
+    assert tutorial.plan.captions
+
+
+def test_a_failed_title_card_does_not_lose_the_whole_video():
+    """The card is written last, once everything else has been generated.
+
+    When the model ran out of daily quota on that final call, it took a
+    finished tutorial -- concepts, code and every line of narration, all
+    already paid for -- down with it.
+    """
+    class IntroFails(ScriptedWriter):
+        def write(self, prompt: str) -> str:
+            if "opening narration" in prompt:
+                raise ProviderError("every model failed -- daily quota exhausted")
+            return super().write(prompt)
+
+    writer = IntroFails([CONCEPTS, f"```python\n{CODE}```\n", NARRATION])
+    tutorial = build_tutorial("Running totals", writer=writer,
+                              speaker=ToneSpeaker(), execute=False)
+
+    assert all(span.state.title is None for span in tutorial.plan.spans)
+    assert tutorial.plan.captions
+    assert any(span.state.slide for span in tutorial.plan.spans)
+    assert any(span.state.code for span in tutorial.plan.spans)
+
+
+def test_parse_slides_reads_fenced_json_through_prose():
+    slides = parse_slides(CONCEPTS)
+    assert len(slides) == 1
+    assert slides[0]["heading"] == "A running total"
+    assert slides[0]["columns"][0] == ("Start at zero", ("nothing counted yet",))
+    assert len(slides[0]["narration"]) == 4
+
+
+def test_parse_slides_rejects_what_it_cannot_use():
+    assert parse_slides("no json here at all") == []
+    assert parse_slides("[not valid json") == []
+    assert parse_slides('{"heading": "not a list"}') == []
+    # A slide with no columns can never reveal; one with no narration is silent.
+    assert parse_slides('[{"heading": "H", "narration": ["s"]}]') == []
+    assert parse_slides('[{"heading": "H", "columns": [["a", ["b"]]]}]') == []
+
+
+def test_parse_slides_caps_a_runaway_response():
+    many = json.dumps([
+        {"heading": f"H{i}", "columns": [["a", ["b"]]], "narration": ["s"]}
+        for i in range(20)
+    ])
+    assert len(parse_slides(many)) == MAX_SLIDES
 
 
 def test_build_tutorial_survives_a_model_that_ignores_the_format():
     """Prose instead of markers must degrade, not crash."""
     writer = ScriptedWriter([
+        "Some prose instead of the JSON I asked for.",
         f"```python\n{CODE}```\n",
         "The total starts at zero. Then we add each number in turn.",
         "A short intro.",

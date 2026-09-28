@@ -25,6 +25,7 @@ from pycoding.timeline import (
     build_plan,
     split_evenly,
     weighted_split,
+    without_captions,
 )
 
 W, H = 960, 540
@@ -545,6 +546,45 @@ def test_title_card_renders(tmp_path):
     path = tmp_path / "card.mp4"
     render_plan(plan, path, width=W, height=H)
     assert _count_video_frames(path) == plan.total_frames
+
+
+# -------------------------------------------------------- captions and marks
+
+def _two_phrase_plan():
+    n = int(SR * 0.6)
+    samples = (np.sin(np.arange(n) / 12.0) * 8000).astype(np.int16)
+    return build_plan([Snippet(code="total = 0\nprint(total)\n", phrases=(
+        Phrase("We start the total at zero.", samples, anchor=0),
+        Phrase("Then we print it.", samples, anchor=None),
+    ))])
+
+
+def test_dropping_captions_keeps_the_timeline_length():
+    """Spans keep their frame counts, so turning captions off cannot shift the
+    sync -- it only stops the band being drawn."""
+    plan = _two_phrase_plan()
+    assert plan.captions
+
+    stripped = without_captions(plan)
+    assert stripped.total_frames == plan.total_frames
+    assert stripped.captions == ()
+    assert all(span.state.caption is None for span in stripped.spans)
+    assert len(stripped.build_audio()) == len(plan.build_audio())
+
+
+def test_a_watermark_survives_a_slide_repaint():
+    """A slide paints the whole canvas, so a mark drawn only into the chrome
+    would survive exactly until the first slide."""
+    from pycoding.render import Editor, find_font
+    from pycoding.timeline import Slide, VisualState
+
+    state = VisualState("", slide=Slide(heading="H", columns=(("A", ("a",)),)))
+    with_mark = Editor(W, H, find_font(), watermark="pycoding")
+    without = Editor(W, H, find_font())
+    with_mark.apply(state)
+    without.apply(state)
+
+    assert with_mark.canvas.tobytes() != without.canvas.tobytes()
 
 
 # ------------------------------------------------------------------- misc
