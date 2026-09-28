@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent } from "react";
-import { Mode } from "../lib/api";
+import { Mode, Quota } from "../lib/api";
 import { isStructuredLesson } from "../lib/format";
 
 const MODES: { value: Mode; label: string; blurb: string }[] = [
@@ -31,7 +31,7 @@ const MODES: { value: Mode; label: string; blurb: string }[] = [
  */
 export function Composer({
   topic, onTopic, script, onScript, mode, onMode,
-  onSubmit, submitting, error, onDismissError, generation,
+  onSubmit, submitting, error, onDismissError, generation, quota,
 }: {
   topic: string;
   onTopic: (value: string) => void;
@@ -44,6 +44,7 @@ export function Composer({
   error: string | null;
   onDismissError: () => void;
   generation: "auto" | "local";
+  quota: Quota | null;
 }) {
   const ready = Boolean(topic.trim() || script.trim());
   const chosen = MODES.find((m) => m.value === mode) ?? MODES[0];
@@ -64,6 +65,12 @@ export function Composer({
     : scriptActive ? !structured : true;
   // Only a bare topic is left with nothing local mode can work from.
   const refused = generation === "local" && !scriptActive;
+
+  // Running out is a normal thing that happens, and it is no longer the end of
+  // the page -- local mode is exactly what it is there for. Saying so beats
+  // letting the submission come back as a 429.
+  const modelSpent = quota !== null && quota.remaining === 0;
+  const localSpent = quota !== null && quota.local_remaining === 0;
 
   return (
     <form className="card compose" onSubmit={onSubmit}>
@@ -151,12 +158,18 @@ export function Composer({
 
       {/* Said before submitting, not after failing. The allowance is per
           model, per day, and running out is a normal thing that happens. */}
-      <p className={`compose-cost${refused ? " is-blocked" : ""}`}>
+      <p className={`compose-cost${refused || modelSpent || localSpent
+        ? " is-blocked" : ""}`}>
         {refused
           ? "Local mode is on, and a topic is the one thing it cannot work from. Paste a script, or switch generation back to auto."
-          : writtenForYou
-            ? "A model writes the code and narration. Counts against your daily allowance."
-            : "Structured on this machine, at no cost. No model call."}
+          : localSpent
+            ? "Today's local renders are used up. They reset tomorrow."
+            : modelSpent && writtenForYou
+              ? "Today's allowance is spent. Switch generation to local to keep going — it calls no model, and " +
+                `${quota.local_remaining} local renders are left today.`
+              : writtenForYou
+                ? "A model writes the code and narration. Counts against your daily allowance."
+                : "Structured on this machine, at no cost. No model call."}
       </p>
     </form>
   );

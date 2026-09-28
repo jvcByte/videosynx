@@ -32,7 +32,14 @@ from pycoding_worker.db import Queue
 
 from .auth import User, current_user
 from .billing import SignatureError, balance, handle_webhook, ledger, tier_for_user
-from .quota import QuotaExceeded, Tier, tier_for, used_today, submit_within_quota
+from .quota import (
+    QuotaExceeded,
+    Tier,
+    limit_for,
+    submit_within_quota,
+    tier_for,
+    used_today,
+)
 from pycoding_worker.storage import (
     DEFAULT_URL_TTL,
     LocalStorage,
@@ -166,10 +173,22 @@ class JobResponse(BaseModel):
 
 
 class QuotaResponse(BaseModel):
+    """Two allowances, counted apart.
+
+    A job that calls a model spends money. A local job spends none, so it is
+    not counted against the same limit -- it is what someone reaches for when
+    that limit is gone, and counting it would make it unavailable exactly when
+    it is wanted. It still renders on this machine, so it has its own limit
+    rather than none.
+    """
+
     tier: str
     jobs_per_day: int
     used_today: int
     remaining: int
+    local_jobs_per_day: int
+    local_used_today: int
+    local_remaining: int
     narration: bool
     tts: str
     max_snippets: int
@@ -250,11 +269,15 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         tier = tier_for(_effective_tier(user))
         with _connect(dsn) as conn:
             used = used_today(conn, user.id)
+            local_used = used_today(conn, user.id, local=True)
         return QuotaResponse(
             tier=tier.name,
             jobs_per_day=tier.jobs_per_day,
             used_today=used,
             remaining=max(0, tier.jobs_per_day - used),
+            local_jobs_per_day=tier.local_jobs_per_day,
+            local_used_today=local_used,
+            local_remaining=max(0, tier.local_jobs_per_day - local_used),
             narration=tier.narration,
             tts=tier.tts,
             max_snippets=tier.max_snippets,
@@ -406,7 +429,8 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
                 detail={
                     "error": "quota_exceeded",
                     "tier": exc.tier.name,
-                    "limit": exc.tier.jobs_per_day,
+                    "kind": "local" if exc.local else "model",
+                    "limit": limit_for(exc.tier, exc.local),
                     "used": exc.used,
                 },
             ) from exc

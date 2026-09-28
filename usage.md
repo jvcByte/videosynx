@@ -151,8 +151,32 @@ anything a client sends, so a free-tier job cannot ask for the paid voice.
 
 ### Working with no allowance left
 
-Gemini's free tier is **20 requests per day, per model**, and its fallback chain
-has five models — so it is a few hundred requests, not a few.
+There are **two** allowances and they are counted apart, which is easy to
+confuse because both are called quota:
+
+| | what it limits | free tier |
+|---|---|---|
+| **jobs** | submissions that call a model, and so cost money | 3 a day |
+| **local renders** | submissions that call no model at all | 10 a day |
+
+The one you hit on the page is the **jobs** allowance. `quota_exceeded` with a
+429 is the API refusing to queue, and it has nothing to do with the model keys
+in `.env` — those are the worker's, and the API never uses one.
+
+**A local render is not counted against the jobs allowance**, because the
+moment that allowance is gone is exactly when someone reaches for the mode that
+spends nothing. Counting it would lock the door from the inside. It is not free
+of *server* cost though — it still renders on this machine — so it has a limit
+of its own rather than none.
+
+So with the jobs allowance spent, the page says so and points at local mode
+rather than letting the submission come back as a 429. Set it under
+**Settings → Generation → Local only**, or `"generation": "local"` on a
+submission.
+
+Separately, Gemini's own free tier is **20 requests per day, per model**, and
+its fallback chain has five models — so it is a few hundred requests, not a
+few.
 
 A spent allowance is the ordinary way this runs, so it is not treated as a
 fault. When Gemini is done for the day the job carries on with the next
@@ -253,7 +277,7 @@ offer a voice that dies at synthesis.
 ## 3. Tests
 
 ```bash
-$PYCODING/.venv/bin/pytest                  # 290 tests
+$PYCODING/.venv/bin/pytest                  # 293 tests
 cd $PYCODING/web && npx playwright test     # 3 browser tests
 ```
 
@@ -344,6 +368,13 @@ Not an error. Continue.
 
 **A job sits at `queued` forever**
 No worker is running. Start one — the API only enqueues.
+
+**`quota_exceeded` on the page, with a 429**
+That is the **API's** daily job allowance, not the model's — 3 a day on the
+free tier, and a `local` submission does not count against it. See
+[Working with no allowance left](#working-with-no-allowance-left). It is a
+different thing from a provider running out, which appears on the job itself
+as `provider_quota` after it has been queued.
 
 **`quota_exceeded` from Gemini**
 Free-tier quota is **per model** and resets daily. Try

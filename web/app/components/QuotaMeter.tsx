@@ -43,6 +43,13 @@ export function QuotaMeter({
         {quota.remaining} of {quota.jobs_per_day}
       </span>
       <span className="quota-rest">left today</span>
+      {/* Only once the allowance is gone, because that is the only moment it
+          changes anything: "0 of 3" on its own reads as nothing working. */}
+      {quota.remaining === 0 && quota.local_remaining > 0 && (
+        <span className="quota-rest">
+          · {quota.local_remaining} local renders
+        </span>
+      )}
       {used > 0 && (
         <span className="meter" aria-hidden>
           <span style={{ width: `${percent}%` }} />

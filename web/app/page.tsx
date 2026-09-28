@@ -220,6 +220,7 @@ export default function Home() {
           error={submitError}
           onDismissError={() => setSubmitError(null)}
           generation={settings?.generation ?? "auto"}
+          quota={quota}
         />
 
         <div className="column">

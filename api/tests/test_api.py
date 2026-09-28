@@ -15,6 +15,7 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
+from psycopg.types.json import Json
 
 from pycoding_api.app import (
     Mode,
@@ -432,6 +433,69 @@ def test_free_tier_is_capped_and_leaves_nothing_behind(client):
     with psycopg.connect(DSN, row_factory=dict_row) as conn:
         n = conn.execute("select count(*) as n from jobs").fetchone()["n"]
     assert n == limit, "a rejected submission created a row"
+
+
+@requires_db
+def test_a_spent_allowance_still_leaves_local_mode_open(client):
+    """The moment the allowance is gone is exactly when someone reaches for
+    the mode that spends nothing. Counting a local render against that same
+    allowance locks the door from the inside -- which is what it did.
+    """
+    for i in range(TIERS["free"].jobs_per_day):
+        assert client.post("/jobs", json={"topic": f"topic {i}"},
+                           headers=auth()).status_code == 202
+    assert client.post("/jobs", json={"topic": "one too many"},
+                       headers=auth()).status_code == 429
+
+    def local():
+        return client.post("/jobs", headers=auth(), json={
+            "script": LESSON_JSON, "generation": "local"})
+
+    # Still open, because it spends nothing.
+    assert local().status_code == 202, "local mode was blocked by a spent allowance"
+
+    # But not unbounded: it still renders on this machine, so it has a limit
+    # of its own rather than none.
+    for _ in range(TIERS["free"].local_jobs_per_day - 1):
+        assert local().status_code == 202
+
+    refused = local()
+    assert refused.status_code == 429
+    detail = refused.json()["detail"]
+    assert detail["kind"] == "local", "the message must name which limit was hit"
+    assert detail["limit"] == TIERS["free"].local_jobs_per_day
+
+
+@requires_db
+def test_the_two_allowances_are_counted_apart(client):
+    """Local renders must not eat the allowance for jobs that cost money."""
+    client.post("/jobs", headers=auth(), json={"topic": "a paid job"})
+    for _ in range(3):
+        client.post("/jobs", headers=auth(), json={
+            "script": LESSON_JSON, "generation": "local"})
+
+    body = client.get("/me/quota", headers=auth()).json()
+    assert body["used_today"] == 1, "a local render was counted as a model job"
+    assert body["remaining"] == TIERS["free"].jobs_per_day - 1
+    assert body["local_used_today"] == 3
+    assert body["local_remaining"] == TIERS["free"].local_jobs_per_day - 3
+
+
+@requires_db
+def test_an_old_job_with_no_generation_counts_as_a_model_job():
+    """Jobs written before `generation` existed have no key to read. They were
+    model jobs, and the two counts have to partition the table -- a row that
+    falls into neither would be free work nobody could see."""
+    user = "old-user"
+    with psycopg.connect(DSN, row_factory=dict_row) as conn:
+        conn.execute(
+            "insert into jobs (user_id, topic, tier, options) "
+            "values (%s, %s, %s, %s)",
+            (user, "before generation existed", "free", Json({})),
+        )
+        conn.commit()
+        assert used_today(conn, user) == 1
+        assert used_today(conn, user, local=True) == 0
 
 
 @requires_db

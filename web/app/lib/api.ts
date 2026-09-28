@@ -32,11 +32,22 @@ export interface Job {
   created_at: string | null;
 }
 
+/**
+ * Two allowances, counted apart.
+ *
+ * `jobs_per_day` covers the jobs that call a model and cost money. Local
+ * mode spends none, so it is not counted against that — it is what you reach
+ * for once it is gone. It still renders on the server, so it has its own
+ * limit rather than none.
+ */
 export interface Quota {
   tier: string;
   jobs_per_day: number;
   used_today: number;
   remaining: number;
+  local_jobs_per_day: number;
+  local_used_today: number;
+  local_remaining: number;
   narration: boolean;
   tts: string;
   max_snippets: number;
