@@ -23,6 +23,7 @@ from pathlib import Path
 
 import psycopg
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
+from fastapi.middleware.cors import CORSMiddleware
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field, field_validator
 
@@ -115,6 +116,27 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
     )
     app.state.dsn = dsn
     app.state.storage = store
+
+    # The frontend is served from a different origin, which is the normal
+    # arrangement (web on :3000, API on :8000). Without this every request
+    # from the browser is blocked before it is even sent, and the symptom is
+    # a generic "could not reach the API" that looks like the server is down.
+    origins = [
+        origin.strip()
+        for origin in os.environ.get(
+            "CORS_ORIGINS",
+            "http://localhost:3000,http://127.0.0.1:3000",
+        ).split(",")
+        if origin.strip()
+    ]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization", "Idempotency-Key",
+                       "X-Dev-User"],
+    )
 
     def _job_or_404(job_id: str) -> dict:
         row = Queue(dsn).get(job_id)
@@ -304,23 +326,25 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         }
 
     @app.get("/artifacts/{key:path}")
-    def serve_artifact(key: str, user: User = Depends(current_user)):
+    def serve_artifact(key: str, expires: int | None = None, sig: str | None = None):
         """Serve a local artifact. Only exists for the local backend.
 
-        With object storage the client already has a presigned URL, so this
-        route is closed rather than being an unauthenticated file server.
+        Authorised by the signature in the URL rather than a header, the same
+        way a presigned S3 URL works. It has to be: a ``<video src=...>``
+        fetch carries no Authorization header, so a header-protected route is
+        unplayable in a browser no matter how valid the token is.
+
+        With object storage this route is closed entirely, rather than
+        lingering as an unauthenticated file server.
         """
         if not isinstance(store, LocalStorage):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
         if not key.startswith("artifacts/"):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+        if not store.verify(key, expires, sig):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "link expired or invalid")
         body = store.read(key)
         if body is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
-        # Ownership: the key encodes the job, and the job has an owner.
-        job_id = Path(key).stem
-        row = Queue(dsn).get(job_id) if _looks_like_uuid(job_id) else None
-        if row is None or row["user_id"] != user.id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
         return Response(content=body, media_type="video/mp4")
 

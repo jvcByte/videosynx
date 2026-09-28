@@ -314,14 +314,26 @@ def test_the_owner_can_fetch_the_video(stored):
 
 
 @requires_db
-def test_the_video_url_is_not_public(stored):
-    """Handing out a URL must not hand out the video."""
+def test_the_video_url_is_signed_and_expires(stored):
+    """Handing out a URL must not hand out the video forever.
+
+    The link is authorised by its signature, not a header, because a <video>
+    element cannot send one -- so the signature is the whole protection.
+    """
     client, store = stored
     job_id = client.post("/jobs", json={"topic": "private"}, headers=auth()).json()["id"]
     _succeed(job_id, store)
 
     url = client.get(f"/jobs/{job_id}/video", headers=auth()).json()["url"]
-    assert client.get(url).status_code == 401
+    assert client.get(url).status_code == 200
+
+    # Tampered: the signature no longer matches the key.
+    forged = url.replace("sig=", "sig=0")
+    assert client.get(forged).status_code == 403
+    # Unsigned: nothing to verify against.
+    assert client.get(url.split("?")[0]).status_code == 403
+    # Expired.
+    assert client.get(f"{url.split('?')[0]}?expires=1&sig=x").status_code == 403
 
 
 @requires_db
@@ -332,7 +344,8 @@ def test_another_user_cannot_fetch_the_video(stored):
     _succeed(job_id, store)
     url = client.get(f"/jobs/{job_id}/video", headers=auth("owner")).json()["url"]
 
-    assert client.get(url, headers=auth("intruder")).status_code == 404
+    # The URL itself is not a capability to enumerate others with: it can
+    # only be obtained from the owner's job.
     assert client.get(f"/jobs/{job_id}/video",
                       headers=auth("intruder")).status_code == 404
 

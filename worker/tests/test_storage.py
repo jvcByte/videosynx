@@ -7,6 +7,7 @@ layout, the presign call and the bucket/endpoint wiring are what we intend.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -56,9 +57,40 @@ def test_put_moves_the_file(store, video):
     assert not video.exists()
 
 
-def test_url_points_at_the_api(store):
-    url = store.url(video_key("free", "job-1"))
-    assert url.endswith("artifacts/free/job-1.mp4")
+def test_url_points_at_the_api_and_is_signed(store):
+    """The signature is the whole protection: a <video> sends no headers."""
+    key = video_key("free", "job-1")
+    url = store.url(key)
+    assert f"/{key}?" in url
+    assert "sig=" in url and "expires=" in url
+
+    parsed = dict(pair.split("=", 1) for pair in url.split("?", 1)[1].split("&"))
+    assert store.verify(key, int(parsed["expires"]), parsed["sig"])
+
+
+def test_a_valid_signature_verifies(store):
+    key = video_key("free", "job-1")
+    expires = int(time.time()) + 60
+    assert store.verify(key, expires, store.sign(key, expires))
+
+
+def test_a_link_for_one_key_does_not_open_another(store):
+    expires = int(time.time()) + 60
+    signature = store.sign(video_key("free", "job-1"), expires)
+    assert not store.verify(video_key("free", "job-2"), expires, signature)
+
+
+def test_an_expired_link_is_refused(store):
+    key = video_key("free", "job-1")
+    past = int(time.time()) - 1
+    assert not store.verify(key, past, store.sign(key, past))
+
+
+def test_unsigned_and_malformed_links_are_refused(store):
+    key = video_key("free", "job-1")
+    assert not store.verify(key, None, None)
+    assert not store.verify(key, None, "abc")
+    assert not store.verify(key, int(time.time()) + 60, "not-a-signature")
 
 
 def test_delete_is_idempotent(store, video):

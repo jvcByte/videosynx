@@ -16,6 +16,10 @@ in the bucket means it holds even if this service is down.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import secrets
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -36,16 +40,52 @@ class Storage(Protocol):
     def read(self, key: str) -> bytes | None: ...
 
 
+def _url_secret() -> bytes:
+    """Key for signing local URLs.
+
+    Per-process by default: a development server's links are not meant to
+    outlive it. Set PYCODING_URL_SECRET when the links must survive a restart.
+    """
+    import os
+
+    return (os.environ.get("PYCODING_URL_SECRET") or secrets.token_hex(16)).encode()
+
+
 @dataclass
 class LocalStorage:
-    """Files on disk, served by the API itself. Development and tests."""
+    """Files on disk, served by the API itself. Development and tests.
+
+    URLs are signed and time-limited, the same shape as a presigned S3 URL.
+    This is not decoration: a ``<video src=...>`` fetch cannot carry an
+    Authorization header, so an unsigned local URL is simply unplayable in a
+    browser -- which is exactly the bug that made a served video 401 while the
+    API happily handed out its address.
+    """
 
     root: Path
     base_url: str = "/artifacts"
+    ttl: int = DEFAULT_URL_TTL
+    secret: bytes | None = None
 
     def __post_init__(self) -> None:
         self.root = Path(self.root)
         self.root.mkdir(parents=True, exist_ok=True)
+        if self.secret is None:
+            self.secret = _url_secret()
+
+    def sign(self, key: str, expires: int) -> str:
+        return hmac.new(
+            self.secret or b"", f"{key}:{expires}".encode(), hashlib.sha256
+        ).hexdigest()
+
+    def verify(self, key: str, expires: int | None, signature: str | None,
+               *, now: int | None = None) -> bool:
+        if not expires or not signature:
+            return False
+        current = int(time.time()) if now is None else now
+        if expires < current:
+            return False
+        return hmac.compare_digest(self.sign(key, expires), signature)
 
     def _path(self, key: str) -> Path:
         # Resolve and confirm containment: a key arrives from a URL, and
@@ -61,8 +101,9 @@ class LocalStorage:
         Path(path).replace(target)
 
     def url(self, key: str, *, expires_in: int = DEFAULT_URL_TTL) -> str:
-        del expires_in  # local files have no signature to expire
-        return f"{self.base_url}/{key}"
+        expires = int(time.time()) + expires_in
+        signature = self.sign(key, expires)
+        return f"{self.base_url}/{key}?expires={expires}&sig={signature}"
 
     def delete(self, key: str) -> None:
         self._path(key).unlink(missing_ok=True)
