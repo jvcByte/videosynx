@@ -74,6 +74,33 @@ def test_a_long_scene_is_split_across_slides():
     assert said == [f"Sentence number {n}." for n in range(11)]
 
 
+def test_a_scene_spanning_several_slides_says_where_you_are():
+    """One scene can run for minutes. A heading that never changes across all
+    of it reads as the video having stopped, so it carries its position."""
+    body = " ".join(f"Sentence number {n}." for n in range(11))
+    lesson = lesson_from_prose(f"Scene 1 — A Long One: {body}")
+    assert [s.slide.heading for s in lesson.sections] == [
+        "A Long One · 1/3", "A Long One · 2/3", "A Long One · 3/3",
+    ]
+
+
+def test_a_scene_that_fits_one_slide_is_not_numbered():
+    """Nothing is gained by saying "1/1"."""
+    lesson = lesson_from_prose(
+        "Scene 1 — Short: The whole scene is one sentence, so it is one slide.")
+    assert lesson.sections[0].slide.heading == "Short"
+
+
+def test_the_counter_does_not_push_the_heading_over_the_cap():
+    body = " ".join(f"Sentence number {n}." for n in range(6))
+    lesson = lesson_from_prose(
+        "Scene 1 — " + " ".join(f"word{n}" for n in range(40)) + f": {body}")
+    for section in lesson.sections:
+        assert len(section.slide.heading) <= 72, section.slide.heading
+        assert section.slide.heading.endswith(("1/2", "2/2"))
+        assert "…" in section.slide.heading, "the name was not trimmed"
+
+
 def test_nothing_is_invented():
     """The words on the slide are the words that were pasted."""
     lesson = lesson_from_prose(SCRIPT)

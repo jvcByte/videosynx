@@ -74,12 +74,17 @@ def _plain(text: str) -> str:
     return _LOOSE_MARKER.sub("", text)
 
 
-def _tidy(title: str) -> str:
-    """A heading for a slide: no wrapping punctuation, and not a paragraph."""
+def _tidy(title: str, reserve: int = 0) -> str:
+    """A heading for a slide: no wrapping punctuation, and not a paragraph.
+
+    *reserve* is room to leave for something appended after this, so the total
+    stays within the cap rather than the two trimming each other's work.
+    """
     cleaned = _plain(title).strip().strip("—–-:. ").strip()
-    if len(cleaned) > MAX_HEADING_CHARS:
+    limit = max(20, MAX_HEADING_CHARS - reserve)
+    if len(cleaned) > limit:
         # Cut at a word boundary rather than mid-word, and say so.
-        cleaned = f"{cleaned[:MAX_HEADING_CHARS].rsplit(' ', 1)[0]}…"
+        cleaned = f"{cleaned[:limit].rsplit(' ', 1)[0]}…"
     return cleaned or "Untitled"
 
 
@@ -177,11 +182,18 @@ def lesson_from_prose(text: str, *,
         if len(body.split()) < MIN_SECTION_WORDS:
             continue
         said = sentences(body)
-        for start in range(0, len(said), sentences_per_slide):
-            chunk = said[start:start + sentences_per_slide]
-            if not chunk:
-                continue
-            heading = _tidy(name) if name else _tidy(chunk[0])
+        chunks = [said[start:start + sentences_per_slide]
+                  for start in range(0, len(said), sentences_per_slide)]
+        chunks = [chunk for chunk in chunks if chunk]
+        for index, chunk in enumerate(chunks):
+            # A scene running to several slides otherwise repeats one heading
+            # for minutes on end, which reads as the video being stuck. The
+            # counter says the same name is still in progress and how much of
+            # it is left, without inventing a subtitle it does not have.
+            suffix = (f" · {index + 1}/{len(chunks)}"
+                      if name and len(chunks) > 1 else "")
+            heading = _tidy(name, len(suffix)) if name else _tidy(chunk[0])
+            heading += suffix
             built.append(ExplainSection(
                 name=heading,
                 # One untitled panel of the section's own sentences. The
