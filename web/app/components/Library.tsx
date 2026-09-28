@@ -1,7 +1,7 @@
 "use client";
 
 import { Job, isPending } from "../lib/api";
-import { duration, modeLabel, relativeTime } from "../lib/format";
+import { duration, modeLabel, relativeTime, timeUntil } from "../lib/format";
 import { Status } from "./Status";
 
 /**
@@ -84,7 +84,7 @@ function JobCard({
     <li className="job" data-testid="job" data-status={job.status}>
       <div className="job-main">
         <p className="job-title">{job.topic}</p>
-        <Status status={job.status} />
+        <Status status={job.status} attempt={job.attempt} />
       </div>
 
       {/* What it is, how long, and how long ago. The three things you would
@@ -108,11 +108,36 @@ function JobCard({
         </div>
       )}
 
+      {/* Shown while it is still being retried, not only once it has given up.
+          A script that will never parse is worth knowing about immediately,
+          and the alternative is hiding it behind a day of retries. */}
+      {job.status === "queued" && job.attempt > 0 && (
+        <>
+          <p className="job-note">
+            {job.error_message ?? "The last attempt failed"} — trying again{" "}
+            {timeUntil(job.not_before)}.
+          </p>
+          {/* A spent allowance is a normal thing that happens, not a fault,
+              so it gets the way forward rather than only the bad news. */}
+          {job.error_code === "provider_quota" && (
+            <p className="job-hint">
+              Paste lesson JSON and it renders as written, on this machine, at
+              no cost — or switch generation to local only in Settings.
+            </p>
+          )}
+        </>
+      )}
+
       {job.status === "failed" && (
         <>
           <p className="job-note">{job.error_message ?? "Render failed"}</p>
-          {/* A spent allowance is a normal thing that happens, not a fault,
-              so it gets the way forward rather than only the bad news. */}
+          {/* Only once it has stopped trying. Saying "attempt 4 of 7" here
+              would be reporting a limit rather than a result. */}
+          {job.attempt >= job.max_attempts && (
+            <p className="job-hint">
+              Tried {job.attempt} times without success.
+            </p>
+          )}
           {job.error_code === "provider_quota" && (
             <p className="job-hint">
               Paste lesson JSON and it renders as written, on this machine, at

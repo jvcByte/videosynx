@@ -237,6 +237,41 @@ curl -s -X POST localhost:8000/jobs \
 The composer says which of the two a submission is before you press Generate:
 *"Counts against your daily allowance"*, or *"No model call, no cost"*.
 
+### When a render fails
+
+Failing does not mean finished. A job that fails is tried again, and the page
+says **Retrying** — never *Failed* — for as long as that is true. The card
+carries what went wrong and when the next attempt is due, so a script that can
+never be parsed is legible straight away rather than being hidden behind a day
+of waiting.
+
+The gap grows with each attempt, because the two things that most often go
+wrong need very different amounts of time to clear: an overloaded model is
+worth retrying in a minute, and a spent daily allowance is not worth retrying
+for hours.
+
+| attempt | wait after it fails |
+|---|---|
+| 1 | 1 minute |
+| 2 | 5 minutes |
+| 3 | 15 minutes |
+| 4 | 1 hour |
+| 5 | 6 hours |
+| 6 | 24 hours |
+
+Seven attempts over about 31 hours — long enough to outlast a daily quota
+reset, which is the commonest cause by a wide margin. Only then is the job
+marked failed, with the reason and how many times it was tried.
+
+The one thing not retried is a job that was **refused** rather than attempted
+— local mode handed a bare topic, say. Nothing went wrong and nothing was
+spent, and the same input is refused in exactly the same way, so repeating it
+would only delay the answer.
+
+Deleting the wait is not an option worth wanting: a retry that starts a second
+after the failure finds conditions exactly as they were, which is what the old
+two-attempts-one-second-apart behaviour amounted to.
+
 ### Inspecting what was generated
 
 The code, the narration and every diagram are generated afresh each run and
@@ -277,7 +312,7 @@ offer a voice that dies at synthesis.
 ## 3. Tests
 
 ```bash
-$PYCODING/.venv/bin/pytest                  # 305 tests
+$PYCODING/.venv/bin/pytest                  # 312 tests
 cd $PYCODING/web && npx playwright test     # 3 browser tests
 ```
 
@@ -381,6 +416,15 @@ Not an error. Continue.
 
 **A job sits at `queued` forever**
 No worker is running. Start one — the API only enqueues.
+
+**A job says "Retrying"**
+It failed and is coming back, which is not the same as failing. The card shows
+what went wrong and when the next attempt is due. See
+[When a render fails](#when-a-render-fails).
+
+**A job says "Failed"**
+It has run out of attempts. The reason is on the card, and the note says how
+many times it was tried.
 
 **`quota_exceeded` on the page, with a 429**
 That is the **API's** daily job allowance, not the model's — 3 a day on the

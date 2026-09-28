@@ -153,6 +153,11 @@ class JobResponse(BaseModel):
     error_code: str | None = None
     error_message: str | None = None
     attempt: int = 0
+    max_attempts: int = 1
+    # When a requeued job becomes claimable again. A queued job with an
+    # attempt already spent is waiting out a retry, and the page says so
+    # rather than reporting a failure the user can do nothing about.
+    not_before: datetime | None = None
     created_at: datetime | None = None
     finished_at: datetime | None = None
 

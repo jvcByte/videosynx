@@ -292,6 +292,30 @@ test("the quota is shown and a bad topic is refused", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Generate" })).toBeEnabled();
 });
 
+test("a job that failed and is coming back reads as Retrying", async ({ page }) => {
+  // The state the worker leaves behind after a failure it means to repeat:
+  // queued again, an attempt spent, the error kept, and a wait before the
+  // next try. Written straight to the row rather than submitted, because
+  // this is about what the row says and the allowance is spent by now.
+  execFileSync("psql", [
+    DSN, "-q", "-c",
+    `insert into jobs (user_id, topic, tier, status, attempt, error_code,
+                       error_message, not_before)
+     values ('e2e-user', 'a job that will be retried', 'free', 'queued', 2,
+             'provider_busy', 'every model failed: busy',
+             now() + interval '5 minutes')`,
+  ]);
+
+  await page.goto("/");
+  const row = page.locator('[data-testid="job"]:has-text("a job that will be retried")');
+
+  // Not "Queued" -- that hides a failure the user would otherwise see -- and
+  // above all not "Failed", because it has not finished trying.
+  await expect(row.locator(".status")).toHaveText("Retrying");
+  await expect(row).toHaveAttribute("data-status", "queued");
+  await expect(row.locator(".job-note")).toContainText("trying again");
+});
+
 test("a rejected submission explains itself", async ({ page }) => {
   // Exhaust the free allowance so the next submit is refused.
   const headers = { "Content-Type": "application/json", ...DEV_USER };

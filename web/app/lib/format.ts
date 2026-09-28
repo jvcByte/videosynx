@@ -59,6 +59,28 @@ export function duration(seconds: number): string {
  * An absolute date is right for anything older than a week; "just now" is
  * right for a job that finished while you were looking at the page.
  */
+/**
+ * How long until something, in the roughest unit that is still true.
+ *
+ * The mirror of `relativeTime` and deliberately as vague: a retry due in four
+ * minutes is "in 4m", and one due tomorrow is "in 18h". Nobody needs the
+ * seconds, and a countdown ticking to the second would be a lie anyway — the
+ * next poll is what will actually notice.
+ */
+export function timeUntil(iso: string | null): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+
+  const seconds = Math.round((then - Date.now()) / 1000);
+  if (seconds <= 45) return "any moment";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `in ${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `in ${hours}h`;
+  return `in ${Math.round(hours / 24)}d`;
+}
+
 export function relativeTime(iso: string | null): string {
   if (!iso) return "";
   const then = new Date(iso).getTime();

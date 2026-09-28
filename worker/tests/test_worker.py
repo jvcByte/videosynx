@@ -25,6 +25,9 @@ class FakeQueue:
         self.remaining = [f"job-{i}" for i in range(jobs)]
         self.finished: list[str] = []
         self.failed: list[tuple[str, str]] = []
+        # Kept beside `failed` rather than widening its tuples, because that
+        # list is asserted on by exact equality.
+        self.delays: list[tuple[str, float | None]] = []
         self.heartbeats = 0
 
     def claim(self, owner):
@@ -41,8 +44,9 @@ class FakeQueue:
         self.finished.append(job_id)
         return True
 
-    def fail(self, job_id, owner, *, code, message):
+    def fail(self, job_id, owner, *, code, message, delay_seconds=None):
         self.failed.append((job_id, code))
+        self.delays.append((job_id, delay_seconds))
         return True
 
 
@@ -59,6 +63,49 @@ def test_a_spent_allowance_is_named_as_such():
     assert failure_code(ProviderError("spent", reason="quota")) == "provider_quota"
     assert failure_code(ProviderError("busy", reason="busy")) == "provider_busy"
     assert failure_code(ValueError("not a provider's fault")) == "ValueError"
+
+
+def test_the_retry_schedule_grows():
+    """A brief outage should be retried while it is fresh; a spent daily
+    allowance has to be outlasted, and it comes back in a day."""
+    from pycoding_worker.worker import RETRY_BACKOFF_S, retry_delay
+
+    delays = [retry_delay("provider_busy", n) for n in range(1, 7)]
+    assert delays == list(RETRY_BACKOFF_S)
+    assert delays == sorted(delays), "the gaps must not shrink"
+    assert delays[0] == 60, "the first retry should be soon"
+    assert delays[-1] >= 24 * 3600, "the last must outlast a daily quota"
+    # Out of schedule: nothing left to wait for.
+    assert retry_delay("provider_busy", 7) is None
+    assert retry_delay("provider_busy", 0) is None
+
+
+def test_a_declined_job_is_never_retried():
+    """`Refused` says it itself: nothing went wrong, nothing was spent. The
+    same input declines again, so a day of waiting only delays the answer."""
+    from pycoding_worker.worker import retry_delay
+
+    assert retry_delay("Refused", 1) is None
+    assert retry_delay("Refused", 3) is None
+
+
+def test_a_first_attempt_gets_the_first_gap():
+    """`attempt` is the attempt that just failed, so it indexes from 1."""
+    from pycoding_worker.worker import retry_delay
+
+    assert retry_delay("provider_error", 1) == 60
+    assert retry_delay("provider_error", 2) == 300
+
+
+def test_the_worker_hands_the_queue_the_delay():
+    """The policy is only real if it reaches the row."""
+    queue = FakeQueue(jobs=1)
+    worker = Worker(queue, lambda job, beat: (_ for _ in ()).throw(
+        RuntimeError("boom")), owner="w0")
+    worker.run_once()
+
+    assert queue.failed == [("job-0", "RuntimeError")]
+    assert queue.delays == [("job-0", 60.0)]
 
 
 def test_local_mode_refuses_work_it_cannot_do_without_a_model():

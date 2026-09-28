@@ -127,7 +127,8 @@ export default function Home() {
         {
           id, status: "queued", topic: pasted ? labelFor(pasted) : value, mode,
           stage: null, progress: 0, duration_s: null, error_code: null,
-          error_message: null, attempt: 0, created_at: new Date().toISOString(),
+          error_message: null, attempt: 0, max_attempts: 1, not_before: null,
+          created_at: new Date().toISOString(),
         },
         ...current,
       ]);

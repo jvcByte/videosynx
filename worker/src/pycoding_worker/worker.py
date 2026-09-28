@@ -33,6 +33,43 @@ class Refused(RuntimeError):
     """
 
 
+# How long to wait before trying again, by the attempt that just failed. The
+# gaps grow so a brief outage is retried while it is still fresh, and a spent
+# daily allowance is outlasted -- the free model quota is per day, so anything
+# quicker than hours cannot cover it. Six gaps, seven attempts, about 31 hours.
+RETRY_BACKOFF_S = (60, 300, 900, 3600, 6 * 3600, 24 * 3600)
+
+# Failures that will not come out differently. `Refused` says it itself:
+# "nothing went wrong, the work was declined before it could cost anything".
+# The same input declines again, so repeating it only delays the answer.
+PERMANENT = frozenset({"Refused"})
+
+
+def retry_delay(code: str, attempt: int) -> float | None:
+    """Seconds before *code* is worth trying again, or None not to try.
+
+    *attempt* is the attempt that just failed. The policy lives here rather
+    than in SQL so it can be read and tested as one thing.
+    """
+    if code in PERMANENT:
+        return None
+    index = attempt - 1
+    if index < 0 or index >= len(RETRY_BACKOFF_S):
+        # Out of schedule. max_attempts ends it too; this is the guard that
+        # keeps the two from disagreeing.
+        return None
+    return float(RETRY_BACKOFF_S[index])
+
+
+def retry_description(seconds: float | None) -> str:
+    """The wait, said the way the log line wants it."""
+    if seconds is None:
+        return "not retrying"
+    if seconds < 3600:
+        return f"retrying in {seconds / 60:.0f}m"
+    return f"retrying in {seconds / 3600:.0f}h"
+
+
 def failure_code(exc: Exception) -> str:
     """A short tag for the job row, saying whose problem the failure is.
 
@@ -135,9 +172,12 @@ class Worker:
         except LeaseLost:
             log.warning("abandoning %s: lease lost", job.id)
         except Exception as exc:  # noqa: BLE001 - recorded against the job
-            log.exception("job %s failed", job.id)
-            self.queue.fail(job.id, self.owner,
-                            code=failure_code(exc), message=str(exc))
+            code = failure_code(exc)
+            delay = retry_delay(code, job.attempt)
+            log.exception("job %s failed (%s), %s",
+                          job.id, code, retry_description(delay))
+            self.queue.fail(job.id, self.owner, code=code, message=str(exc),
+                            delay_seconds=delay)
         finally:
             self._current = None
             self._beat_stop.set()

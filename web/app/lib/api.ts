@@ -28,7 +28,11 @@ export interface Job {
   duration_s: number | null;
   error_code: string | null;
   error_message: string | null;
+  /** Attempts already spent. Above zero on a queued job means a retry. */
   attempt: number;
+  max_attempts: number;
+  /** When a requeued job becomes claimable again. */
+  not_before: string | null;
   created_at: string | null;
 }
 

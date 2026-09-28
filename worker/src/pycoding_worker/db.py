@@ -56,7 +56,13 @@ create table if not exists jobs (
   lease_expires_at timestamptz,
   heartbeat_at     timestamptz,
   attempt          integer not null default 0,
-  max_attempts     integer not null default 2,
+  max_attempts     integer not null default 7,
+
+  -- Earliest a retry may run. A failed job is requeued but not claimable
+  -- until this passes, which is what makes the retry a retry: the attempt
+  -- that follows a failure one second later finds whatever was wrong exactly
+  -- as it was.
+  not_before       timestamptz not null default now(),
 
   stage            text,
   progress         real not null default 0,
@@ -71,6 +77,12 @@ create table if not exists jobs (
   started_at       timestamptz,
   finished_at      timestamptz
 );
+
+-- Adding to the create-table body above does nothing to a database that
+-- already exists, so a new column needs both. These are idempotent, which is
+-- what lets install() keep running on every API start and before every test.
+alter table jobs add column if not exists not_before timestamptz not null default now();
+alter table jobs alter column max_attempts set default 7;
 
 create index if not exists jobs_claim_idx on jobs (created_at)
   where status = 'queued';
@@ -126,6 +138,9 @@ class Job:
     options: dict[str, Any]
     attempt: int
     max_attempts: int
+    # Set when the job was claimed, so a retry knows how long it waited. Only
+    # the queue reads it; the renderer has no use for it.
+    not_before: datetime | None = None
 
     @classmethod
     def from_row(cls, row: dict) -> "Job":
@@ -137,6 +152,7 @@ class Job:
             options=row["options"] or {},
             attempt=row["attempt"],
             max_attempts=row["max_attempts"],
+            not_before=row.get("not_before"),
         )
 
 
@@ -193,8 +209,11 @@ class Queue:
                 f"""
                 with candidate as (
                   select id from jobs
-                   where status = 'queued'
-                      or (status in ({active}) and lease_expires_at < now())
+                   where (status = 'queued'
+                          or (status in ({active}) and lease_expires_at < now()))
+                     -- A job waiting out its retry delay is queued but not
+                     -- yet due. This is the whole of the backoff.
+                     and not_before <= now()
                    order by created_at
                    for update skip locked
                    limit 1
@@ -258,25 +277,44 @@ class Queue:
             ).fetchone()
         return row is not None
 
-    def fail(self, job_id: str, owner: str, *, code: str, message: str) -> bool:
-        """Mark a job failed. Requeues instead if attempts remain."""
+    def fail(self, job_id: str, owner: str, *, code: str, message: str,
+             delay_seconds: float | None = None) -> bool:
+        """Mark a job failed, or requeue it to be tried again later.
+
+        *delay_seconds* is how long to wait before the retry becomes
+        claimable, or None to stop here however many attempts remain -- which
+        is for work that was declined rather than attempted, where running it
+        again declines in exactly the same way.
+
+        The wait is the point. This requeued immediately, so the next attempt
+        started a second after the one that failed and found conditions
+        unchanged, which made a second attempt worth nothing.
+        """
+        retrying = delay_seconds is not None
         with self._connect() as conn:
             row = conn.execute(
                 """
                 update jobs
-                   set status = case when attempt < max_attempts
+                   set status = case when %(retrying)s and attempt < max_attempts
                                      then 'queued'::job_status
                                      else 'failed'::job_status end,
                        lease_owner = null,
                        lease_expires_at = null,
-                       error_code = %s,
-                       error_message = %s,
-                       finished_at = case when attempt < max_attempts
+                       -- Kept on the requeue path too: the page shows what
+                       -- went wrong while it is still being retried.
+                       error_code = %(code)s,
+                       error_message = %(message)s,
+                       not_before = case when %(retrying)s and attempt < max_attempts
+                                         then now() + make_interval(secs => %(delay)s)
+                                         else not_before end,
+                       finished_at = case when %(retrying)s and attempt < max_attempts
                                           then null else now() end
-                 where id = %s and lease_owner = %s
+                 where id = %(job_id)s and lease_owner = %(owner)s
                 returning status
                 """,
-                (code, message[:2000], job_id, owner),
+                {"retrying": retrying, "delay": float(delay_seconds or 0.0),
+                 "code": code, "message": message[:2000],
+                 "job_id": job_id, "owner": owner},
             ).fetchone()
         return row is not None
 

@@ -24,6 +24,7 @@
   --accent-ink: #04121f;
   --ok: #48b47f;
   --bad: #e06c75;
+  --warn: #d8a657;
 
   /* Radii scale with the size of the thing they round. */
   --r-sm: 6px;
@@ -483,11 +484,16 @@ input:disabled, textarea:disabled, select:disabled {
 .status-narrating .status-dot,
 .status-executing .status-dot,
 .status-rendering .status-dot,
-.status-uploading .status-dot {
+.status-uploading .status-dot,
+.status-retrying .status-dot {
   color: var(--accent);
   opacity: 1;
   animation: pulse 1.6s ease-in-out infinite;
 }
+
+/* A failure that is coming back. Amber, because it is neither the blue of a
+   job that has not run yet nor the red of one that is not going to. */
+.status-retrying { color: var(--warn); }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }

@@ -411,6 +411,21 @@ def test_submit_queues_a_job(client):
 
 
 @requires_db
+def test_the_job_row_carries_its_retry_state(client):
+    """The page can only say "Retrying" instead of "Queued" -- and hold off
+    reporting a failure -- if it is told how many attempts there are and when
+    the next one is due."""
+    body = client.post("/jobs", json={"topic": "a topic"}, headers=auth()).json()
+    job = client.get(f"/jobs/{body['id']}", headers=auth()).json()
+
+    assert job["attempt"] == 0, "a fresh job has spent no attempts"
+    assert job["max_attempts"] > 1, (
+        "one attempt is not a retry budget; the default is not reaching the row"
+    )
+    assert job["not_before"] is not None, "a job is claimable from the start"
+
+
+@requires_db
 def test_topic_is_validated(client):
     assert client.post("/jobs", json={"topic": "ab"}, headers=auth()).status_code == 422
     assert client.post("/jobs", json={}, headers=auth()).status_code == 422

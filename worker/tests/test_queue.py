@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+from datetime import datetime, timezone
 
 import pytest
 
@@ -51,14 +52,28 @@ def queue() -> Queue:
     return q
 
 
+def make_due(queue: Queue, job_id: str) -> None:
+    """Skip a job's retry wait, so a test need not sit through the backoff.
+
+    The wait is the behaviour under test in its own right; this is how
+    everything else gets past it. Poking the row directly is how this file
+    already reaches states that take minutes, e.g. lease_owner below.
+    """
+    with queue._connect() as conn:
+        conn.execute("update jobs set not_before = now() where id = %s", (job_id,))
+
+
 class FakeRenderer:
     """Stands in for the engine. Optionally fails, or beats, or ignores a lost lease."""
 
     def __init__(self, *, fail_times: int = 0, beat: bool = False,
-                 sleep: float = 0.0):
+                 sleep: float = 0.0, raises: Exception | None = None):
         self.fail_times = fail_times
         self.beat = beat
         self.sleep = sleep
+        # A specific exception, for the cases where *which* failure it was
+        # decides whether the job is worth retrying.
+        self.raises = raises
         self.seen: list[str] = []
         self.calls = 0
 
@@ -69,6 +84,8 @@ class FakeRenderer:
             beat("rendering", 0.5)
         if self.sleep:
             time.sleep(self.sleep)
+        if self.raises is not None:
+            raise self.raises
         if self.calls <= self.fail_times:
             raise RuntimeError("boom")
         return f"artifact/{job.id}.mp4", 12.0
@@ -152,20 +169,63 @@ def test_job_reaches_a_terminal_state_exactly_once(queue):
 
 
 @requires_db
-def test_a_failing_job_is_retried_then_failed(queue):
+def test_a_failing_job_waits_before_it_is_tried_again(queue):
+    """A retry that starts one second after the failure is not a retry.
+
+    Whatever was wrong -- an allowance, an outage, a key -- has had no time to
+    change, so the second attempt fails exactly like the first. That is what
+    requeueing immediately amounted to.
+    """
     job_id = queue.submit("always fails")
-    # max_attempts defaults to 2, so one failure requeues and the next fails.
-    failing = FakeRenderer(fail_times=99)
-    worker = Worker(queue, failing, owner="w0")
+    worker = Worker(queue, FakeRenderer(fail_times=99), owner="w0")
 
     worker.run_once()
-    assert queue.get(job_id)["status"] == "queued", "should requeue while attempts remain"
+    row = queue.get(job_id)
+    assert row["status"] == "queued", "should requeue while attempts remain"
+    assert row["not_before"] > datetime.now(timezone.utc), "requeued with no wait"
 
+    # Queued, but not yet claimable. This is the whole of the backoff.
+    assert worker.run_once() is False, "ran again without waiting"
+    assert queue.get(job_id)["attempt"] == 1, "took a second attempt"
+
+    # Once the wait passes it is picked up again.
+    make_due(queue, job_id)
+    assert worker.run_once() is True
+    assert queue.get(job_id)["attempt"] == 2
+
+
+@requires_db
+def test_a_job_out_of_attempts_fails(queue):
+    job_id = queue.submit("always fails")
+    worker = Worker(queue, FakeRenderer(fail_times=99), owner="w0")
+
+    with queue._connect() as conn:
+        conn.execute("update jobs set attempt = max_attempts where id = %s", (job_id,))
     worker.run_once()
+
     row = queue.get(job_id)
     assert row["status"] == "failed"
     assert row["error_code"] == "RuntimeError"
     assert row["finished_at"] is not None
+
+
+@requires_db
+def test_a_declined_job_is_not_retried(queue):
+    """Refused means nothing went wrong and nothing was spent.
+
+    The same input is declined again, so waiting a day to say so only delays
+    the answer.
+    """
+    from pycoding_worker.worker import Refused
+
+    job_id = queue.submit("declined")
+    worker = Worker(queue, FakeRenderer(raises=Refused("no model key")), owner="w0")
+    worker.run_once()
+
+    row = queue.get(job_id)
+    assert row["status"] == "failed", "a declined job was queued for retry"
+    assert row["error_code"] == "Refused"
+    assert queue.get(job_id)["attempt"] == 1
 
 
 @requires_db
@@ -181,6 +241,7 @@ def test_retry_reuses_the_cached_work(queue):
 
     worker.run_once()
     assert queue.get(job_id)["attempt"] == 1
+    make_due(queue, job_id)
     worker.run_once()
     row = queue.get(job_id)
     assert row["status"] == "succeeded"

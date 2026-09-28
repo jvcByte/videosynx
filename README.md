@@ -13,7 +13,7 @@ renders it, and the result is served from object storage.
 
 ## Status
 
-All eight phases are built. **305 Python tests and 12 browser tests pass**, and
+All eight phases are built. **312 Python tests and 13 browser tests pass**, and
 the full loop has been run for real: submit through the API, a worker claims
 and renders, the file lands in storage, the API serves it back.
 
@@ -214,6 +214,15 @@ advisory lock, so two concurrent submits cannot both pass a check with room for
 one. Stripe webhooks are recorded against their event id, so a retry grants
 once.
 
+**A failure is retried, not reported.** A job that fails is queued again after
+a growing wait — a minute, then five, then out to a day — and the page says
+*Retrying* rather than *Failed* for as long as that is true. The wait is the
+point: this requeued immediately, so the second attempt started a second after
+the first and found conditions unchanged, which made it worth nothing. Seven
+attempts over about 31 hours outlasts a daily quota reset. Only work that was
+*declined* rather than attempted is not retried, because the same input is
+declined in exactly the same way.
+
 ---
 
 ## Layout
@@ -243,6 +252,6 @@ one way.
 
 ```bash
 pip install -e "engine[dev]" -e worker/ -e api/
-pytest                      # from the repository root: 305 tests
-cd web && npx playwright test   # 12 browser tests, needs pycoding_e2e
+pytest                      # from the repository root: 312 tests
+cd web && npx playwright test   # 13 browser tests, needs pycoding_e2e
 ```
