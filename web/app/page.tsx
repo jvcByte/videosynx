@@ -29,6 +29,7 @@ export default function Home() {
   const [loaded, setLoaded] = useState(false);
   const [listFailed, setListFailed] = useState(false);
   const [quota, setQuota] = useState<Quota | null>(null);
+  const [quotaFailed, setQuotaFailed] = useState(false);
 
   // Errors are kept apart by where they happened, so one failing thing does
   // not take over a page whose other half is working.
@@ -50,7 +51,12 @@ export default function Home() {
     } else {
       setListFailed(true);
     }
-    if (quotaResult.status === "fulfilled") setQuota(quotaResult.value);
+    if (quotaResult.status === "fulfilled") {
+      setQuota(quotaResult.value);
+      setQuotaFailed(false);
+    } else {
+      setQuotaFailed(true);
+    }
     setLoaded(true);
 
     return jobsResult.status === "fulfilled" ? jobsResult.value : [];
@@ -162,7 +168,7 @@ export default function Home() {
         <div className="topbar-inner">
           <h1>pycoding</h1>
           <div className="topbar-right">
-            <QuotaMeter quota={quota} />
+            <QuotaMeter quota={quota} failed={quotaFailed} />
             <button className="ghost" onClick={() => setSettingsOpen(true)}>
               Settings
             </button>

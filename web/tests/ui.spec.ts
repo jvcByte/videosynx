@@ -137,10 +137,15 @@ test("submit, poll, and play a video", async ({ page }) => {
   const src = await player.getAttribute("src");
   expect(src, "the player has no source").toBeTruthy();
 
-  // Fetched with no headers, because that is all a <video> element can send.
-  // A URL that needs an Authorization header would be unplayable here, which
-  // is exactly the bug this caught.
-  const head = await fetch(src!);
+  // Resolved against the page, because the player is handed a same-origin path
+  // now rather than an absolute URL -- a <video> element does that for itself,
+  // but Node's fetch will not.
+  const url = new URL(src!, page.url());
+
+  // Still fetched with no headers, because that is all a <video> element can
+  // send. A URL needing an Authorization header would be unplayable here,
+  // which is the bug this caught the first time.
+  const head = await fetch(url);
   expect(head.status).toBe(200);
   expect(head.headers.get("content-type")).toBe("video/mp4");
 });

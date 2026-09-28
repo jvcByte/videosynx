@@ -6,10 +6,26 @@ import { Quota } from "../lib/api";
  * The bar only appears once some of it is gone. A full meter at zero usage is
  * three quarters of a bar saying nothing, and the number already carries it.
  */
-export function QuotaMeter({ quota }: { quota: Quota | null }) {
+export function QuotaMeter({
+  quota,
+  failed,
+}: {
+  quota: Quota | null;
+  failed: boolean;
+}) {
   if (!quota) {
-    // A placeholder, not a zero. Showing "0 left" while loading would be a
-    // lie that looks exactly like running out.
+    // A failure has to look different from a wait. A placeholder that shimmers
+    // forever is indistinguishable from one that is merely slow, which is how
+    // a dead API came to look like a slow one.
+    if (failed) {
+      return (
+        <div className="quota">
+          <span className="quota-rest">Allowance unavailable</span>
+        </div>
+      );
+    }
+    // A placeholder, not a zero: showing "0 left today" while loading would be
+    // a lie that looks exactly like having run out.
     return (
       <div className="quota quota-loading" aria-hidden>
         <span className="skeleton skeleton-line" />

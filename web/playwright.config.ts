@@ -39,9 +39,15 @@ export default defineConfig({
     {
       // The same identity the tests submit as. Without it the page is a
       // different account and, correctly, cannot see the test's jobs.
+      // Its own build directory, or this server and a developer's `npm run
+      // dev` overwrite each other's compiled bundle -- and NEXT_PUBLIC_* is
+      // inlined at compile time, so the survivor's API URL wins for both.
+      // PYCODING_API_URL, not NEXT_PUBLIC_API_URL: the server reads it at
+      // startup and proxies, so it never reaches the browser and never needs
+      // clearing from a cache.
       command:
         `PORT=${WEB_PORT} ` +
-        `NEXT_PUBLIC_API_URL=http://127.0.0.1:${API_PORT} ` +
+        `PYCODING_API_URL=http://127.0.0.1:${API_PORT} ` +
         `NEXT_PUBLIC_DEV_USER=e2e-user:free ` +
         `npm run dev`,
       url: `http://127.0.0.1:${WEB_PORT}`,

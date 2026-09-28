@@ -249,8 +249,15 @@ identical.
 
 **The UI says "Could not reach the API"**
 With the browser involved this is usually CORS, not the server being down.
-Check the API is on the port `NEXT_PUBLIC_API_URL` points at, and that the
-origin is in `CORS_ORIGINS`.
+The browser calls `/api` on its own origin and Next forwards it to whatever
+`PYCODING_API_URL` points at (default `http://localhost:8000`). So check the
+API is running on that port — a browser-side CORS problem is no longer
+possible, because every request is same-origin.
+
+`PYCODING_API_URL` is read by the Next server when it starts, so changing it
+needs a restart of `npm run dev`, not a rebuild. That is deliberate: it used
+to be a `NEXT_PUBLIC_*` value, which is inlined into a client chunk that a
+browser will happily cache and go stale on.
 
 **Video plays with no sound**
 Check `--tts`. The offline fallback is `espeak-ng`; if that is missing the

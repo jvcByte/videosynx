@@ -5,7 +5,12 @@
 // instead, at which point this header is ignored and `authHeader` should
 // return a real bearer token.
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Same origin, forwarded to the API by a rewrite in next.config.ts.
+//
+// Deliberately not a NEXT_PUBLIC_* value: those are inlined into a client
+// chunk at build time, which makes the API's address something a browser can
+// cache and go stale on -- and there is nothing on the page that can clear it.
+const API_BASE = "/api";
 
 export type JobStatus =
   | "queued" | "leased" | "generating" | "narrating"
