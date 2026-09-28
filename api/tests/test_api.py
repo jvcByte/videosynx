@@ -15,8 +15,9 @@ import pytest
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 
-from pycoding_api.app import create_app
+from pycoding_api.app import Mode, SubmitRequest, create_app, job_label
 from pycoding_api.quota import TIERS, QuotaExceeded, submit_within_quota, used_today
+from pycoding_api.settings import Settings
 from pycoding_worker.db import Queue
 from pycoding_worker.storage import LocalStorage, video_key
 
@@ -50,12 +51,193 @@ def clean() -> None:
         return
     Queue(DSN).install()
     with psycopg.connect(DSN, autocommit=True) as conn:
-        conn.execute("truncate jobs")
+        # Every table a test writes, or run order decides pass/fail. This bit
+        # once already: a saved setting leaked into the next test's defaults.
+        conn.execute("truncate jobs, user_settings")
 
 
 def auth(user: str = "user-1", tier: str = "free") -> dict:
     # Development auth: enabled because no JWT secret is configured in tests.
     return {"X-Dev-User": f"{user}:{tier}"}
+
+
+# --------------------------------------------------------- request validation
+# These need no database: they are the schema, and the schema is the contract.
+
+def test_a_topic_on_its_own_is_enough():
+    assert SubmitRequest(topic="decorators").script is None
+
+
+def test_a_script_on_its_own_is_enough():
+    """A caller pasting a script has no topic to give."""
+    body = SubmitRequest(script="Scene 1. Someone explains a thing.")
+    assert body.topic == ""
+    assert job_label(body).startswith("Scene 1.")
+
+
+def test_a_lesson_path_on_its_own_is_enough():
+    assert SubmitRequest(lesson="/tmp/lesson.json").topic == ""
+
+
+def test_a_request_with_nothing_to_render_is_refused():
+    with pytest.raises(ValueError, match="provide a topic, a script, or a lesson"):
+        SubmitRequest()
+
+
+def test_a_topic_that_is_too_short_is_still_refused():
+    with pytest.raises(ValueError, match="at least 3 characters"):
+        SubmitRequest(topic="ab")
+
+
+def test_the_mode_must_be_one_the_engine_knows():
+    with pytest.raises(ValueError):
+        SubmitRequest(topic="decorators", mode="podcast")
+
+
+def test_an_oversized_script_is_refused():
+    """There is no body limit anywhere else, so this field is the only bound."""
+    from pycoding_api.app import MAX_SCRIPT_CHARS
+
+    with pytest.raises(ValueError):
+        SubmitRequest(script="x" * (MAX_SCRIPT_CHARS + 1))
+
+
+def test_the_api_and_the_engine_agree_on_the_modes():
+    """The API owns the wire contract and does not import the engine.
+
+    Copying three strings is cheap; letting them drift is not, so this is the
+    test that keeps them together.
+    """
+    from typing import get_args
+
+    from pycoding.script import MODES as ENGINE_MODES
+
+    assert set(get_args(Mode)) == set(ENGINE_MODES)
+
+
+def test_a_script_names_the_job_when_there_is_no_topic():
+    body = SubmitRequest(script="# A lesson about queues\n\nScene 1.")
+    assert job_label(body) == "A lesson about queues"
+
+
+def test_a_missing_topic_and_an_empty_script_fall_back_to_untitled():
+    assert job_label(SubmitRequest(script="   \n\n  ")) == "untitled"
+
+
+# ------------------------------------------------------------- what is stored
+
+def stored_options(job_id: str) -> dict:
+    with psycopg.connect(DSN, row_factory=dict_row) as conn:
+        row = conn.execute("select options from jobs where id = %s",
+                           (job_id,)).fetchone()
+    return row["options"]
+
+
+@requires_db
+def test_the_mode_and_script_ride_with_the_job(client):
+    """They travel in options, so the worker needs no shared filesystem."""
+    response = client.post("/jobs", headers=auth(), json={
+        "script": "Scene 1. Someone explains a thing.", "mode": "illustration"})
+    assert response.status_code == 202
+
+    options = stored_options(response.json()["id"])
+    assert options["mode"] == "illustration"
+    assert options["script"].startswith("Scene 1.")
+
+
+# ----------------------------------------------------------------- settings
+
+@requires_db
+def test_settings_round_trip(client):
+    before = client.get("/me/settings", headers=auth()).json()
+    assert before["mode"] == "both" and before["captions"] is True
+
+    changed = {**before, "mode": "illustration", "style": "clean",
+               "voice": "am_michael"}
+    assert client.put("/me/settings", headers=auth(), json=changed).status_code == 200
+
+    after = client.get("/me/settings", headers=auth()).json()
+    assert (after["mode"], after["style"], after["voice"]) == \
+        ("illustration", "clean", "am_michael")
+
+
+@requires_db
+def test_settings_are_per_user(client):
+    client.put("/me/settings", headers=auth("alice"), json={"mode": "coding"})
+    assert client.get("/me/settings", headers=auth("alice")).json()["mode"] == "coding"
+    assert client.get("/me/settings", headers=auth("bob")).json()["mode"] == "both"
+
+
+@requires_db
+def test_an_unknown_setting_is_refused(client):
+    response = client.put("/me/settings", headers=auth(),
+                          json={"mode": "podcast"})
+    assert response.status_code == 422
+
+
+@requires_db
+def test_saved_settings_reach_the_job(client):
+    client.put("/me/settings", headers=auth(),
+               json={"mode": "illustration", "style": "clean"})
+    response = client.post("/jobs", headers=auth(), json={"topic": "decorators"})
+
+    options = stored_options(response.json()["id"])
+    assert options["mode"] == "illustration"
+    assert options["style"] == "clean"
+
+
+@requires_db
+def test_a_request_mode_overrides_the_saved_one(client):
+    """One job can differ from the saved default without changing it."""
+    client.put("/me/settings", headers=auth(), json={"mode": "illustration"})
+    response = client.post("/jobs", headers=auth(),
+                           json={"topic": "decorators", "mode": "coding"})
+
+    assert stored_options(response.json()["id"])["mode"] == "coding"
+    assert client.get("/me/settings", headers=auth()).json()["mode"] == "illustration"
+
+
+def test_settings_have_no_field_for_a_tier_key():
+    """The tier-owned keys are not settable, so they cannot be overridden.
+
+    They are merged over the top at submit time regardless; this is the second
+    lock on the same door, and the cheap one.
+    """
+    smuggled = Settings(**{"tts": "elevenlabs", "max_snippets": 99,
+                           "resolution": [3840, 2160], "watermark": False})
+    saved = smuggled.model_dump()
+    for key in ("tts", "max_snippets", "resolution", "watermark"):
+        assert key not in saved
+
+
+@requires_db
+def test_a_job_reports_its_mode(client):
+    """A library entry has to say what kind of video it is."""
+    created = client.post("/jobs", headers=auth(),
+                          json={"topic": "decorators", "mode": "illustration"})
+    job_id = created.json()["id"]
+
+    listed = client.get("/jobs", headers=auth()).json()
+    assert next(j for j in listed if j["id"] == job_id)["mode"] == "illustration"
+    assert client.get(f"/jobs/{job_id}", headers=auth()).json()["mode"] == "illustration"
+
+
+@requires_db
+def test_a_client_cannot_smuggle_a_tier_key(client):
+    """Tier-owned keys are merged over whatever the client sent.
+
+    SubmitRequest also has no extra=allow, so an unknown key never even reaches
+    that merge. Between the two, a free-tier job cannot ask for the paid voice.
+    """
+    response = client.post("/jobs", headers=auth(tier="free"), json={
+        "topic": "decorators", "tts": "elevenlabs", "resolution": [3840, 2160],
+        "watermark": False})
+    assert response.status_code == 202
+
+    options = stored_options(response.json()["id"])
+    assert options["tts"] == "kokoro"
+    assert options["watermark"] is True
+    assert list(options["resolution"]) == [1280, 720]
 
 
 # ------------------------------------------------------------------- preamble

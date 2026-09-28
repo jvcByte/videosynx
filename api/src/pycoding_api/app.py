@@ -20,12 +20,13 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 import psycopg
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg.rows import dict_row
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from pycoding_worker.db import Queue
 
@@ -33,6 +34,8 @@ from .auth import User, current_user
 from .billing import SignatureError, balance, handle_webhook, ledger, tier_for_user
 from .quota import QuotaExceeded, Tier, tier_for, used_today, submit_within_quota
 from pycoding_worker.storage import DEFAULT_URL_TTL, LocalStorage, Storage, from_env
+
+from .settings import Mode, Settings, load_settings, save_settings
 
 
 def _looks_like_uuid(value: str) -> bool:
@@ -47,13 +50,53 @@ def _looks_like_uuid(value: str) -> bool:
 DEFAULT_DSN = os.environ.get("PYCODING_DSN", "postgresql:///pycoding")
 
 
+# A script is sent as text, so this is the only bound on request size: there is
+# no body limit anywhere else.
+MAX_SCRIPT_CHARS = 60_000
+
+
 class SubmitRequest(BaseModel):
-    topic: str = Field(min_length=3, max_length=300)
+    topic: str = Field(default="", max_length=300,
+                       description="What to teach. May be left out when a "
+                                   "script or a lesson is supplied instead.")
+    script: str | None = Field(
+        default=None, max_length=MAX_SCRIPT_CHARS,
+        description="A written script to render. Travels with the job as "
+                    "text, so the API and the worker need not share a disk.",
+    )
+    mode: Mode | None = Field(
+        default=None,
+        description="'both' explains the idea then writes code; 'coding' is "
+                    "code alone; 'illustration' is drawn explanation alone, "
+                    "with no code. Left out, the saved setting is used.")
     lesson: str | None = Field(
         default=None,
-        description="Path to a lesson JSON. Renders authored content instead "
-                    "of generating code from the topic.",
+        description="Path to a lesson JSON on the worker's machine. Kept for "
+                    "local runs; a hosted job should send `script` instead.",
     )
+
+    @model_validator(mode="after")
+    def _needs_a_subject(self) -> "SubmitRequest":
+        if not (self.topic.strip() or self.script or self.lesson):
+            raise ValueError("provide a topic, a script, or a lesson to render")
+        if self.topic.strip() and len(self.topic.strip()) < 3:
+            raise ValueError("topic must be at least 3 characters")
+        return self
+
+
+def job_label(body: SubmitRequest) -> str:
+    """What to call this job in the list.
+
+    A script-only submission has no topic, so the first line of the script
+    becomes the label rather than the job showing up as a blank row.
+    """
+    if body.topic.strip():
+        return body.topic.strip()
+    for line in (body.script or "").splitlines():
+        stripped = line.strip().lstrip("#").strip()
+        if stripped:
+            return stripped[:120]
+    return "untitled"
 
 
 class SubmitResponse(BaseModel):
@@ -68,6 +111,9 @@ class JobResponse(BaseModel):
     id: str
     status: str
     topic: str
+    # Which kind of video this is. Lifted out of the options blob because a
+    # library entry has to be able to say what it is without unpacking jsonb.
+    mode: str = "both"
     stage: str | None = None
     progress: float = 0.0
     duration_s: float | None = None
@@ -83,6 +129,15 @@ class JobResponse(BaseModel):
     def _uuid_to_str(cls, value):
         # Postgres hands back a UUID object; the wire format is a string.
         return str(value)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _mode_from_options(cls, data):
+        if isinstance(data, dict) and "mode" not in data:
+            options = data.get("options")
+            if isinstance(options, dict):
+                return {**data, "mode": str(options.get("mode") or "both")}
+        return data
 
 
 class QuotaResponse(BaseModel):
@@ -133,7 +188,10 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         CORSMiddleware,
         allow_origins=origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        # PUT is here for saving settings. Leaving it out is invisible to the
+        # test client -- it does not run CORS -- and breaks only in a browser,
+        # where the preflight is refused and the save fails silently.
+        allow_methods=["GET", "POST", "PUT", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization", "Idempotency-Key",
                        "X-Dev-User"],
     )
@@ -244,6 +302,23 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         )
         return {"url": session.url, "id": session.id}
 
+    # --------------------------------------------------------------- settings
+
+    @app.get("/me/settings", response_model=Settings)
+    def read_settings(user: User = Depends(current_user)) -> Settings:
+        return load_settings(dsn, user.id)
+
+    @app.put("/me/settings", response_model=Settings)
+    def write_settings(body: Settings, user: User = Depends(current_user)) -> Settings:
+        """Replace the saved settings.
+
+        A PUT, not a PATCH: the body is validated into a complete Settings with
+        defaults filled in, so a field left out returns to its default rather
+        than keeping a stale value nobody can see.
+        """
+        save_settings(dsn, user.id, body.model_dump())
+        return body
+
     # ------------------------------------------------------------------ jobs
 
     @app.post("/jobs", response_model=SubmitResponse,
@@ -253,13 +328,25 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
         user: User = Depends(current_user),
     ) -> SubmitResponse:
+        # Saved preferences first, then whatever this one request chose on top
+        # of them. Tier-owned keys -- tts, resolution, watermark,
+        # max_snippets -- are merged over both by submit_within_quota, so
+        # neither layer can ask for more than the tier gives.
+        options: dict[str, object] = load_settings(dsn, user.id).as_options()
+        if body.mode:
+            options["mode"] = body.mode
+        if body.script:
+            options["script"] = body.script
+        if body.lesson:
+            options["lesson"] = body.lesson
+
         try:
             job_id, tier = submit_within_quota(
                 dsn,
                 user_id=user.id,
-                topic=body.topic,
+                topic=job_label(body),
                 tier_name=_effective_tier(user),
-                options={"lesson": body.lesson} if body.lesson else {},
+                options=options,
                 idempotency_key=idempotency_key,
             )
         except QuotaExceeded as exc:
