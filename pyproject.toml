@@ -10,8 +10,8 @@
 # gave you the wrong module. That engine now lives on the `legacy-engine` branch.
 
 [tool.pytest.ini_options]
-testpaths = ["engine/tests", "worker/tests"]
-pythonpath = ["engine/src", "worker/src"]
+testpaths = ["engine/tests", "worker/tests", "api/tests"]
+pythonpath = ["engine/src", "worker/src", "api/src"]
 
 [tool.ruff]
 line-length = 100
