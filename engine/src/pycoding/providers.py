@@ -8,11 +8,15 @@ tests do -- no key, no quota, no spend.
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import shutil
 import subprocess
 import tempfile
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Protocol
 
@@ -83,6 +87,18 @@ def summarise(failures: list[tuple[str, ProviderError]]) -> tuple[str, str]:
     the difference between a message someone can act on and a wall of json.
     """
     reasons = {exc.reason for _, exc in failures}
+    if len(failures) == 1:
+        # One failure is its own explanation. Summarising it loses the part
+        # that is actionable -- a free tier that renamed a model answers 404,
+        # and "every model failed: error" is not something anyone can act on.
+        name, exc = failures[0]
+        if exc.reason == "quota":
+            return (
+                f"{name} is out of free-tier quota; it is per model, per day, "
+                "and resets daily",
+                "quota",
+            )
+        return str(exc)[:300], exc.reason
     if reasons == {"quota"}:
         return (
             f"all {len(failures)} models are out of free-tier quota; it is "
@@ -187,6 +203,191 @@ class GeminiWriter:
                 )
                 time.sleep(wait)
         raise ProviderError(f"failed after {RETRIES} attempts")
+
+
+# ------------------------------------------------- other free model tiers
+#
+# A free allowance running out is the ordinary way this runs, not an error
+# path: Gemini's is twenty requests per model per day. Everything here is a
+# fallback for when that is gone.
+#
+# Groq, Hugging Face's router and OpenRouter all speak the same OpenAI chat
+# API, so one class covers three free tiers rather than three classes covering
+# one each. Nothing new is installed for it -- a completion is one HTTPS POST.
+
+GROQ_URL = "https://api.groq.com/openai/v1"
+HUGGINGFACE_URL = "https://router.huggingface.co/v1"
+OPENROUTER_URL = "https://openrouter.ai/api/v1"
+
+# Free-tier model ids. They are renamed fairly often, so each list can be
+# overridden from the environment rather than needing a code change.
+GROQ_MODELS = ("llama-3.3-70b-versatile", "llama-3.1-8b-instant")
+HUGGINGFACE_MODELS = ("meta-llama/Llama-3.3-70B-Instruct",)
+OPENROUTER_MODELS = ("meta-llama/llama-3.3-70b-instruct:free",)
+
+
+def _post_json(url: str, body: bytes, headers: dict, timeout: float) -> dict:
+    """One HTTPS POST. Separate so a test can stand in for the network."""
+    request = urllib.request.Request(url, data=body, method="POST", headers=headers)
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read())
+
+
+def classify_http(status: int, detail: str) -> ProviderError:
+    """Turn an HTTP failure into one of the reasons the chain branches on.
+
+    The distinction that matters is whether waiting helps. A per-minute rate
+    limit clears; a per-day one does not, and treating it as busy would make
+    the chain sleep through its whole retry budget for nothing.
+
+    Status is read first. Providers word their error bodies freely, and
+    matching on the word "quota" ahead of the status reads a 500 as an
+    allowance that comes back tomorrow.
+    """
+    if status in (500, 502, 503, 504):
+        return ProviderError(f"service unavailable ({status})", reason="busy")
+    text = detail.lower()
+    if status == 429 or any(w in text for w in ("quota", "rate limit", "credit")):
+        if any(w in text for w in ("per day", "daily", "quota", "credit")):
+            return ProviderError("daily quota exhausted", reason="quota")
+        return ProviderError("rate limited", reason="busy")
+    return ProviderError(f"HTTP {status}: {detail[:160]}")
+
+
+class OpenAICompatWriter:
+    """A Writer for any service that speaks the OpenAI chat API."""
+
+    def __init__(self, api_key: str, model: str, *, base_url: str,
+                 fallbacks: tuple[str, ...] = (), label: str = "model",
+                 timeout_s: float = 120.0, opener=None):
+        if not api_key:
+            raise ProviderError(f"an API key is required for {label}")
+        self._key = api_key
+        self._models = [model, *(m for m in fallbacks if m != model)]
+        self._url = f"{base_url.rstrip('/')}/chat/completions"
+        self.name = label
+        self._timeout = timeout_s
+        self._post = opener or _post_json
+
+    def write(self, prompt: str) -> str:
+        failures: list[tuple[str, ProviderError]] = []
+        for index, model in enumerate(self._models):
+            try:
+                return self._ask(model, prompt)
+            except ProviderError as exc:
+                failures.append((model, exc))
+                if index + 1 < len(self._models):
+                    _console.log(f"[yellow]{self.name}/{model} unavailable, "
+                                 f"trying {self._models[index + 1]}[/yellow]")
+        message, reason = summarise(failures)
+        raise ProviderError(message, reason=reason)
+
+    def _ask(self, model: str, prompt: str) -> str:
+        body = json.dumps({
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+        }).encode()
+        headers = {"Authorization": f"Bearer {self._key}",
+                   "Content-Type": "application/json"}
+        try:
+            payload = self._post(self._url, body, headers, self._timeout)
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:300]
+            raise classify_http(exc.code, detail) from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise ProviderError(f"could not reach {self.name}: {exc}",
+                                reason="busy") from exc
+
+        try:
+            text = payload["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ProviderError(f"unexpected reply from {self.name}: "
+                                f"{str(payload)[:200]}") from exc
+        if not (text or "").strip():
+            raise ProviderError("the model returned nothing")
+        return text.strip()
+
+
+class ChainWriter:
+    """Several providers standing in for one another.
+
+    Not an error path: the ordinary way this runs is that the first free tier
+    is spent and the next one answers. It only reports once every provider
+    with a key has been tried, so the message says what is actually wrong
+    rather than what happened to fail first.
+    """
+
+    def __init__(self, writers: list[tuple[str, Writer]]):
+        if not writers:
+            raise ProviderError("no writer was configured")
+        self._writers = writers
+
+    @property
+    def names(self) -> list[str]:
+        return [name for name, _ in self._writers]
+
+    def write(self, prompt: str) -> str:
+        failures: list[tuple[str, ProviderError]] = []
+        for index, (name, writer) in enumerate(self._writers):
+            try:
+                return writer.write(prompt)
+            except ProviderError as exc:
+                failures.append((name, exc))
+                if index + 1 < len(self._writers):
+                    _console.log(f"[yellow]{name} unavailable, trying "
+                                 f"{self._writers[index + 1][0]}[/yellow]")
+        message, reason = summarise(failures)
+        raise ProviderError(message, reason=reason)
+
+
+def _models_from_env(var: str, defaults: tuple[str, ...]) -> tuple[str, ...]:
+    """A free tier renames its models often; a stale name should not need a
+    code change to fix."""
+    raw = os.environ.get(var, "").strip()
+    # An empty or all-commas value is a typo, not an instruction to offer no
+    # models at all.
+    return tuple(part.strip() for part in raw.split(",") if part.strip()) or defaults
+
+
+def default_writer() -> Writer:
+    """Every provider that has a key, in the order they are tried.
+
+    Gemini first because it writes this kind of prompt best. The others are
+    the answer to a spent allowance, which on a twenty-a-day limit is a
+    normal thing to hit rather than an exceptional one.
+    """
+    entries: list[tuple[str, Writer]] = []
+
+    gemini = os.environ.get("GEMINI_API_KEY", "")
+    if gemini:
+        entries.append(("gemini", GeminiWriter(gemini)))
+
+    groq = os.environ.get("GROQ_API_KEY", "")
+    if groq:
+        models = _models_from_env("GROQ_MODELS", GROQ_MODELS)
+        entries.append(("groq", OpenAICompatWriter(
+            groq, models[0], base_url=GROQ_URL, fallbacks=models[1:], label="groq")))
+
+    huggingface = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_KEY", "")
+    if huggingface:
+        models = _models_from_env("HF_MODELS", HUGGINGFACE_MODELS)
+        entries.append(("huggingface", OpenAICompatWriter(
+            huggingface, models[0], base_url=HUGGINGFACE_URL, fallbacks=models[1:],
+            label="huggingface")))
+
+    openrouter = os.environ.get("OPENROUTER_API_KEY", "")
+    if openrouter:
+        models = _models_from_env("OPENROUTER_MODELS", OPENROUTER_MODELS)
+        entries.append(("openrouter", OpenAICompatWriter(
+            openrouter, models[0], base_url=OPENROUTER_URL, fallbacks=models[1:],
+            label="openrouter")))
+
+    if not entries:
+        raise ProviderError(
+            "no model key is configured. Set GEMINI_API_KEY, or GROQ_API_KEY, "
+            "HF_TOKEN or OPENROUTER_API_KEY for a free fallback."
+        )
+    return entries[0][1] if len(entries) == 1 else ChainWriter(entries)
 
 
 # -------------------------------------------------------------- ElevenLabs

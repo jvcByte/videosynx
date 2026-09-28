@@ -37,6 +37,7 @@ from .providers import (
     ProviderError,
     Speaker,
     ToneSpeaker,
+    default_writer,
 )
 from .render import render_plan
 from .sandbox import assert_sandbox_available
@@ -357,14 +358,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.save_script:
             _console.log(f"[green]wrote {tutorial.export(args.save_script)}[/green]")
     else:
-        if not args.google_api_key:
-            raise SystemExit(
-                "--google-api-key or GEMINI_API_KEY is required, "
-                "or pass --demo for the offline one"
-            )
+        # An explicit key names a provider, so it is used on its own with
+        # whatever --model says. Otherwise take every free tier that has a key
+        # and let them stand in for one another.
+        if args.google_api_key:
+            writer = GeminiWriter(args.google_api_key, model=args.model)
+        else:
+            try:
+                writer = default_writer()
+            except ProviderError as exc:
+                raise SystemExit(f"{exc} Pass --demo for the offline one.") from exc
         tutorial = build_tutorial(
             args.topic,
-            writer=GeminiWriter(args.google_api_key, model=args.model),
+            writer=writer,
             speaker=choose_speaker(args),
             context=args.context,
             execute=args.execute,

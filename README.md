@@ -13,7 +13,7 @@ renders it, and the result is served from object storage.
 
 ## Status
 
-All eight phases are built. **274 Python tests and 12 browser tests pass**, and
+All eight phases are built. **290 Python tests and 12 browser tests pass**, and
 the full loop has been run for real: submit through the API, a worker claims
 and renders, the file lands in storage, the API serves it back.
 
@@ -191,7 +191,10 @@ worker refuses to start rather than falling back.
 **Rendering is free; writing is what costs.** Frames are drawn with Pillow and
 piped to ffmpeg, and Kokoro narrates on the same CPU, so a video costs nothing
 to make. Only *generating* the content — the code and narration for a topic,
-or structuring prose — calls a model. `generation: "local"` refuses to do that
+or structuring prose — calls a model. A spent free allowance is the ordinary
+way this runs rather than a fault, so the providers stand in for one another:
+Gemini first, then Groq, Hugging Face or OpenRouter, whichever have keys, and
+only a job where all of them failed is reported as failed. `generation: "local"` refuses to do that
 at all: it renders lesson JSON you supply, and structures prose itself — scene
 markers become slides, hard-wrapped lines are rejoined, and the writer's own
 words go on screen. Only a bare topic is refused, before it is queued rather
@@ -240,6 +243,6 @@ one way.
 
 ```bash
 pip install -e "engine[dev]" -e worker/ -e api/
-pytest                      # from the repository root: 274 tests
+pytest                      # from the repository root: 290 tests
 cd web && npx playwright test   # 12 browser tests, needs pycoding_e2e
 ```

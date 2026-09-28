@@ -151,10 +151,37 @@ anything a client sends, so a free-tier job cannot ask for the paid voice.
 
 ### Working with no allowance left
 
-The free tier is **20 requests per day, per model**, and the fallback chain has
-five models — so it is a few hundred requests, not a few. When it is gone it
-comes back the next day, and a job that died of it says so in the library
-instead of only reporting a fault.
+Gemini's free tier is **20 requests per day, per model**, and its fallback chain
+has five models — so it is a few hundred requests, not a few.
+
+A spent allowance is the ordinary way this runs, so it is not treated as a
+fault. When Gemini is done for the day the job carries on with the next
+provider that has a key, and only a job where *every* one of them failed is
+reported as failed. Set any of these and it is picked up with no other change:
+
+| variable | free tier | what to expect |
+|---|---|---|
+| `GEMINI_API_KEY` | [AI Studio](https://aistudio.google.com/apikey) | tried first — best at this prompt. 20/day per model |
+| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com/keys) | fast, generous free limits |
+| `HF_TOKEN` | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) | the router; `HUGGINGFACE_API_KEY` also works |
+| `OPENROUTER_API_KEY` | [openrouter.ai/keys](https://openrouter.ai/keys) | `:free` models cost nothing |
+
+The order is fixed — Gemini, Groq, Hugging Face, OpenRouter — and a provider
+with no key is not offered at all rather than offered and failed into. With one
+key there is no chain; with none, the error names the variables above.
+
+Free tiers rename their models fairly often, so each list is overridable rather
+than hardcoded to a name that may not exist by the time you read this:
+
+```bash
+GROQ_MODELS="llama-3.3-70b-versatile,llama-3.1-8b-instant"
+HF_MODELS="meta-llama/Llama-3.3-70B-Instruct"
+OPENROUTER_MODELS="meta-llama/llama-3.3-70b-instruct:free"
+```
+
+A comma-separated list, tried in order; the first is the default and the rest
+are that provider's own fallbacks. A stale name is then an environment variable
+away from fixed rather than a release.
 
 Nothing about *rendering* costs anything. Frames are drawn with Pillow, piped
 to ffmpeg as raw RGB, and Kokoro narrates on the same CPU. The only thing that
@@ -226,7 +253,7 @@ offer a voice that dies at synthesis.
 ## 3. Tests
 
 ```bash
-$PYCODING/.venv/bin/pytest                  # 274 tests
+$PYCODING/.venv/bin/pytest                  # 290 tests
 cd $PYCODING/web && npx playwright test     # 3 browser tests
 ```
 
@@ -294,7 +321,9 @@ run without editing anything.
 
 | variable | needed for |
 |---|---|
-| `GEMINI_API_KEY` | `--topic` runs (not `--demo` or `--lesson`) |
+| `GEMINI_API_KEY` | `--topic` runs (not `--demo` or `--lesson`). Tried first |
+| `GROQ_API_KEY`, `HF_TOKEN`, `OPENROUTER_API_KEY` | free fallbacks for when Gemini's daily allowance is spent |
+| `GROQ_MODELS`, `HF_MODELS`, `OPENROUTER_MODELS` | override that provider's model list, comma-separated |
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | `--tts elevenlabs` |
 | `PYCODING_DSN` | Postgres, default `postgresql:///pycoding` |
 | `R2_BUCKET`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | object storage instead of local disk |
@@ -319,7 +348,9 @@ No worker is running. Start one — the API only enqueues.
 **`quota_exceeded` from Gemini**
 Free-tier quota is **per model** and resets daily. Try
 `--model gemini-3.6-flash`, or a fallback chain is built in for 503s
-(which are demand spikes, not quota).
+(which are demand spikes, not quota). Set `GROQ_API_KEY` and the job carries on
+elsewhere instead of stopping — see
+[Working with no allowance left](#working-with-no-allowance-left).
 
 **`ElevenLabs quota exhausted`**
 The account is out of characters. Use `--tts kokoro` — the videos are otherwise

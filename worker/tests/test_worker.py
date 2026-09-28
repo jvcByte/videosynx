@@ -75,6 +75,74 @@ def test_local_mode_refuses_work_it_cannot_do_without_a_model():
         renderer(job, lambda stage, progress: None)
 
 
+def test_a_local_job_never_builds_a_provider(tmp_path, monkeypatch):
+    """Local mode's promise is that nothing is spent, and every provider has
+    to be constructed with a key -- so a machine with no keys, which is
+    exactly where someone reaches for local mode, would fail here rather than
+    render. The writer is built on a conditional, and this is what says the
+    conditional is on the right side of it.
+    """
+    import json
+
+    import numpy as np
+    import pycoding.providers as providers
+    import pycoding.render as render
+    from pycoding.timeline import SR
+    from pycoding_worker.worker import EngineRenderer
+
+    def refuse():
+        raise AssertionError("a local job must not build a provider")
+
+    monkeypatch.setattr(providers, "default_writer", refuse)
+    monkeypatch.setattr(render, "render_plan", lambda *a, **k: None)
+
+    class Silent:
+        def say(self, text, *, previous="", following=""):
+            # Above the silence floor, or the narration is trimmed to nothing.
+            return np.full(SR // 4, 4000, dtype=np.int16)
+
+    renderer = EngineRenderer(tmp_path)
+    monkeypatch.setattr(renderer, "_speaker", lambda *a, **k: Silent())
+
+    lesson = Path(__file__).resolve().parents[2] / "lessons" / "15-1-when-to-fine-tune.json"
+    job = Job(id="local-1", user_id="u", topic="", tier="free", attempt=1,
+              max_attempts=1,
+              options={"generation": "local", "tts": "espeak",
+                       "script": lesson.read_text()})
+    key, duration = renderer(job, lambda stage, progress: None)
+
+    assert duration > 0, "nothing was rendered"
+    assert json.loads((tmp_path / "local-1.script.json").read_text())["sections"]
+
+
+def test_a_job_that_needs_writing_goes_through_the_chain(tmp_path, monkeypatch):
+    """The other side of the same conditional, and the seam that decides
+    whether any of the provider work reaches the service at all."""
+    import pycoding.providers as providers
+    import pycoding.render as render
+    from pycoding.providers import ProviderError
+    from pycoding_worker.worker import EngineRenderer
+
+    seen = []
+
+    class Reached:
+        def write(self, prompt):
+            seen.append(prompt)
+            raise ProviderError("reached the chain")
+
+    monkeypatch.setattr(providers, "default_writer", lambda: Reached())
+    monkeypatch.setattr(render, "render_plan", lambda *a, **k: None)
+
+    renderer = EngineRenderer(tmp_path)
+    monkeypatch.setattr(renderer, "_speaker", lambda *a, **k: None)
+
+    job = Job(id="auto-1", user_id="u", topic="Python decorators", tier="free",
+              attempt=1, max_attempts=1, options={"tts": "espeak"})
+    with pytest.raises(ProviderError, match="reached the chain"):
+        renderer(job, lambda stage, progress: None)
+    assert seen and "decorators" in seen[0]
+
+
 def render_ok(job, beat):
     beat("rendering", 0.5)
     return "key", 1.0

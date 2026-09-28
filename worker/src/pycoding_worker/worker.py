@@ -214,7 +214,7 @@ class EngineRenderer:
             lesson_from_text,
             load_lesson,
         )
-        from pycoding.providers import GeminiWriter
+        from pycoding.providers import default_writer
         from pycoding.render import render_plan
         from pycoding.script import build_tutorial
         from pycoding.timeline import without_captions
@@ -258,8 +258,12 @@ class EngineRenderer:
         # Only built when it could be used. Constructing one for a local job
         # would spend nothing, but it would still fail on a missing key for a
         # job that was never going to need one.
-        writer = (None if generation == "local"
-                  else GeminiWriter(os.environ.get("GEMINI_API_KEY", "")))
+        #
+        # Every provider that has a key, not just Gemini. A free allowance
+        # running out is the ordinary way this runs -- twenty requests per
+        # model per day -- so one provider is not enough to keep a queue
+        # moving, and the fallback costs nothing to have.
+        writer = None if generation == "local" else default_writer()
 
         if script:
             lesson = lesson_from_text(script, writer=writer,

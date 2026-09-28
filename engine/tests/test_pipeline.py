@@ -7,8 +7,10 @@ the point of putting the two services behind protocols.
 
 from __future__ import annotations
 
+import io
 import json
 import os
+import urllib.error
 
 import numpy as np
 import pytest
@@ -502,6 +504,26 @@ def test_a_spent_allowance_is_reported_as_one_fact():
     assert len(message) < 140, "still too long to read on a page"
 
 
+def test_a_single_failure_keeps_the_part_you_can_act_on():
+    """The common case now: one key, one provider, one model. A free tier
+    that renamed a model answers 404, and the name it was asked for is the
+    only thing that makes that fixable."""
+    from pycoding.providers import ProviderError, summarise
+
+    message, reason = summarise([
+        ("openrouter/old-model-name", ProviderError("HTTP 404: model not found")),
+    ])
+    assert reason == "error"
+    assert "404" in message and "old-model-name" not in message
+    assert "every model" not in message, "there is only one"
+
+    message, reason = summarise([
+        ("groq", ProviderError("daily quota exhausted", reason="quota")),
+    ])
+    assert reason == "quota"
+    assert "resets daily" in message
+
+
 def test_a_mixed_failure_keeps_the_detail():
     """With no single cause, the specific failures are the useful part."""
     from pycoding.providers import ProviderError, summarise
@@ -528,6 +550,185 @@ def test_scripted_writer_replays_and_records():
     # Past the end it keeps returning the last response rather than stopping.
     assert writer.write("third") == "b"
     assert writer.prompts == ["first", "second", "third"]
+
+
+# ------------------------------------------------- other free model tiers
+#
+# A spent free allowance is the ordinary way this runs, so the fallback is the
+# path that gets used rather than the path that might. None of it touches the
+# network here: the HTTP call is passed in.
+
+KEYS = ("GEMINI_API_KEY", "GROQ_API_KEY", "HF_TOKEN", "HUGGINGFACE_API_KEY",
+        "OPENROUTER_API_KEY")
+
+
+@pytest.fixture
+def no_keys(monkeypatch):
+    """Whatever the shell that ran pytest happens to have exported."""
+    for name in KEYS:
+        monkeypatch.delenv(name, raising=False)
+
+
+def _reply(text: str):
+    """A stand-in for the network, shaped like a chat completion."""
+    def post(url, body, headers, timeout):
+        return {"choices": [{"message": {"content": text}}]}
+    return post
+
+
+def test_a_per_minute_limit_is_told_apart_from_a_spent_quota():
+    """Both are 429, and treating a per-day quota as busy is what makes a
+    chain sleep through its whole retry budget for nothing."""
+    from pycoding.providers import classify_http
+
+    assert classify_http(429, "rate limit exceeded, try again in 2s").reason == "busy"
+    assert classify_http(429, "quota exceeded for today").reason == "quota"
+    assert classify_http(429, "daily quota reached").reason == "quota"
+    assert classify_http(503, "upstream is overloaded").reason == "busy"
+    assert classify_http(400, "bad request").reason == "error"
+    # OpenRouter says 402 and "insufficient credits" rather than 429.
+    assert classify_http(402, "insufficient credits").reason == "quota"
+
+    # A 5xx is read as a 5xx however its body is worded. Reading one as a
+    # spent allowance is the difference between trying another provider now
+    # and telling someone to come back tomorrow.
+    assert classify_http(500, "quota service unavailable").reason == "busy"
+
+
+def test_an_openai_compatible_writer_reads_a_reply():
+    from pycoding.providers import OpenAICompatWriter
+
+    writer = OpenAICompatWriter("k", "m", base_url="https://example.test/v1",
+                                opener=_reply("  hello  "))
+    assert writer.write("prompt") == "hello"
+
+
+def test_a_writer_falls_through_its_own_models_before_giving_up():
+    from pycoding.providers import OpenAICompatWriter
+
+    tried = []
+
+    def post(url, body, headers, timeout):
+        tried.append(json.loads(body)["model"])
+        if len(tried) == 1:
+            raise urllib.error.HTTPError(url, 429, "quota", {}, io.BytesIO(
+                b'{"error": {"message": "daily quota exhausted"}}'))
+        return {"choices": [{"message": {"content": "second model answered"}}]}
+
+    writer = OpenAICompatWriter("k", "one", base_url="https://example.test/v1",
+                                fallbacks=("two",), opener=post)
+    assert writer.write("prompt") == "second model answered"
+    assert tried == ["one", "two"]
+
+
+def test_a_writer_with_no_key_says_so_rather_than_failing_later():
+    from pycoding.providers import OpenAICompatWriter
+
+    with pytest.raises(ProviderError, match="API key"):
+        OpenAICompatWriter("", "m", base_url="https://example.test/v1")
+
+
+def test_the_chain_moves_on_to_the_next_provider():
+    """The behaviour the whole thing exists for: Gemini is spent, Groq answers."""
+    from pycoding.providers import ChainWriter
+
+    class Spent:
+        def write(self, prompt):
+            raise ProviderError("daily quota exhausted", reason="quota")
+
+    chain = ChainWriter([("gemini", Spent()), ("groq", ScriptedWriter(["written"]))])
+    assert chain.write("prompt") == "written"
+    assert chain.names == ["gemini", "groq"]
+
+
+def test_the_chain_reports_once_every_provider_is_spent():
+    from pycoding.providers import ChainWriter
+
+    class Spent:
+        def write(self, prompt):
+            raise ProviderError("daily quota exhausted", reason="quota")
+
+    chain = ChainWriter([("gemini", Spent()), ("groq", Spent())])
+    with pytest.raises(ProviderError) as caught:
+        chain.write("prompt")
+    assert caught.value.reason == "quota"
+    assert "Gemini" not in str(caught.value), "reasons, not one provider's name"
+
+
+def test_a_chain_of_nothing_is_refused():
+    from pycoding.providers import ChainWriter
+
+    with pytest.raises(ProviderError):
+        ChainWriter([])
+
+
+def test_only_the_providers_with_keys_are_offered(no_keys, monkeypatch):
+    """A provider with no key is not offered and then failed into -- it is
+    not offered, because a missing key is a configuration fact known here
+    and a failure is something a job has to survive."""
+    from pycoding.providers import default_writer
+
+    monkeypatch.setenv("GROQ_API_KEY", "g")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "o")
+    assert default_writer().names == ["groq", "openrouter"]
+
+
+def test_a_lone_provider_needs_no_chain_around_it(no_keys, monkeypatch):
+    """One provider is not a fallback chain, and wrapping it in one would
+    only put a layer between two things that say the same message."""
+    from pycoding.providers import OpenAICompatWriter, default_writer
+
+    monkeypatch.setenv("GROQ_API_KEY", "g")
+    writer = default_writer()
+    assert isinstance(writer, OpenAICompatWriter)
+    assert writer.name == "groq"
+
+
+def test_the_order_is_gemini_first(no_keys, monkeypatch):
+    from pycoding.providers import ChainWriter, default_writer
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "o")
+    monkeypatch.setenv("GROQ_API_KEY", "g")
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    assert default_writer().names == ["gemini", "groq", "openrouter"]
+
+
+def test_hugging_face_answers_to_either_name(no_keys, monkeypatch):
+    from pycoding.providers import default_writer
+
+    for name in ("HF_TOKEN", "HUGGINGFACE_API_KEY"):
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        monkeypatch.delenv("HUGGINGFACE_API_KEY", raising=False)
+        monkeypatch.setenv(name, "h")
+        assert default_writer().name == "huggingface"
+
+
+def test_a_model_list_can_be_corrected_without_a_code_change(no_keys, monkeypatch):
+    """A free tier renames its models often, and a stale name should be a
+    environment variable away from fixed rather than a release."""
+    from pycoding.providers import OpenAICompatWriter, default_writer
+
+    monkeypatch.setenv("GROQ_API_KEY", "g")
+    monkeypatch.setenv("GROQ_MODELS", " new-one , second-one ,  ")
+    writer = default_writer()
+    assert isinstance(writer, OpenAICompatWriter)
+    assert writer._models == ["new-one", "second-one"]
+
+    # A value that names no models at all is a typo, not an instruction to
+    # offer none -- which would fail on an empty list rather than use one.
+    monkeypatch.setenv("GROQ_MODELS", " , ")
+    assert default_writer()._models == ["llama-3.3-70b-versatile",
+                                        "llama-3.1-8b-instant"]
+
+
+def test_no_keys_at_all_names_the_ones_that_would_work(no_keys):
+    from pycoding.providers import default_writer
+
+    with pytest.raises(ProviderError) as caught:
+        default_writer()
+    message = str(caught.value)
+    for name in ("GEMINI_API_KEY", "GROQ_API_KEY", "HF_TOKEN", "OPENROUTER_API_KEY"):
+        assert name in message, f"{name} missing from the message a person reads"
 
 
 # ------------------------------------------------------------------- dotenv
