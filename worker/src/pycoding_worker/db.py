@@ -77,6 +77,33 @@ create index if not exists jobs_claim_idx on jobs (created_at)
 create index if not exists jobs_lease_idx on jobs (lease_expires_at)
   where status in ({", ".join(f"'{s}'" for s in ACTIVE_STATUSES)});
 create index if not exists jobs_user_idx on jobs (user_id, created_at desc);
+
+-- Billing. The tier a user is entitled to lives here rather than in their
+-- token: a token issued before an upgrade would otherwise keep granting the
+-- old tier until it expired, and "I paid and nothing changed" is the worst
+-- possible first impression.
+create table if not exists subscriptions (
+  user_id                text primary key,
+  tier                   text not null default 'free',
+  stripe_customer_id     text,
+  stripe_subscription_id text,
+  status                 text,
+  current_period_end     timestamptz,
+  updated_at             timestamptz not null default now()
+);
+
+-- Every grant and charge, append-only. stripe_event_id is unique, which is
+-- what makes a webhook that Stripe delivers twice grant once.
+create table if not exists credit_ledger (
+  id              bigserial primary key,
+  user_id         text not null,
+  delta           integer not null,
+  reason          text not null,
+  stripe_event_id text unique,
+  created_at      timestamptz not null default now()
+);
+
+create index if not exists ledger_user_idx on credit_ledger (user_id, created_at desc);
 """
 
 

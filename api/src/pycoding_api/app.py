@@ -15,6 +15,7 @@ room for one.
 
 from __future__ import annotations
 
+import json
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -28,6 +29,7 @@ from pydantic import BaseModel, Field, field_validator
 from pycoding_worker.db import Queue
 
 from .auth import User, current_user
+from .billing import SignatureError, balance, handle_webhook, ledger, tier_for_user
 from .quota import QuotaExceeded, Tier, tier_for, used_today, submit_within_quota
 from pycoding_worker.storage import DEFAULT_URL_TTL, LocalStorage, Storage, from_env
 
@@ -120,6 +122,16 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
             raise HTTPException(status.HTTP_404_NOT_FOUND, "no such job")
         return row
 
+    def _effective_tier(user: User) -> str:
+        """What the account is entitled to *now*.
+
+        Read from the database rather than the token: a JWT minted before an
+        upgrade would otherwise keep granting the old tier, which reads as
+        "I paid and nothing happened".
+        """
+        with _connect(dsn) as conn:
+            return tier_for_user(conn, user.id, fallback=user.tier)
+
     # ------------------------------------------------------------------ meta
 
     @app.get("/health")
@@ -130,7 +142,7 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
 
     @app.get("/me/quota", response_model=QuotaResponse)
     def quota(user: User = Depends(current_user)) -> QuotaResponse:
-        tier = tier_for(user.tier)
+        tier = tier_for(_effective_tier(user))
         with _connect(dsn) as conn:
             used = used_today(conn, user.id)
         return QuotaResponse(
@@ -142,6 +154,73 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
             tts=tier.tts,
             max_snippets=tier.max_snippets,
         )
+
+    # --------------------------------------------------------------- billing
+
+    @app.post("/billing/webhook")
+    async def stripe_webhook(request: Request) -> dict:
+        """Stripe calls this; nobody else should be able to.
+
+        The raw body is verified, not a re-serialised copy of it: the
+        signature covers the exact bytes Stripe sent.
+        """
+        payload = await request.body()
+        signature = request.headers.get("stripe-signature", "")
+        secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+        try:
+            return handle_webhook(dsn, payload, signature, secret)
+        except SignatureError as exc:
+            # 400 so Stripe does not keep retrying something we will always
+            # reject.
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                f"invalid signature: {exc}") from exc
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "malformed payload") from exc
+
+    @app.get("/me/subscription")
+    def subscription(user: User = Depends(current_user)) -> dict:
+        tier = tier_for(_effective_tier(user))
+        with _connect(dsn) as conn:
+            credits = balance(conn, user.id)
+            recent = ledger(conn, user.id, limit=10)
+        return {
+            "tier": tier.name,
+            "jobs_per_day": tier.jobs_per_day,
+            "tts": tier.tts,
+            "credits": credits,
+            "recent": [
+                {"delta": r["delta"], "reason": r["reason"],
+                 "at": r["created_at"].isoformat() if r["created_at"] else None}
+                for r in recent
+            ],
+        }
+
+    @app.post("/billing/checkout")
+    def checkout(user: User = Depends(current_user)) -> dict:
+        """Start a subscription. Returns a URL for the client to open."""
+        secret = os.environ.get("STRIPE_SECRET_KEY", "")
+        price = os.environ.get("STRIPE_PRICE_ID", "")
+        if not secret or not price:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "billing is not configured on this server "
+                "(STRIPE_SECRET_KEY and STRIPE_PRICE_ID unset)",
+            )
+        import stripe
+
+        session = stripe.checkout.Session.create(
+            api_key=secret,
+            mode="subscription",
+            line_items=[{"price": price, "quantity": 1}],
+            client_reference_id=user.id,
+            # Carried onto the subscription so later webhooks know whose
+            # entitlement this is without a separate lookup.
+            metadata={"user_id": user.id, "tier": "paid"},
+            subscription_data={"metadata": {"user_id": user.id, "tier": "paid"}},
+            success_url=os.environ.get("STRIPE_SUCCESS_URL", "https://example.com/ok"),
+            cancel_url=os.environ.get("STRIPE_CANCEL_URL", "https://example.com/cancel"),
+        )
+        return {"url": session.url, "id": session.id}
 
     # ------------------------------------------------------------------ jobs
 
@@ -157,7 +236,7 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
                 dsn,
                 user_id=user.id,
                 topic=body.topic,
-                tier_name=user.tier,
+                tier_name=_effective_tier(user),
                 options={"lesson": body.lesson} if body.lesson else {},
                 idempotency_key=idempotency_key,
             )
