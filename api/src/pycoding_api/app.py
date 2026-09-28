@@ -33,7 +33,13 @@ from pycoding_worker.db import Queue
 from .auth import User, current_user
 from .billing import SignatureError, balance, handle_webhook, ledger, tier_for_user
 from .quota import QuotaExceeded, Tier, tier_for, used_today, submit_within_quota
-from pycoding_worker.storage import DEFAULT_URL_TTL, LocalStorage, Storage, from_env
+from pycoding_worker.storage import (
+    DEFAULT_URL_TTL,
+    LocalStorage,
+    Storage,
+    from_env,
+    video_key,
+)
 
 from .settings import Mode, Settings, load_settings, save_settings, voice_options
 
@@ -449,15 +455,33 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
 
     @app.get("/jobs/{job_id}/script")
     def get_script(job_id: str, user: User = Depends(current_user)) -> dict:
+        """What the renderer actually produced.
+
+        The generated code, the narration and every diagram are made afresh
+        each run and exist nowhere else, so a video that came out wrong is
+        impossible to diagnose without this. The worker writes it beside the
+        video; older jobs predate it, hence the fallback.
+        """
         row = _job_or_404(job_id)
         if row["user_id"] != user.id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "no such job")
+
+        key = video_key(row["tier"], str(row["id"]), ".script.json")
+        if store.exists(key):
+            body = store.read(key)
+            if body is not None:
+                try:
+                    return json.loads(body)
+                except json.JSONDecodeError:
+                    pass  # unreadable is the same as absent, from out here
+
         options: dict = row["options"] or {}
         return {
             "id": row["id"],
             "topic": row["topic"],
             "lesson": options.get("lesson"),
             "tts": options.get("tts"),
+            "note": "no plan was saved for this job",
         }
 
     return app

@@ -7,6 +7,7 @@ client that costs money.
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 
@@ -513,6 +514,53 @@ def _succeed(job_id: str, store: LocalStorage, *, tier: str = "free",
             (key, job_id),
         )
     return key
+
+
+@requires_db
+def test_the_script_endpoint_serves_the_plan_the_renderer_made(stored):
+    """The generated code, narration and diagrams exist nowhere else.
+
+    Nothing else keeps a record of what was generated, so a video that came
+    out wrong cannot be diagnosed without this.
+    """
+    client, store = stored
+    job_id = client.post("/jobs", headers=auth(),
+                         json={"topic": "decorators"}).json()["id"]
+
+    # Before a worker has run there is nothing saved, and the endpoint says so
+    # rather than returning an empty object that looks like a real plan.
+    early = client.get(f"/jobs/{job_id}/script", headers=auth()).json()
+    assert early["note"] == "no plan was saved for this job"
+
+    plan = {
+        "topic": "decorators",
+        "total_frames": 4242,
+        "sections": [{
+            "kind": "explain",
+            "heading": "What a decorator is",
+            "diagram": {"layout": "row", "nodes": [{"id": "a", "label": "Call"}]},
+        }],
+    }
+    source = store.root / "plan.json"
+    source.write_text(json.dumps(plan))
+    store.put(video_key("free", job_id, ".script.json"), source)
+
+    body = client.get(f"/jobs/{job_id}/script", headers=auth()).json()
+    assert body["total_frames"] == 4242
+    assert body["sections"][0]["heading"] == "What a decorator is"
+
+
+@requires_db
+def test_a_saved_plan_is_not_readable_by_another_account(stored):
+    client, store = stored
+    job_id = client.post("/jobs", headers=auth("owner"),
+                         json={"topic": "decorators"}).json()["id"]
+    source = store.root / "plan.json"
+    source.write_text(json.dumps({"total_frames": 1}))
+    store.put(video_key("free", job_id, ".script.json"), source)
+
+    response = client.get(f"/jobs/{job_id}/script", headers=auth("stranger"))
+    assert response.status_code == 404
 
 
 @requires_db

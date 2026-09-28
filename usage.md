@@ -149,6 +149,24 @@ What is **not** settable is the tier's business: voice engine, resolution,
 watermark and snippet cap. Those are decided by the plan and merged over
 anything a client sends, so a free-tier job cannot ask for the paid voice.
 
+### Inspecting what was generated
+
+The code, the narration and every diagram are generated afresh each run and
+exist nowhere else, so a video that came out wrong cannot be diagnosed without
+a record of it. The worker keeps one beside the video:
+
+```bash
+curl -s localhost:8000/jobs/<id>/script -H 'X-Dev-User: me:free' | jq '.sections[0]'
+```
+
+It is the same JSON `--save-script` writes from the CLI: the diagram specs,
+the slide columns, and every sentence with the frame count it was spoken over.
+This is what to reach for when a video is not what you expected — you can see
+exactly which slide carried the wrong content, and edit it into a lesson.
+
+Jobs submitted before this existed return a short summary of what was *asked
+for* instead, marked `"no plan was saved for this job"`.
+
 ### The voices
 
 The picker is filled from a catalogue, so it offers only names that exist:
@@ -171,7 +189,7 @@ offer a voice that dies at synthesis.
 ## 3. Tests
 
 ```bash
-$PYCODING/.venv/bin/pytest                  # 245 tests
+$PYCODING/.venv/bin/pytest                  # 247 tests
 cd $PYCODING/web && npx playwright test     # 3 browser tests
 ```
 

@@ -236,15 +236,29 @@ class EngineRenderer:
         render_plan(plan, out, width=width, height=height, style=style,
                     watermark=watermark)
 
+        # The plan the renderer actually produced, saved beside the video.
+        #
+        # Without it a video that came out wrong cannot be diagnosed at all:
+        # the code, the narration and every diagram are generated afresh each
+        # run, and nothing else keeps a record of what was generated. This is
+        # the same JSON the CLI writes with --save-script.
+        from dataclasses import replace
+
+        script_path = out.with_name(f"{out.stem}.script.json")
+        replace(tutorial, plan=plan).export(script_path)
+
         if self.storage is None:
             beat("done", 1.0)
-            return str(out), tutorial.plan.duration_s
+            return str(out), plan.duration_s
 
         from .storage import video_key
 
         beat("uploading", 0.95)
+        self.storage.put(video_key(job.tier, job.id, ".script.json"), script_path)
+        script_path.unlink(missing_ok=True)
+
         key = video_key(job.tier, job.id)
         self.storage.put(key, out)
         out.unlink(missing_ok=True)  # the store has it now
         beat("done", 1.0)
-        return key, tutorial.plan.duration_s
+        return key, plan.duration_s
