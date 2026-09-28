@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pycoding-worker"
+version = "0.1.0"
+description = "Queue consumer: claims jobs and renders them."
+requires-python = ">=3.11"
+dependencies = [
+    "psycopg[binary]>=3.1",
+    # The engine. Installed separately (`pip install -e engine`) because it is
+    # its own project; this is a workspace, not a single distribution.
+    "pycoding",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+pycoding-worker = "pycoding_worker.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
