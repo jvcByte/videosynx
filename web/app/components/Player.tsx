@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { videoFilename } from "../lib/format";
 
 /**
  * The video, over the page rather than in it.
@@ -33,7 +34,16 @@ export function Player({
       <div className="overlay-body">
         <div className="overlay-head">
           <h2>{title}</h2>
-          <button className="ghost" onClick={onClose}>Close</button>
+          <div className="overlay-actions">
+            {/* A plain link with `download`, not a button that fetches and
+                clicks something: the browser already knows how to save a
+                same-origin URL, and this way it can stream rather than buffer
+                the whole file into memory first. */}
+            <a className="ghost" href={url} download={videoFilename(title)}>
+              Download
+            </a>
+            <button className="ghost" onClick={onClose}>Close</button>
+          </div>
         </div>
         <video key={url} src={url} controls autoPlay data-testid="player" />
       </div>

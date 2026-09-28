@@ -62,6 +62,13 @@ export interface Settings {
   length: "short" | "medium" | "long";
 }
 
+/** One narration voice the service offers. */
+export interface Voice {
+  id: string;
+  language: string;
+  gender: string;
+}
+
 export interface SubmitBody {
   /** What to teach. Optional when a script is given instead. */
   topic?: string;
@@ -120,6 +127,7 @@ export const api = {
   quota: () => request<Quota>("/me/quota"),
   jobs: () => request<Job[]>("/jobs"),
   settings: () => request<Settings>("/me/settings"),
+  voices: () => request<Voice[]>("/voices"),
   saveSettings: (settings: Settings) =>
     request<Settings>("/me/settings", {
       method: "PUT",

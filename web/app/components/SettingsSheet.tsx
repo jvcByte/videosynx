@@ -1,7 +1,18 @@
 "use client";
 
 import { FormEvent, useEffect } from "react";
-import { Mode, Settings } from "../lib/api";
+import { Mode, Settings, Voice } from "../lib/api";
+
+/** Voices grouped by language, in the order the API returned them. */
+function byLanguage(voices: Voice[]): [string, Voice[]][] {
+  const groups = new Map<string, Voice[]>();
+  for (const voice of voices) {
+    const list = groups.get(voice.language) ?? [];
+    list.push(voice);
+    groups.set(voice.language, list);
+  }
+  return [...groups.entries()];
+}
 
 const MODE_OPTIONS: { value: Mode; label: string }[] = [
   { value: "both", label: "Explain, then code" },
@@ -21,10 +32,11 @@ const MODE_OPTIONS: { value: Mode; label: string }[] = [
  * accessible name from all its text, which here would include every <option>.
  */
 export function SettingsSheet({
-  open, settings, failed, saving, saved, error, onEdit, onSave, onClose,
+  open, settings, voices, failed, saving, saved, error, onEdit, onSave, onClose,
 }: {
   open: boolean;
   settings: Settings | null;
+  voices: Voice[];
   failed: boolean;
   saving: boolean;
   saved: boolean;
@@ -158,16 +170,32 @@ export function SettingsSheet({
               <legend>Narration</legend>
               <label className="field">
                 <span>Voice</span>
-                <input
+                <select
                   aria-label="Voice"
                   value={settings.voice}
                   onChange={(e) => onEdit({ voice: e.target.value })}
-                  autoComplete="off"
-                />
+                >
+                  {/* Until the catalogue arrives, the saved voice is still
+                      selectable -- a picker that silently drops the current
+                      value would look like the setting had been lost. */}
+                  {voices.length === 0 && (
+                    <option value={settings.voice}>{settings.voice}</option>
+                  )}
+                  {byLanguage(voices).map(([language, group]) => (
+                    <optgroup key={language} label={language}>
+                      {group.map((voice) => (
+                        <option key={voice.id} value={voice.id}>
+                          {voice.id} — {voice.gender}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
               </label>
               <p className="field-note">
-                Used when your tier narrates with Kokoro. An unknown name falls
-                back to the default rather than failing the render.
+                Used when your tier narrates with Kokoro. The voice is picked
+                inside whichever engine the tier allows, so it is ignored by a
+                tier that narrates with ElevenLabs.
               </p>
             </fieldset>
 

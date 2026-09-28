@@ -12,6 +12,22 @@ export function modeLabel(mode: string): string {
   return MODE_LABELS[mode] ?? mode;
 }
 
+/**
+ * A filename for a downloaded video, derived from its title.
+ *
+ * Everything that is not a letter or a digit becomes a dash, so a title with
+ * a slash, a colon or a question mark in it cannot produce a path or a name
+ * the filesystem refuses.
+ */
+export function videoFilename(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return `${slug || "pycoding"}.mp4`;
+}
+
 /** `4:07` for a video length. Minutes are worth showing, seconds alone are not. */
 export function duration(seconds: number): string {
   const total = Math.round(seconds);

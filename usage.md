@@ -120,6 +120,12 @@ curl -s -X POST localhost:8000/jobs \
 `topic` is optional when a script is given — the job is named from the
 script's first line instead, so it does not appear as a blank row.
 
+**A script replaces the topic and the mode.** It carries its own content, so
+neither `mode` nor `topic` is applied: a script of pure explanation produces a
+video of pure explanation, however the mode was set. Put code in the script if
+you want code on screen. The page says so and dims both controls once a script
+is present.
+
 ### Settings
 
 Saved per user on the server, so they follow the account rather than the
@@ -143,12 +149,29 @@ What is **not** settable is the tier's business: voice engine, resolution,
 watermark and snippet cap. Those are decided by the plan and merged over
 anything a client sends, so a free-tier job cannot ask for the paid voice.
 
+### The voices
+
+The picker is filled from a catalogue, so it offers only names that exist:
+
+```bash
+curl -s localhost:8000/voices -H 'X-Dev-User: me:free'
+```
+
+Kokoro ships 54. A name is `<language><gender>_<name>` — `af_heart` is
+American English, female; `bm_george` is British English, male. The list comes
+back with English first because that is what almost every caller wants, and
+fifty-four entries in alphabetical order bury it.
+
+The catalogue is a copy of what `voices-v1.0.bin` holds, so a test loads the
+real model and fails if the two ever disagree — otherwise the dropdown would
+offer a voice that dies at synthesis.
+
 ---
 
 ## 3. Tests
 
 ```bash
-$PYCODING/.venv/bin/pytest                  # 242 tests
+$PYCODING/.venv/bin/pytest                  # 245 tests
 cd $PYCODING/web && npx playwright test     # 3 browser tests
 ```
 

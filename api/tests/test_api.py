@@ -17,6 +17,7 @@ from psycopg.rows import dict_row
 
 from pycoding_api.app import Mode, SubmitRequest, create_app, job_label
 from pycoding_api.quota import TIERS, QuotaExceeded, submit_within_quota, used_today
+from pycoding_api.settings import KOKORO_VOICES as KOKORO_VOICE_IDS
 from pycoding_api.settings import Settings
 from pycoding_worker.db import Queue
 from pycoding_worker.storage import LocalStorage, video_key
@@ -118,6 +119,50 @@ def test_the_api_and_the_engine_agree_on_the_modes():
 def test_a_script_names_the_job_when_there_is_no_topic():
     body = SubmitRequest(script="# A lesson about queues\n\nScene 1.")
     assert job_label(body) == "A lesson about queues"
+
+
+def test_a_script_wins_over_a_topic_in_the_label():
+    """Because it wins in the renderer too.
+
+    Submitting a fine-tuning script with "dictionary in python" still in the
+    topic box produced a row labelled "dictionary in python" containing the
+    fine-tuning lesson.
+    """
+    body = SubmitRequest(topic="dictionary in python",
+                         script="# When to Fine-Tune\n\nScene 1.")
+    assert job_label(body) == "When to Fine-Tune"
+
+
+# ---------------------------------------------------------------- the voices
+
+@requires_db
+def test_every_voice_is_listed_with_a_language(client):
+    voices = client.get("/voices", headers=auth()).json()
+    assert len(voices) > 20
+    assert all(v["id"] and v["language"] and v["gender"] for v in voices)
+    # English first: it is what almost every caller wants, and fifty-four
+    # entries in alphabetical order bury it.
+    assert voices[0]["language"].startswith("English")
+
+
+def test_the_voice_catalogue_matches_the_model_it_describes():
+    """KOKORO_VOICES is a copy of what voices-v1.0.bin holds.
+
+    Copying is fine; a copy that has drifted is not -- the dropdown would
+    offer a voice that fails at synthesis. This loads the real model and
+    compares. Skipped where the model is not installed, since a checkout
+    without it cannot narrate at all.
+    """
+    pytest.importorskip("kokoro_onnx")
+    from pathlib import Path
+
+    from pycoding.providers import KOKORO_MODEL, KOKORO_VOICES, KokoroSpeaker
+
+    if not Path(KOKORO_MODEL).exists() or not Path(KOKORO_VOICES).exists():
+        pytest.skip("the Kokoro model files are not installed")
+
+    real = set(KokoroSpeaker()._kokoro.get_voices())
+    assert set(KOKORO_VOICE_IDS) == real
 
 
 def test_a_missing_topic_and_an_empty_script_fall_back_to_untitled():

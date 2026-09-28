@@ -156,6 +156,9 @@ Return JSON: {slide_range} slides, as a list of objects in exactly this shape:
    for word -- say it in speech, not as a caption.
 6. The note is one sentence: what to remember from that slide.
 7. No code, no backticks, no function calls, no markdown.
+8. Never write placeholder text: "heading", "body", "text here", "line one"
+   or an ellipsis name a slot instead of filling it, and a slide made of them
+   is worse than no slide. Write the real content or drop the slide.
 """
 
 SCRIPT_PROMPT = """Turn the video script below into the lesson JSON a renderer consumes.
@@ -209,6 +212,10 @@ Return only the JSON, with no commentary and no markdown fences.
 6. Keep the script's own words wherever you can. Do not invent claims,
    examples or numbers that are not in it.
 7. Keep every heading, label and line under forty characters.
+8. Never write placeholder text. "heading", "body", "line one", "text here",
+   "..." name a slot rather than filling it, and a slide of them is worse than
+   no slide at all. If a scene does not yield real content, give it fewer
+   slides or fold it into the next one -- do not emit a template.
 
 **The script:**
 

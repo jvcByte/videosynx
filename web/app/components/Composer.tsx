@@ -45,6 +45,10 @@ export function Composer({
 }) {
   const ready = Boolean(topic.trim() || script.trim());
   const chosen = MODES.find((m) => m.value === mode) ?? MODES[0];
+  // A script carries its own content, so the topic and the mode both stop
+  // applying. Saying so beats leaving two controls that quietly do nothing --
+  // which is how "both" came to be selected on a video that had no code in it.
+  const scriptActive = Boolean(script.trim());
 
   return (
     <form className="card compose" onSubmit={onSubmit}>
@@ -58,7 +62,11 @@ export function Composer({
           onChange={(event) => onTopic(event.target.value)}
           placeholder="Python list comprehensions"
           autoComplete="off"
+          disabled={scriptActive}
         />
+        {scriptActive && (
+          <p className="field-note">Not used while a script is present.</p>
+        )}
       </div>
 
       <div className="field">
@@ -72,13 +80,18 @@ export function Composer({
                 value={option.value}
                 checked={mode === option.value}
                 onChange={() => onMode(option.value)}
+                disabled={scriptActive}
               />
               <span>{option.label}</span>
             </label>
           ))}
         </div>
         {/* Only what the chosen one means, not all three at once. */}
-        <p className="field-note">{chosen.blurb}</p>
+        <p className="field-note">
+          {scriptActive
+            ? "A script decides its own content, so no mode is applied. Put code in the script if you want code on screen."
+            : chosen.blurb}
+        </p>
       </div>
 
       <div className="field">
@@ -92,6 +105,12 @@ export function Composer({
           rows={3}
           placeholder="Paste a script, a scene breakdown, or a lesson JSON."
         />
+        {scriptActive && (
+          <p className="field-note">
+            This script replaces the topic. It can be prose, or lesson JSON to
+            render as written.
+          </p>
+        )}
       </div>
 
       {/* Contained here rather than at the top of the page: a rejected

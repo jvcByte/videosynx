@@ -35,7 +35,7 @@ from .billing import SignatureError, balance, handle_webhook, ledger, tier_for_u
 from .quota import QuotaExceeded, Tier, tier_for, used_today, submit_within_quota
 from pycoding_worker.storage import DEFAULT_URL_TTL, LocalStorage, Storage, from_env
 
-from .settings import Mode, Settings, load_settings, save_settings
+from .settings import Mode, Settings, load_settings, save_settings, voice_options
 
 
 def _looks_like_uuid(value: str) -> bool:
@@ -87,15 +87,18 @@ class SubmitRequest(BaseModel):
 def job_label(body: SubmitRequest) -> str:
     """What to call this job in the list.
 
-    A script-only submission has no topic, so the first line of the script
-    becomes the label rather than the job showing up as a blank row.
+    A script wins over a topic, because that is what the renderer does too:
+    the script decides the video's content, so naming the row after the topic
+    would describe a video that was never made. Submitting a fine-tuning
+    script with "dictionary in python" still in the topic box produced a row
+    labelled "dictionary in python" containing the fine-tuning lesson.
     """
-    if body.topic.strip():
-        return body.topic.strip()
     for line in (body.script or "").splitlines():
         stripped = line.strip().lstrip("#").strip()
         if stripped:
             return stripped[:120]
+    if body.topic.strip():
+        return body.topic.strip()
     return "untitled"
 
 
@@ -303,6 +306,15 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         return {"url": session.url, "id": session.id}
 
     # --------------------------------------------------------------- settings
+
+    @app.get("/voices")
+    def list_voices(user: User = Depends(current_user)) -> list[dict]:
+        """The voices a narration can use.
+
+        A catalogue rather than a user setting, hence not under /me -- but it
+        still needs an account, because it describes what the service offers.
+        """
+        return voice_options()
 
     @app.get("/me/settings", response_model=Settings)
     def read_settings(user: User = Depends(current_user)) -> Settings:

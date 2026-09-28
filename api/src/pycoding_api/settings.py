@@ -50,6 +50,57 @@ class Settings(BaseModel):
         }
 
 
+# Kokoro v1.0's voices, as shipped in voices-v1.0.bin. A released artifact, so
+# the list is stable -- but it is still a copy, and api/tests compares it
+# against the voices the engine actually loads.
+KOKORO_VOICES = (
+    "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica", "af_kore",
+    "af_nicole", "af_nova", "af_river", "af_sarah", "af_sky",
+    "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_michael",
+    "am_onyx", "am_puck", "am_santa",
+    "bf_alice", "bf_emma", "bf_isabella", "bf_lily",
+    "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
+    "ef_dora", "em_alex", "em_santa",
+    "ff_siwis",
+    "hf_alpha", "hf_beta", "hm_omega", "hm_psi",
+    "if_sara", "im_nicola",
+    "jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro", "jm_kumo",
+    "pf_dora", "pm_alex", "pm_santa",
+    "zf_xiaobei", "zf_xiaoni", "zf_xiaoxiao", "zf_xiaoyi",
+    "zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang",
+)
+
+# A voice name is <language><gender>_<name>, so the label is derived from the
+# name rather than written out fifty-four times alongside it.
+VOICE_LANGUAGES = {
+    "af": ("English (US)", "female"), "am": ("English (US)", "male"),
+    "bf": ("English (UK)", "female"), "bm": ("English (UK)", "male"),
+    "ef": ("Spanish", "female"), "em": ("Spanish", "male"),
+    "ff": ("French", "female"),
+    "hf": ("Hindi", "female"), "hm": ("Hindi", "male"),
+    "if": ("Italian", "female"), "im": ("Italian", "male"),
+    "jf": ("Japanese", "female"), "jm": ("Japanese", "male"),
+    "pf": ("Portuguese", "female"), "pm": ("Portuguese", "male"),
+    "zf": ("Chinese", "female"), "zm": ("Chinese", "male"),
+}
+
+
+def voice_options() -> list[dict]:
+    """Every voice the tier's engine can speak with.
+
+    Sorted with English first and the default voice at the top, because that
+    is what almost every caller wants and a wall of fifty-four entries in
+    alphabetical order buries it.
+    """
+    options = []
+    for name in KOKORO_VOICES:
+        language, gender = VOICE_LANGUAGES.get(name[:2], ("Other", ""))
+        options.append({"id": name, "language": language, "gender": gender})
+    options.sort(key=lambda v: (not v["language"].startswith("English"),
+                                v["language"], v["id"]))
+    return options
+
+
 def load_settings(dsn: str, user_id: str) -> Settings:
     """Saved settings, or the defaults for someone who has never saved any."""
     with psycopg.connect(dsn, row_factory=dict_row) as conn:

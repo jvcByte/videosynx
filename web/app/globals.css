@@ -274,8 +274,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   white-space: nowrap;
 }
 
-.segmented label:hover span { color: var(--fg); }
-
 .segmented input:checked + span {
   background: var(--accent);
   color: var(--accent-ink);
@@ -319,6 +317,37 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   color: var(--fg);
   border-color: var(--line-strong);
 }
+
+/* The same look on a link, for actions the browser performs itself rather
+   than ones we script -- downloading a file, mainly. */
+a.ghost {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  color: var(--fg-muted);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+a.ghost:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+  border-color: var(--line-strong);
+}
+
+input:disabled, textarea:disabled, select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.segmented input:disabled { cursor: not-allowed; }
+.segmented input:disabled + span { opacity: 0.4; }
+/* No hover feedback on a group that cannot be chosen. */
+.segmented label:hover span { color: var(--fg-muted); }
+.segmented label:hover input:not(:disabled) + span { color: var(--fg); }
 
 /* ------------------------------------------------------------------ notices */
 
@@ -530,6 +559,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 }
 
 .overlay-head h2 { font-size: 14px; font-weight: 500; }
+.overlay-actions { display: flex; align-items: center; gap: 8px; }
+.overlay-actions > * { padding: 6px 12px; font-size: 13px; }
 .overlay-body video { display: block; width: 100%; background: #000; }
 
 .sheet {

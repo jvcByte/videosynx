@@ -7,8 +7,9 @@ import { Player } from "./components/Player";
 import { QuotaMeter } from "./components/QuotaMeter";
 import { SettingsSheet } from "./components/SettingsSheet";
 import {
-  ApiError, Job, Mode, Quota, Settings, SubmitBody, absolute, api, isPending,
+  ApiError, Job, Mode, Quota, Settings, SubmitBody, Voice, absolute, api, isPending,
 } from "./lib/api";
+import { videoFilename } from "./lib/format";
 
 const POLL_MS = 2000;
 
@@ -20,6 +21,7 @@ export default function Home() {
   // Preferences, which belong to the account rather than this browser.
   const [settings, setSettings] = useState<Settings | null>(null);
   const [settingsFailed, setSettingsFailed] = useState(false);
+  const [voices, setVoices] = useState<Voice[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -72,6 +74,10 @@ export default function Home() {
         setMode(loadedSettings.mode);
       })
       .catch(() => setSettingsFailed(true));
+
+    // The catalogue of voices. A failure leaves the saved one selectable on
+    // its own, which is enough to save the rest of the form.
+    api.voices().then(setVoices).catch(() => setVoices([]));
   }, []);
 
   // Poll only while something is actually running: a list that is all finished
@@ -100,9 +106,16 @@ export default function Home() {
     const pasted = script.trim();
     if ((!value && !pasted) || submitting) return;
 
-    const body: SubmitBody = { mode };
-    if (value) body.topic = value;
-    if (pasted) body.script = pasted;
+    // A script carries its own content, so when one is present the topic and
+    // the mode are not sent at all -- the API names the job from the script
+    // for the same reason.
+    const body: SubmitBody = {};
+    if (pasted) {
+      body.script = pasted;
+    } else {
+      body.topic = value;
+      body.mode = mode;
+    }
 
     setSubmitting(true);
     setSubmitError(null);
@@ -112,7 +125,7 @@ export default function Home() {
       setScript("");
       setJobs((current) => [
         {
-          id, status: "queued", topic: value || labelFor(pasted), mode,
+          id, status: "queued", topic: pasted ? labelFor(pasted) : value, mode,
           stage: null, progress: 0, duration_s: null, error_code: null,
           error_message: null, attempt: 0, created_at: new Date().toISOString(),
         },
@@ -126,6 +139,24 @@ export default function Home() {
       setSubmitError(err instanceof ApiError ? err.message : "Could not submit");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function onDownload(job: Job) {
+    setPlayError(null);
+    try {
+      const { url } = await api.videoUrl(job.id);
+      // A real link, clicked once. Going through the DOM rather than opening
+      // the URL keeps the browser's own save behaviour, including streaming a
+      // large file instead of holding it in memory.
+      const link = document.createElement("a");
+      link.href = absolute(url);
+      link.download = videoFilename(job.topic);
+      document.body.append(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      setPlayError(err instanceof ApiError ? err.message : "Could not download the video");
     }
   }
 
@@ -202,6 +233,7 @@ export default function Home() {
             loaded={loaded}
             failed={listFailed}
             onPlay={onPlay}
+            onDownload={onDownload}
             onRetry={refresh}
           />
         </div>
@@ -218,6 +250,7 @@ export default function Home() {
       <SettingsSheet
         open={settingsOpen}
         settings={settings}
+        voices={voices}
         failed={settingsFailed}
         saving={saving}
         saved={saved}

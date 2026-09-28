@@ -97,6 +97,49 @@ test("settings are saved and come back after a reload", async ({ page }) => {
   await expect(page.getByLabel("Audience")).toHaveValue("expert");
 });
 
+test("a script takes over from the topic and the mode", async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("Topic").fill("dictionary in python");
+  await expect(page.getByLabel("Topic")).toBeEnabled();
+  await expect(page.getByRole("radio", { name: "Illustration" })).toBeEnabled();
+
+  await page.getByLabel("Script").fill("# When to Fine-Tune\n\nScene 1.");
+
+  // Both stop applying, and the page says so rather than leaving two controls
+  // that quietly do nothing -- which is how "Both" came to be selected on a
+  // video that had no code in it.
+  await expect(page.getByLabel("Topic")).toBeDisabled();
+  await expect(page.getByRole("radio", { name: "Illustration" })).toBeDisabled();
+  await expect(page.getByText("A script decides its own content")).toBeVisible();
+
+  // Clearing the script gives them back, and the topic is still there.
+  await page.getByLabel("Script").fill("");
+  await expect(page.getByLabel("Topic")).toBeEnabled();
+  await expect(page.getByLabel("Topic")).toHaveValue("dictionary in python");
+});
+
+test("the voice is chosen from a list, not typed", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+
+  const voice = page.getByLabel("Voice");
+  await expect(voice).toBeVisible();
+
+  // A real catalogue, grouped by language.
+  const options = await voice.locator("option").count();
+  expect(options).toBeGreaterThan(20);
+  await expect(voice.locator('optgroup[label="English (US)"]')).toHaveCount(1);
+
+  await voice.selectOption("am_michael");
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.locator(".saved")).toBeVisible();
+
+  // And it survives the round trip, which is the point of the dropdown.
+  await page.reload();
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByLabel("Voice")).toHaveValue("am_michael");
+});
+
 test("the library does not claim to be empty while it is loading", async ({ page }) => {
   // Hold the first response open so the loading state is observable at all.
   // Without this the fetch resolves before the assertion could see it, which
@@ -128,7 +171,10 @@ test("submit, poll, and play a video", async ({ page }) => {
   });
   await expect(queued.locator(".status")).toHaveText("Ready");
 
-  // 3. Playback: clicking through must produce a video element with a real
+  // 3. A finished video can be saved without opening it first.
+  await expect(queued.getByRole("button", { name: "Download" })).toBeVisible();
+
+  // 4. Playback: clicking through must produce a video element with a real
   //    source, which means the API issued a URL the browser can fetch.
   await queued.getByRole("button", { name: "Watch" }).click();
   const player = page.getByTestId("player");
@@ -148,6 +194,12 @@ test("submit, poll, and play a video", async ({ page }) => {
   const head = await fetch(url);
   expect(head.status).toBe(200);
   expect(head.headers.get("content-type")).toBe("video/mp4");
+
+  // 5. And the player offers the same file as a download, named after the
+  //    video rather than after its id.
+  const download = page.getByRole("link", { name: "Download" });
+  await expect(download).toBeVisible();
+  await expect(download).toHaveAttribute("download", /\.mp4$/);
 });
 
 test("the quota is shown and a bad topic is refused", async ({ page }) => {

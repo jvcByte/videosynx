@@ -16,12 +16,14 @@ export function Library({
   loaded,
   failed,
   onPlay,
+  onDownload,
   onRetry,
 }: {
   jobs: Job[];
   loaded: boolean;
   failed: boolean;
   onPlay: (job: Job) => void;
+  onDownload: (job: Job) => void;
   onRetry: () => void;
 }) {
   return (
@@ -61,7 +63,7 @@ export function Library({
       ) : (
         <ul className="jobs">
           {jobs.map((job) => (
-            <JobCard key={job.id} job={job} onPlay={onPlay} />
+            <JobCard key={job.id} job={job} onPlay={onPlay} onDownload={onDownload} />
           ))}
         </ul>
       )}
@@ -69,7 +71,15 @@ export function Library({
   );
 }
 
-function JobCard({ job, onPlay }: { job: Job; onPlay: (job: Job) => void }) {
+function JobCard({
+  job,
+  onPlay,
+  onDownload,
+}: {
+  job: Job;
+  onPlay: (job: Job) => void;
+  onDownload: (job: Job) => void;
+}) {
   return (
     <li className="job" data-testid="job" data-status={job.status}>
       <div className="job-main">
@@ -105,6 +115,9 @@ function JobCard({ job, onPlay }: { job: Job; onPlay: (job: Job) => void }) {
       {job.status === "succeeded" && (
         <div className="job-actions">
           <button className="ghost" onClick={() => onPlay(job)}>Watch</button>
+          {/* Downloading from the card, not only from the player: the row is
+              where you look for a video you made earlier. */}
+          <button className="ghost" onClick={() => onDownload(job)}>Download</button>
         </div>
       )}
     </li>
