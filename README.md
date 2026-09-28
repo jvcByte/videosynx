@@ -13,7 +13,7 @@ renders it, and the result is served from object storage.
 
 ## Status
 
-All eight phases are built. **247 Python tests and 9 browser tests pass**, and
+All eight phases are built. **260 Python tests and 11 browser tests pass**, and
 the full loop has been run for real: submit through the API, a worker claims
 and renders, the file lands in storage, the API serves it back.
 
@@ -188,6 +188,13 @@ user-supplied input, so it runs in bubblewrap with no network, no readable home
 directory, and no inherited environment. If isolation cannot be established the
 worker refuses to start rather than falling back.
 
+**Rendering is free; writing is what costs.** Frames are drawn with Pillow and
+piped to ffmpeg, and Kokoro narrates on the same CPU, so a video costs nothing
+to make. Only *generating* the content — the code and narration for a topic,
+or structuring prose — calls a model. `generation: "local"` refuses to do that
+at all: it renders lesson JSON you supply, and a submission that would need a
+model is refused before it is queued rather than queued and failed.
+
 **The tier is enforced, not just declared.** Which voice engine, what
 resolution, whether there is a watermark and how many snippets are all decided
 by the tier and merged over anything the client sent, so a free-tier job
@@ -231,6 +238,6 @@ one way.
 
 ```bash
 pip install -e "engine[dev]" -e worker/ -e api/
-pytest                      # from the repository root: 247 tests
-cd web && npx playwright test   # 9 browser tests, needs pycoding_e2e
+pytest                      # from the repository root: 260 tests
+cd web && npx playwright test   # 11 browser tests, needs pycoding_e2e
 ```

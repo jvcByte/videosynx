@@ -109,7 +109,17 @@ function JobCard({
       )}
 
       {job.status === "failed" && (
-        <p className="job-note">{job.error_message ?? "Render failed"}</p>
+        <>
+          <p className="job-note">{job.error_message ?? "Render failed"}</p>
+          {/* A spent allowance is a normal thing that happens, not a fault,
+              so it gets the way forward rather than only the bad news. */}
+          {job.error_code === "provider_quota" && (
+            <p className="job-hint">
+              Paste lesson JSON and it renders as written, on this machine, at
+              no cost — or switch generation to local only in Settings.
+            </p>
+          )}
+        </>
       )}
 
       {job.status === "succeeded" && (

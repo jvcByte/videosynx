@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import threading
 import time
+from pathlib import Path
+
+import pytest
 
 from pycoding_worker.db import Job
 from pycoding_worker.worker import Worker
@@ -41,6 +44,35 @@ class FakeQueue:
     def fail(self, job_id, owner, *, code, message):
         self.failed.append((job_id, code))
         return True
+
+
+def test_a_spent_allowance_is_named_as_such():
+    """The job row has to say whose problem it is.
+
+    An allowance that comes back tomorrow needs a different answer from the
+    page than a provider that is simply broken, and the page can only tell
+    them apart by the error code.
+    """
+    from pycoding.providers import ProviderError
+    from pycoding_worker.worker import failure_code
+
+    assert failure_code(ProviderError("spent", reason="quota")) == "provider_quota"
+    assert failure_code(ProviderError("busy", reason="busy")) == "provider_busy"
+    assert failure_code(ValueError("not a provider's fault")) == "ValueError"
+
+
+def test_local_mode_refuses_work_it_cannot_do_without_a_model():
+    """Belt and braces: the API refuses this before it is ever queued, but the
+    queue can be written to directly."""
+    from pycoding_worker.db import Job
+    from pycoding_worker.worker import EngineRenderer, Refused
+
+    renderer = EngineRenderer(Path("/tmp"))
+    job = Job(id="j", user_id="u", topic="a topic that needs writing", tier="free",
+              options={"generation": "local", "tts": "espeak"}, attempt=1,
+              max_attempts=1)
+    with pytest.raises(Refused):
+        renderer(job, lambda stage, progress: None)
 
 
 def render_ok(job, beat):

@@ -219,6 +219,7 @@ export default function Home() {
           submitting={submitting}
           error={submitError}
           onDismissError={() => setSubmitError(null)}
+          generation={settings?.generation ?? "auto"}
         />
 
         <div className="column">

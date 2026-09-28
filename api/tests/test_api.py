@@ -16,7 +16,13 @@ import pytest
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 
-from pycoding_api.app import Mode, SubmitRequest, create_app, job_label
+from pycoding_api.app import (
+    Mode,
+    SubmitRequest,
+    create_app,
+    job_label,
+    needs_a_model,
+)
 from pycoding_api.quota import TIERS, QuotaExceeded, submit_within_quota, used_today
 from pycoding_api.settings import KOKORO_VOICES as KOKORO_VOICE_IDS
 from pycoding_api.settings import Settings
@@ -168,6 +174,75 @@ def test_the_voice_catalogue_matches_the_model_it_describes():
 
 def test_a_missing_topic_and_an_empty_script_fall_back_to_untitled():
     assert job_label(SubmitRequest(script="   \n\n  ")) == "untitled"
+
+
+# ------------------------------------------------------------- what it costs
+# Rendering is always local and free. The only thing that costs anything is
+# *writing* the content, and lesson JSON does not need writing.
+
+LESSON_JSON = json.dumps({
+    "title": "Authored",
+    "sections": [{"name": "s", "explain": {"heading": "H",
+                                           "columns": [["A", ["a"]]]},
+                  "narration": ["One.", "Two.", "Three."]}],
+})
+
+
+def test_a_topic_has_to_be_written_from_nothing():
+    assert needs_a_model(SubmitRequest(topic="decorators")) is True
+
+
+def test_a_lesson_path_is_rendered_as_written():
+    assert needs_a_model(SubmitRequest(lesson="/tmp/lesson.json")) is False
+
+
+def test_prose_has_to_be_structured_first():
+    assert needs_a_model(SubmitRequest(script="Scene 1. A manager speaks.")) is True
+
+
+def test_lesson_json_is_rendered_as_written():
+    assert needs_a_model(SubmitRequest(script=LESSON_JSON)) is False
+    # Whitespace and a leading newline should not change the answer.
+    assert needs_a_model(SubmitRequest(script=f"\n\n  {LESSON_JSON}\n")) is False
+
+
+def test_a_script_that_is_not_a_lesson_is_not_mistaken_for_one():
+    assert needs_a_model(SubmitRequest(script='{"title": "no sections"}')) is True
+    assert needs_a_model(SubmitRequest(script='{"sections": "not a list"}')) is False
+    assert needs_a_model(SubmitRequest(script="{not json")) is True
+
+
+@requires_db
+def test_local_mode_refuses_a_topic_instead_of_spending(client):
+    """The whole promise is that nothing is spent, so it is refused before it
+    is queued rather than queued and failed."""
+    response = client.post("/jobs", headers=auth(), json={
+        "topic": "decorators", "generation": "local"})
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["error"] == "local_mode_needs_content"
+    # Nothing was queued, so nothing was counted against the allowance.
+    assert client.get("/me/quota", headers=auth()).json()["used_today"] == 0
+
+
+@requires_db
+def test_local_mode_accepts_content_that_needs_no_model(client):
+    response = client.post("/jobs", headers=auth(), json={
+        "script": LESSON_JSON, "generation": "local"})
+
+    assert response.status_code == 202
+    assert stored_options(response.json()["id"])["generation"] == "local"
+
+
+@requires_db
+def test_the_generation_preference_is_saved_and_used(client):
+    client.put("/me/settings", headers=auth(), json={"generation": "local"})
+
+    refused = client.post("/jobs", headers=auth(), json={"topic": "decorators"})
+    assert refused.status_code == 422
+
+    allowed = client.post("/jobs", headers=auth(), json={"script": LESSON_JSON})
+    assert allowed.status_code == 202
 
 
 # ------------------------------------------------------------- what is stored

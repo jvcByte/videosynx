@@ -75,6 +75,11 @@ class SubmitRequest(BaseModel):
         description="'both' explains the idea then writes code; 'coding' is "
                     "code alone; 'illustration' is drawn explanation alone, "
                     "with no code. Left out, the saved setting is used.")
+    generation: Literal["auto", "local"] | None = Field(
+        default=None,
+        description="'local' promises never to call a model. It cannot write "
+                    "a tutorial from a topic, so a submission that would need "
+                    "one is refused rather than quietly spending.")
     lesson: str | None = Field(
         default=None,
         description="Path to a lesson JSON on the worker's machine. Kept for "
@@ -88,6 +93,32 @@ class SubmitRequest(BaseModel):
         if self.topic.strip() and len(self.topic.strip()) < 3:
             raise ValueError("topic must be at least 3 characters")
         return self
+
+
+def is_structured_lesson(text: str) -> bool:
+    """Whether a script is already lesson JSON, which renders as written."""
+    stripped = text.strip()
+    if not stripped.startswith("{"):
+        return False
+    try:
+        data = json.loads(stripped)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(data, dict) and bool(data.get("sections"))
+
+
+def needs_a_model(body: SubmitRequest) -> bool:
+    """Whether anything in this submission has to be written from nothing.
+
+    A lesson path renders as written and a script that is already lesson JSON
+    renders as written -- the renderer does both on its own, at no cost. A
+    topic has to be written, and prose has to be structured first, so both
+    cost a call.
+    """
+    if body.script and body.script.strip():
+        # A script wins over a topic, so it settles the question.
+        return not is_structured_lesson(body.script)
+    return not body.lesson
 
 
 def job_label(body: SubmitRequest) -> str:
@@ -353,6 +384,23 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         options: dict[str, object] = load_settings(dsn, user.id).as_options()
         if body.mode:
             options["mode"] = body.mode
+        if body.generation:
+            options["generation"] = body.generation
+
+        # Refused here rather than queued and failed: the whole promise of
+        # local mode is that nothing is spent, and an allowance that is
+        # already gone is exactly when someone would reach for it.
+        if options.get("generation") == "local" and needs_a_model(body):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error": "local_mode_needs_content",
+                    "message": "Local mode renders what you supply and never "
+                               "calls a model, so it cannot write a tutorial "
+                               "from a topic. Paste lesson JSON, or set "
+                               "generation back to auto.",
+                },
+            )
         if body.script:
             options["script"] = body.script
         if body.lesson:

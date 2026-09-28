@@ -149,6 +149,36 @@ What is **not** settable is the tier's business: voice engine, resolution,
 watermark and snippet cap. Those are decided by the plan and merged over
 anything a client sends, so a free-tier job cannot ask for the paid voice.
 
+### Working with no allowance left
+
+The free tier is **20 requests per day, per model**, and the fallback chain has
+five models — so it is a few hundred requests, not a few. When it is gone it
+comes back the next day, and a job that died of it says so in the library
+instead of only reporting a fault.
+
+Nothing about *rendering* costs anything. Frames are drawn with Pillow, piped
+to ffmpeg as raw RGB, and Kokoro narrates on the same CPU. The only thing that
+costs a call is **writing** the content: the code and narration for a topic,
+or the structuring of prose.
+
+So there is a mode that never calls a model at all:
+
+**Settings → Generation → Local only**, or `"generation": "local"` on a
+submission. It renders lesson JSON as written. It cannot invent a tutorial
+from a topic, and it does not pretend to — a submission that would need a
+model is refused *before it is queued*, so nothing is spent and nothing fails
+later:
+
+```bash
+curl -s -X POST localhost:8000/jobs \
+     -H 'X-Dev-User: me:free' -H 'Content-Type: application/json' \
+     -d '{"topic":"decorators","generation":"local"}'
+# 422 {"detail":{"error":"local_mode_needs_content", ...}}
+```
+
+The composer says which of the two a submission is before you press Generate:
+*"Counts against your daily allowance"*, or *"No model call, no cost"*.
+
 ### Inspecting what was generated
 
 The code, the narration and every diagram are generated afresh each run and
@@ -189,7 +219,7 @@ offer a voice that dies at synthesis.
 ## 3. Tests
 
 ```bash
-$PYCODING/.venv/bin/pytest                  # 247 tests
+$PYCODING/.venv/bin/pytest                  # 260 tests
 cd $PYCODING/web && npx playwright test     # 3 browser tests
 ```
 

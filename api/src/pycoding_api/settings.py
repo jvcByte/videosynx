@@ -25,6 +25,12 @@ Mode = Literal["coding", "illustration", "both"]
 
 class Settings(BaseModel):
     mode: Mode = "both"
+    # "local" promises never to call a model. Rendering already is local and
+    # free -- Pillow and ffmpeg, and Kokoro for the voice -- so the only thing
+    # that costs anything is *writing* the content, and local mode simply
+    # refuses to. It cannot invent a tutorial from a topic; what it can do is
+    # render one you already have.
+    generation: Literal["auto", "local"] = "auto"
     style: Literal["sketch", "clean"] = "sketch"
     audience: Literal["beginner", "intermediate", "expert"] = "beginner"
     focus: str = Field(default="", max_length=300,
@@ -41,6 +47,7 @@ class Settings(BaseModel):
         """The subset that belongs on a job, in the worker's vocabulary."""
         return {
             "mode": self.mode,
+            "generation": self.generation,
             "style": self.style,
             "audience": self.audience,
             "focus": self.focus,

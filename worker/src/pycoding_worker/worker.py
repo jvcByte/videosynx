@@ -25,6 +25,29 @@ class LeaseLost(RuntimeError):
     """The lease is no longer ours. Stop immediately; do not finish the job."""
 
 
+class Refused(RuntimeError):
+    """The job asked for something that cannot be honoured, so it was not tried.
+
+    Distinct from a failure: nothing went wrong, the work was declined before
+    it could cost anything.
+    """
+
+
+def failure_code(exc: Exception) -> str:
+    """A short tag for the job row, saying whose problem the failure is.
+
+    An exception class name says what broke. ``provider_quota`` says the
+    allowance is spent and will come back tomorrow, which is a different thing
+    to tell someone than ``provider_error`` -- and it is what lets the page
+    offer the free way to keep working instead of just reporting a fault.
+    """
+    from pycoding.providers import ProviderError
+
+    if isinstance(exc, ProviderError):
+        return f"provider_{exc.reason}"
+    return type(exc).__name__
+
+
 class Renderer(Protocol):
     def __call__(self, job: Job, beat: Beat) -> tuple[str, float]:
         """Render *job*; return (artifact_key, duration_seconds)."""
@@ -114,7 +137,7 @@ class Worker:
         except Exception as exc:  # noqa: BLE001 - recorded against the job
             log.exception("job %s failed", job.id)
             self.queue.fail(job.id, self.owner,
-                            code=type(exc).__name__, message=str(exc))
+                            code=failure_code(exc), message=str(exc))
         finally:
             self._current = None
             self._beat_stop.set()
@@ -212,14 +235,36 @@ class EngineRenderer:
         log.info("mode: %s, style: %s, %sx%s, watermark: %s",
                  mode, style, width, height, bool(watermark))
 
-        beat("building", 0.1)
-        speaker = self._speaker(options.get("tts") or self.tts, options.get("voice"))
-        writer = GeminiWriter(os.environ.get("GEMINI_API_KEY", ""))
-
         # Three ways in, in order of how much the caller has already decided:
         # their own script, a lesson file on this machine, or just a topic.
         script = options.get("script")
         lesson_path = options.get("lesson")
+        generation = options.get("generation") or "auto"
+
+        # Decided before anything is constructed. The API refuses this before
+        # it is ever queued, but the queue can be written to directly and local
+        # mode's whole promise is that nothing is spent -- so it is not left to
+        # one caller to keep. Prose counts as needing a model, because it has
+        # to be structured first; lesson JSON does not.
+        if generation == "local":
+            from pycoding.prompts import parse_json_object
+
+            data = parse_json_object(script) if script else None
+            if not (lesson_path or (isinstance(data, dict) and data.get("sections"))):
+                raise Refused(
+                    "local mode renders content you supply and never calls a "
+                    "model, so it cannot write a tutorial from a topic or "
+                    "structure prose. Supply lesson JSON."
+                )
+
+        beat("building", 0.1)
+        speaker = self._speaker(options.get("tts") or self.tts, options.get("voice"))
+        # Only built when it could be used. Constructing one for a local job
+        # would spend nothing, but it would still fail on a missing key for a
+        # job that was never going to need one.
+        writer = (None if generation == "local"
+                  else GeminiWriter(os.environ.get("GEMINI_API_KEY", "")))
+
         if script:
             lesson = lesson_from_script(writer, script)
             tutorial = build_lesson(lesson, speaker=speaker, execute=self.execute)

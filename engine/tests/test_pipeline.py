@@ -484,6 +484,43 @@ def test_elevenlabs_speaker_requires_keys():
         ElevenLabsSpeaker("key", "")
 
 
+def test_a_spent_allowance_is_reported_as_one_fact():
+    """Five copies of a 429 body made a job's error message unreadable.
+
+    The message is stored on the job and shown on the page, so it has to be
+    something a person can act on.
+    """
+    from pycoding.providers import ProviderError, summarise
+
+    spent = [(model, ProviderError("daily quota exhausted", reason="quota"))
+             for model in ("a", "b", "c", "d", "e")]
+    message, reason = summarise(spent)
+
+    assert reason == "quota"
+    assert "5 models" in message
+    assert "resets daily" in message
+    assert len(message) < 140, "still too long to read on a page"
+
+
+def test_a_mixed_failure_keeps_the_detail():
+    """With no single cause, the specific failures are the useful part."""
+    from pycoding.providers import ProviderError, summarise
+
+    message, reason = summarise([
+        ("a", ProviderError("quota", reason="quota")),
+        ("b", ProviderError("503 unavailable", reason="busy")),
+    ])
+    assert reason == "error"
+    assert "a:" in message and "b:" in message
+
+
+def test_a_provider_error_carries_its_reason():
+    from pycoding.providers import ProviderError
+
+    assert ProviderError("x").reason == "error"
+    assert ProviderError("x", reason="quota").reason == "quota"
+
+
 def test_scripted_writer_replays_and_records():
     writer = ScriptedWriter(["a", "b"])
     assert writer.write("first") == "a"

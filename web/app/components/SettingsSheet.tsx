@@ -82,6 +82,26 @@ export function SettingsSheet({
               <legend>Content</legend>
 
               <label className="field">
+                <span>Generation</span>
+                <select
+                  aria-label="Generation"
+                  value={settings.generation}
+                  onChange={(e) =>
+                    onEdit({ generation: e.target.value as Settings["generation"] })
+                  }
+                >
+                  <option value="auto">Auto — a model writes the content</option>
+                  <option value="local">Local only — never call a model</option>
+                </select>
+              </label>
+              <p className="field-note">
+                Rendering is always local and free. This decides only whether a
+                model writes the content, which is the one thing that costs
+                anything. Local mode cannot invent a tutorial from a topic, so
+                it renders lesson JSON you supply.
+              </p>
+
+              <label className="field">
                 <span>Default mode</span>
                 <select
                   aria-label="Default mode"

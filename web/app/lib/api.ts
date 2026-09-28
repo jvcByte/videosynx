@@ -54,6 +54,8 @@ export type Mode = "coding" | "illustration" | "both";
  */
 export interface Settings {
   mode: Mode;
+  /** "local" promises never to call a model. */
+  generation: "auto" | "local";
   style: "sketch" | "clean";
   audience: "beginner" | "intermediate" | "expert";
   focus: string;

@@ -2,6 +2,7 @@
 
 import { FormEvent } from "react";
 import { Mode } from "../lib/api";
+import { isStructuredLesson } from "../lib/format";
 
 const MODES: { value: Mode; label: string; blurb: string }[] = [
   {
@@ -30,7 +31,7 @@ const MODES: { value: Mode; label: string; blurb: string }[] = [
  */
 export function Composer({
   topic, onTopic, script, onScript, mode, onMode,
-  onSubmit, submitting, error, onDismissError,
+  onSubmit, submitting, error, onDismissError, generation,
 }: {
   topic: string;
   onTopic: (value: string) => void;
@@ -42,6 +43,7 @@ export function Composer({
   submitting: boolean;
   error: string | null;
   onDismissError: () => void;
+  generation: "auto" | "local";
 }) {
   const ready = Boolean(topic.trim() || script.trim());
   const chosen = MODES.find((m) => m.value === mode) ?? MODES[0];
@@ -49,6 +51,13 @@ export function Composer({
   // applying. Saying so beats leaving two controls that quietly do nothing --
   // which is how "both" came to be selected on a video that had no code in it.
   const scriptActive = Boolean(script.trim());
+
+  // What this submission will cost. Rendering is always local and free --
+  // Pillow, ffmpeg and Kokoro -- so the only thing that costs anything is
+  // *writing* the content, and lesson JSON does not need writing.
+  const structured = isStructuredLesson(script);
+  const needsModel = scriptActive ? !structured : true;
+  const refused = generation === "local" && needsModel;
 
   return (
     <form className="card compose" onSubmit={onSubmit}>
@@ -126,13 +135,23 @@ export function Composer({
       )}
 
       <div className="compose-actions">
-        <button type="submit" disabled={submitting || !ready}>
+        <button type="submit" disabled={submitting || !ready || refused}>
           {submitting ? "Submitting…" : "Generate"}
         </button>
         {!ready && (
           <span className="compose-hint">Enter a topic, or paste a script</span>
         )}
       </div>
+
+      {/* Said before submitting, not after failing. The allowance is per
+          model, per day, and running out is a normal thing that happens. */}
+      <p className={`compose-cost${refused ? " is-blocked" : ""}`}>
+        {refused
+          ? "Local mode is on and this needs a model to write it. Paste lesson JSON, or switch generation back to auto."
+          : needsModel
+            ? "A model writes the code and narration. Counts against your daily allowance."
+            : "Renders as written, on this machine. No model call, no cost."}
+      </p>
     </form>
   );
 }

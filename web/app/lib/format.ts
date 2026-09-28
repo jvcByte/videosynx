@@ -13,6 +13,23 @@ export function modeLabel(mode: string): string {
 }
 
 /**
+ * Whether a script is already lesson JSON, which renders as written.
+ *
+ * Mirrors `is_structured_lesson` on the API, which is the authority: it is
+ * what decides whether a submission is refused in local mode.
+ */
+export function isStructuredLesson(text: string): boolean {
+  const stripped = text.trim();
+  if (!stripped.startsWith("{")) return false;
+  try {
+    const data = JSON.parse(stripped) as { sections?: unknown };
+    return typeof data === "object" && data !== null && Boolean(data.sections);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * A filename for a downloaded video, derived from its title.
  *
  * Everything that is not a letter or a digit becomes a dash, so a title with

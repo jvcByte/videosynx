@@ -140,6 +140,54 @@ test("the voice is chosen from a list, not typed", async ({ page }) => {
   await expect(page.getByLabel("Voice")).toHaveValue("am_michael");
 });
 
+const LESSON_JSON = JSON.stringify({
+  title: "Authored lesson",
+  sections: [{
+    name: "One",
+    explain: { heading: "A heading", columns: [["A column", ["a line"]]] },
+    narration: ["One.", "Two.", "Three."],
+  }],
+});
+
+test("the composer says what a submission will cost", async ({ page }) => {
+  await page.goto("/");
+
+  // A topic has to be written, so it costs a call.
+  await expect(page.locator(".compose-cost"))
+    .toContainText("Counts against your daily allowance");
+
+  // Lesson JSON is rendered as written, so it does not.
+  await page.getByLabel("Script").fill(LESSON_JSON);
+  await expect(page.locator(".compose-cost"))
+    .toContainText("No model call, no cost");
+});
+
+test("local mode refuses a topic rather than spending", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByLabel("Generation").selectOption("local");
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.locator(".saved")).toBeVisible();
+  await page.getByRole("button", { name: "Close" }).click();
+
+  await page.getByLabel("Topic").fill("decorators");
+  // Refused before it is queued, not queued and failed: the promise is that
+  // nothing is spent.
+  await expect(page.getByRole("button", { name: "Generate" })).toBeDisabled();
+  await expect(page.locator(".compose-cost")).toContainText("Local mode is on");
+
+  // Content that needs no model still goes through.
+  await page.getByLabel("Script").fill(LESSON_JSON);
+  await expect(page.getByRole("button", { name: "Generate" })).toBeEnabled();
+
+  // Put it back. The tests share one database, and a saved setting would
+  // otherwise decide whether later ones pass.
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByLabel("Generation").selectOption("auto");
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.locator(".saved")).toBeVisible();
+});
+
 test("the library does not claim to be empty while it is loading", async ({ page }) => {
   // Hold the first response open so the loading state is observable at all.
   // Without this the fetch resolves before the assertion could see it, which

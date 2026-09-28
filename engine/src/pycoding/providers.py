@@ -76,8 +76,37 @@ def retry_after(exc: Exception, attempt: int) -> float:
     return min(2.0 ** attempt, BACKOFF_CAP_S)
 
 
+def summarise(failures: list[tuple[str, ProviderError]]) -> tuple[str, str]:
+    """One short line for every model failing, plus the overall reason.
+
+    Every model failing for the same cause is *one* fact, not five, and it is
+    the difference between a message someone can act on and a wall of json.
+    """
+    reasons = {exc.reason for _, exc in failures}
+    if reasons == {"quota"}:
+        return (
+            f"all {len(failures)} models are out of free-tier quota; it is "
+            "per model, per day, and resets daily",
+            "quota",
+        )
+    if len(reasons) == 1:
+        only = reasons.pop()
+        return f"every model failed: {only}", only
+    detail = "; ".join(f"{model}: {exc}" for model, exc in failures)
+    return detail[:300], "error"
+
+
 class ProviderError(RuntimeError):
-    pass
+    """A model call failed.
+
+    ``reason`` is a short tag -- ``quota``, ``busy``, ``error`` -- so a caller
+    can react without parsing prose, and so a failed job's ``error_code`` can
+    say something a person can act on rather than naming an exception class.
+    """
+
+    def __init__(self, message: str, *, reason: str = "error"):
+        super().__init__(message)
+        self.reason = reason
 
 
 class Writer(Protocol):
@@ -118,18 +147,19 @@ class GeminiWriter:
         self._model = model
 
     def write(self, prompt: str) -> str:
-        failures: list[str] = []
+        failures: list[tuple[str, ProviderError]] = []
         for index, model in enumerate(self._models):
             try:
                 return self._ask(model, prompt)
             except ProviderError as exc:
-                failures.append(f"{model}: {exc}")
+                failures.append((model, exc))
                 if index + 1 < len(self._models):
                     _console.log(
                         f"[yellow]{model} unavailable, trying "
                         f"{self._models[index + 1]}[/yellow]"
                     )
-        raise ProviderError("every model failed -- " + "; ".join(failures))
+        message, reason = summarise(failures)
+        raise ProviderError(message, reason=reason)
 
     def _ask(self, model: str, prompt: str) -> str:
         for attempt in range(1, RETRIES + 1):
@@ -144,9 +174,12 @@ class GeminiWriter:
             except Exception as exc:  # noqa: BLE001 - re-raised below
                 if is_daily_quota(exc):
                     # Sleeping will not help; let the caller try another model.
-                    raise ProviderError(f"daily quota exhausted ({exc})") from exc
+                    # The reason travels, the API's error document does not:
+                    # five copies of a 429 body is what turned a job's error
+                    # message into two thousand characters of unreadable json.
+                    raise ProviderError("daily quota exhausted", reason="quota") from exc
                 if not is_transient(exc) or attempt == RETRIES:
-                    raise ProviderError(str(exc)) from exc
+                    raise ProviderError(str(exc)[:200]) from exc
                 wait = retry_after(exc, attempt)
                 _console.log(
                     f"[yellow]{model} under load (attempt {attempt}/{RETRIES}), "
