@@ -108,10 +108,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       const body = await response.json();
       detail = body.detail;
       // FastAPI puts a string or an object in `detail`; both carry meaning.
+      // A structured detail may carry a sentence written for a person as well
+      // as a tag for the client to branch on. Show the sentence: a reader can
+      // do nothing with "local_mode_needs_content".
       message =
         typeof body.detail === "string"
           ? body.detail
-          : body.detail?.error ?? JSON.stringify(body.detail);
+          : body.detail?.message ?? body.detail?.error ?? JSON.stringify(body.detail);
     } catch {
       /* a non-JSON error body is not worth failing over */
     }

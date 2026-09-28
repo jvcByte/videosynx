@@ -218,7 +218,11 @@ def test_local_mode_refuses_a_topic_instead_of_spending(client):
         "topic": "decorators", "generation": "local"})
 
     assert response.status_code == 422
-    assert response.json()["detail"]["error"] == "local_mode_needs_content"
+    detail = response.json()["detail"]
+    assert detail["error"] == "local_mode_needs_content"
+    # A tag for the client to branch on, and a sentence for the person reading
+    # it. Both, because either alone is useless to the other.
+    assert "never calls a model" in detail["message"]
     # Nothing was queued, so nothing was counted against the allowance.
     assert client.get("/me/quota", headers=auth()).json()["used_today"] == 0
 
