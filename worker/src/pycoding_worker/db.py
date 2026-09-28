@@ -92,6 +92,16 @@ create table if not exists subscriptions (
   updated_at             timestamptz not null default now()
 );
 
+-- What a user *chose*, as opposed to what their tier *allows*. The tier owns
+-- anything that costs money or is promised by the plan -- voice engine,
+-- resolution, watermark, snippet cap -- and those are merged over the top at
+-- submit time, so nothing saved here can grant more than the tier gives.
+create table if not exists user_settings (
+  user_id    text primary key,
+  settings   jsonb not null default '{{}}',
+  updated_at timestamptz not null default now()
+);
+
 -- Every grant and charge, append-only. stripe_event_id is unique, which is
 -- what makes a webhook that Stripe delivers twice grant once.
 create table if not exists credit_ledger (

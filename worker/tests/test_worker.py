@@ -1,0 +1,122 @@
+"""The worker loop, against a stand-in queue.
+
+These deliberately do not need Postgres. The loop is what breaks when the stop
+that ends a job's heartbeat and the stop that ends the worker are confused for
+one another, and a bug that only appears with a database running is a bug that
+hides.
+"""
+
+from __future__ import annotations
+
+import threading
+import time
+
+from pycoding_worker.db import Job
+from pycoding_worker.worker import Worker
+
+
+class FakeQueue:
+    """Hands out jobs from a list, then reports the queue empty."""
+
+    def __init__(self, jobs: int = 3):
+        self.remaining = [f"job-{i}" for i in range(jobs)]
+        self.finished: list[str] = []
+        self.failed: list[tuple[str, str]] = []
+        self.heartbeats = 0
+
+    def claim(self, owner):
+        if not self.remaining:
+            return None
+        return Job(id=self.remaining.pop(0), user_id="u", topic="t", tier="free",
+                   options={}, attempt=1, max_attempts=3)
+
+    def heartbeat(self, job_id, owner, stage=None, progress=None):
+        self.heartbeats += 1
+        return True
+
+    def finish(self, job_id, owner, *, artifact_key, duration_s):
+        self.finished.append(job_id)
+        return True
+
+    def fail(self, job_id, owner, *, code, message):
+        self.failed.append((job_id, code))
+        return True
+
+
+def render_ok(job, beat):
+    beat("rendering", 0.5)
+    return "key", 1.0
+
+
+def run_until(worker: Worker, done, timeout: float = 5.0) -> None:
+    """Run the worker until *done* holds, then stop it and check it stopped."""
+    thread = threading.Thread(target=worker.run_forever, daemon=True)
+    thread.start()
+    deadline = time.time() + timeout
+    try:
+        while not done() and time.time() < deadline:
+            time.sleep(0.005)
+    finally:
+        worker.stop()
+        thread.join(timeout=timeout)
+    assert not thread.is_alive(), "run_forever ignored stop()"
+
+
+def test_run_forever_keeps_going_after_the_first_job():
+    """The worker used to exit after exactly one job.
+
+    run_once set the same event that run_forever loops on, to stop its own
+    heartbeat thread. The loop condition then saw a stop that was only ever
+    meant for the job that had just finished.
+    """
+    queue = FakeQueue(jobs=3)
+    worker = Worker(queue, render_ok, owner="test", poll_seconds=0.005)
+
+    run_until(worker, lambda: len(queue.finished) >= 3)
+
+    assert queue.finished == ["job-0", "job-1", "job-2"]
+
+
+def test_the_worker_survives_a_job_that_fails():
+    """One bad job must not take the worker down with it."""
+    queue = FakeQueue(jobs=3)
+
+    def renderer(job, beat):
+        if job.id == "job-1":
+            raise RuntimeError("boom")
+        return "key", 1.0
+
+    worker = Worker(queue, renderer, owner="test", poll_seconds=0.005)
+    run_until(worker, lambda: len(queue.finished) >= 2 and queue.failed)
+
+    assert queue.failed == [("job-1", "RuntimeError")]
+    assert queue.finished == ["job-0", "job-2"]
+
+
+def test_stop_wakes_a_polling_worker():
+    """stop() must interrupt the idle poll rather than wait it out."""
+    queue = FakeQueue(jobs=0)
+    worker = Worker(queue, render_ok, owner="test", poll_seconds=30)
+
+    thread = threading.Thread(target=worker.run_forever, daemon=True)
+    thread.start()
+    time.sleep(0.05)  # let it reach the poll
+    worker.stop()
+    thread.join(timeout=2)
+
+    assert not thread.is_alive(), "stop() did not wake the worker out of its poll"
+
+
+def test_each_job_gets_its_own_heartbeat():
+    """The heartbeat stop is per job, so job two must still be beating.
+
+    If the per-job stop is not cleared before the next job starts, the second
+    job's beat thread returns immediately and renders with no lease at all.
+    """
+    queue = FakeQueue(jobs=3)
+    worker = Worker(queue, render_ok, owner="test", poll_seconds=0.005)
+
+    run_until(worker, lambda: len(queue.finished) >= 3)
+
+    # One beat from the renderer per job, plus at least the initial one.
+    assert queue.heartbeats >= 3
