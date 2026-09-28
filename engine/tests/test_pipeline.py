@@ -81,6 +81,43 @@ def test_intro_prompt_names_the_topic():
     assert "Decorators" in intro_prompt("Decorators")
 
 
+# --------------------------------------------------- real-world grounding
+# Tutorials made of `foo` and `[1, 2, 3]` teach the syntax and nothing else.
+# The viewer should come away knowing where the code belongs.
+
+def test_the_code_prompt_demands_a_real_scenario():
+    prompt = code_prompt("Python decorators")
+    assert "concrete scenario" in prompt
+    assert "production" in prompt
+    # The same system throughout, not a different toy per snippet.
+    assert "same scenario across every block" in prompt
+
+
+def test_the_code_prompt_bans_placeholder_names():
+    prompt = code_prompt("x")
+    assert "foo" in prompt and "bar" in prompt  # named as things not to use
+    assert "Never" in prompt
+
+
+def test_the_intro_prompt_asks_where_it_applies():
+    prompt = intro_prompt("Decorators")
+    assert "real-world scenario" in prompt
+    assert "which kind of system" in prompt
+
+
+def flat(text: str) -> str:
+    """Collapse wrapping, so a phrase can be checked across a line break."""
+    return " ".join(text.split())
+
+
+def test_the_narration_prompt_asks_what_it_is_for():
+    """Knowing what the code does is not the same as knowing why it exists."""
+    prompt = flat(narration_prompt(CODE))
+    assert "scenario's terms" in prompt
+    assert "what would go wrong without it" in prompt
+    assert "not only what it does" in prompt
+
+
 # ------------------------------------------------------------------ parsing
 
 def test_parse_code_extracts_blocks():

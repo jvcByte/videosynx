@@ -18,15 +18,22 @@ CODE_PROMPT = """Write Python code for a short tutorial video on the topic below
 **Topic:** {topic}
 {context}
 **Instructions:**
-1. Split the code into several separate ```python blocks, one per step.
-2. Each block must be small enough to explain in a few sentences.
-3. Each block must be runnable on its own: import anything it needs, and do
+1. Ground everything in ONE concrete scenario from a real system -- the kind of
+   code that runs in production, not a textbook illustration. Name the domain
+   in the comments (a webhook dispatcher, a billing pipeline, a log ingester,
+   a feature store), and keep the same scenario across every block.
+2. Use realistic names and data: `pending_invoices`, `retry_backoff`,
+   `failed_uploads`, real-looking records. Never `foo`, `bar`, `x`, `[1, 2, 3]`
+   or any placeholder that says nothing about what the value is.
+3. Split the code into several separate ```python blocks, one per step.
+4. Each block must be small enough to explain in a few sentences.
+5. Each block must be runnable on its own: import anything it needs, and do
    not rely on variables defined in an earlier block.
-4. Keep each block well under five minutes to run, and never wait for input.
-5. Use only the standard library, plus numpy, pandas or matplotlib.
+6. Keep each block well under five minutes to run, and never wait for input.
+7. Use only the standard library, plus numpy, pandas or matplotlib.
    Do not install anything.
-6. Comment sparingly -- only where the code is not self-explanatory.
-7. Include a print statement so each block produces visible output.
+8. Comment sparingly -- only where the code is not self-explanatory.
+9. Include a print statement so each block produces visible output.
 """
 
 NARRATION_PROMPT = """Below is one Python snippet from a tutorial video. It will be
@@ -49,10 +56,13 @@ A sentence to say while that fragment is being typed.
 2. Write one block per idea, in the order the lines appear.
 3. Each sentence must say what the code *at that fragment* does. Never begin
    with a general statement about the topic.
-4. Keep every sentence under twenty words, so it fits while that part is typed.
-5. Speak plainly. No markdown, no quotation marks, no code in the sentences.
-6. Name variables the way a person would say them, spelling out underscores.
-7. Cover the whole snippet -- do not leave a long stretch of code unexplained.
+4. Speak in the scenario's terms. Name the system this is part of, and what
+   would go wrong without it -- a viewer should finish knowing what this is
+   *for*, not only what it does.
+5. Keep every sentence under twenty words, so it fits while that part is typed.
+6. Speak plainly. No markdown, no quotation marks, no code in the sentences.
+7. Name variables the way a person would say them, spelling out underscores.
+8. Cover the whole snippet -- do not leave a long stretch of code unexplained.
 """
 
 INTRO_PROMPT = """Write the opening narration for a short coding tutorial video.
@@ -64,9 +74,12 @@ narrator says what the video is about and what the viewer will do.
 
 **Instructions:**
 1. Two or three sentences, under twenty words each.
-2. Say what the viewer will build or learn, and the order they will do it in.
-3. Do not use markdown, quotation marks, or any greeting like "welcome".
-4. Do not repeat the topic as a bare title -- make it a spoken sentence.
+2. Name the real-world scenario the video works in -- which kind of system
+   this code belongs to and what it is used for. The viewer should know where
+   this applies before any code appears.
+3. Say what the viewer will build or learn, and the order they will do it in.
+4. Do not use markdown, quotation marks, or any greeting like "welcome".
+5. Do not repeat the topic as a bare title -- make it a spoken sentence.
 """
 
 _BLOCK = re.compile(rf"^\s*{re.escape(MARKER)}\s*(.*?)\s*{re.escape(MARKER)}\s*$")
