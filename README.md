@@ -13,7 +13,7 @@ renders it, and the result is served from object storage.
 
 ## Status
 
-All eight phases are built. **147 Python tests and 3 browser tests pass**, and
+All eight phases are built. **242 Python tests and 7 browser tests pass**, and
 the full loop has been run for real: submit through the API, a worker claims
 and renders, the file lands in storage, the API serves it back.
 
@@ -27,7 +27,9 @@ and renders, the file lands in storage, the API serves it back.
 | HTTP API | done — quota enforced before any spend |
 | Storage | done — R2 or local, signed URLs |
 | Billing | done — Stripe webhooks, idempotent |
-| Web UI | done — submit, poll, play |
+| Web UI | done — submit a topic or a script, poll, play, settings |
+| Illustrations | done — diagrams drawn from a spec, two styles |
+| Modes | done — coding-only, illustration-only, or both |
 
 **Not yet exercised against live services:** Cloudflare R2 (no credentials),
 Stripe Checkout (needs a live key; everything after checkout is tested), and
@@ -90,6 +92,62 @@ A lesson has `intro`, `sections` and `outro`. A section is either `code` plus
 slide with no code on screen, so concepts are explained before anything is
 typed.
 
+There are three ways in: a `--topic`, a `--lesson` file, or a script. Through
+the API a script is sent as **text** rather than a path, so the API and the
+worker never need to share a disk; that text is rendered verbatim if it is
+already lesson JSON, and structured by the model once if it is prose.
+
+### Modes
+
+`--mode` decides which halves of a tutorial are produced:
+
+| mode | what you get |
+|---|---|
+| `both` (the default) | the concept slides, then the code |
+| `coding` | code alone |
+| `illustration` | slides alone — no code, no sandbox, no `--execute` needed |
+
+An illustration-only video has no code to carry it, so it asks for more slides.
+
+### Diagrams
+
+An `explain` slide can carry a `diagram` instead of text columns — labelled
+shapes joined by arrows:
+
+```json
+{
+  "layout": "row",
+  "nodes": [
+    {"id": "req", "label": "Request", "shape": "box"},
+    {"id": "q",   "label": "Queue",   "shape": "cylinder"}
+  ],
+  "edges": [["req", "q", "enqueue"]]
+}
+```
+
+`layout` is one of `row`, `column`, `grid`, `cycle`, `tree`, `stack`; `shape`
+is one of `box`, `round`, `cylinder`, `cloud`, `document`, `person`, `stack`.
+Add `"repeat": 3` to a node for "a lot of these". Nodes reveal one per
+sentence exactly as columns do, and an edge appears once both of its ends are
+on screen.
+
+**Nothing here is an image.** A diagram is drawn from its spec, so the same
+lesson produces byte-identical frames on every render — the hand-drawn wobble
+is seeded from the diagram's own text, never from Python's `hash()`, which is
+salted per process. `sketch` (the default for slides) draws on paper in
+pencil; `clean` draws the same shapes in the dark palette.
+
+### The explain slide
+
+An `explain` slide holds a `heading`, `columns` and a `note` (or a `diagram`).
+It reveals one column or node per sentence, so **each narration entry must be
+exactly one sentence**:
+the heading holds for the first, then each sentence lights the next column,
+then the note lands once everything is up. Write one entry as two sentences
+and it silently becomes two reveal steps, and the columns run a beat ahead of
+the voice. `lessons/` holds worked examples, and the test suite checks every
+lesson there for this.
+
 ---
 
 ## How it works
@@ -130,6 +188,13 @@ user-supplied input, so it runs in bubblewrap with no network, no readable home
 directory, and no inherited environment. If isolation cannot be established the
 worker refuses to start rather than falling back.
 
+**The tier is enforced, not just declared.** Which voice engine, what
+resolution, whether there is a watermark and how many snippets are all decided
+by the tier and merged over anything the client sent, so a free-tier job
+cannot ask for the paid voice. The user's own settings — mode, style,
+audience, focus, voice, captions, length — are saved server-side and layered
+underneath.
+
 **Money is guarded before it is spent.** Submitting a job validates, checks
 quota and inserts a queued row — it never constructs a client that costs
 anything. Quota is enforced in the same transaction as the insert, behind an
@@ -146,6 +211,7 @@ engine/     the renderer, timeline, sandbox and generation pipeline
 worker/     the Postgres queue, storage backends, and the worker loop
 api/        FastAPI: submit, status, quota, billing, video delivery
 web/        Next.js frontend
+lessons/    hand-written lesson JSON, checked by the test suite
 ```
 
 Two rules hold the boundaries: the API imports the worker (shared data layer)
@@ -165,6 +231,6 @@ one way.
 
 ```bash
 pip install -e "engine[dev]" -e worker/ -e api/
-pytest                      # from the repository root: 147 tests
-cd web && npx playwright test   # 3 browser tests, needs pycoding_e2e
+pytest                      # from the repository root: 242 tests
+cd web && npx playwright test   # 7 browser tests, needs pycoding_e2e
 ```

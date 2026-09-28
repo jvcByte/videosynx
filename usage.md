@@ -49,6 +49,20 @@ $PYCODING/.venv/bin/pycoding \
     --out /tmp/lesson.mp4
 ```
 
+### Illustration only
+
+```bash
+$PYCODING/.venv/bin/pycoding \
+    --topic "when to fine-tune a model" \
+    --mode illustration \
+    --out /tmp/slides.mp4
+```
+
+No code is written, so there is no sandbox to enter and no `--execute` to pass.
+The explanation slides carry the whole video, and they are drawn rather than
+described: boxes, arrows, cylinders and people, laid out and revealed one per
+sentence. `--mode coding` is the other end — code alone, no slides.
+
 ### No keys, no quota, nothing spent
 
 ```bash
@@ -91,12 +105,50 @@ curl -s -X POST localhost:8000/jobs \
 `X-Dev-User` is a development bypass. It is honoured **only** while
 `SUPABASE_JWT_SECRET` is unset, so it cannot survive into a deployment.
 
+### Sending a script instead of a topic
+
+A script travels with the job as **text**, so the API and the worker never need
+to share a disk. If it is already lesson JSON it renders verbatim; anything
+else is sent to the model once to be structured.
+
+```bash
+curl -s -X POST localhost:8000/jobs \
+     -H 'X-Dev-User: me:free' -H 'Content-Type: application/json' \
+     -d '{"script":"# When to fine-tune\n\nScene 1. A manager sets a deadline.","mode":"illustration"}'
+```
+
+`topic` is optional when a script is given — the job is named from the
+script's first line instead, so it does not appear as a blank row.
+
+### Settings
+
+Saved per user on the server, so they follow the account rather than the
+browser. The panel sits behind **Settings** on the page, and the same thing is
+reachable directly:
+
+```bash
+curl -s localhost:8000/me/settings -H 'X-Dev-User: me:free'
+
+curl -s -X PUT localhost:8000/me/settings \
+     -H 'X-Dev-User: me:free' -H 'Content-Type: application/json' \
+     -d '{"mode":"illustration","style":"sketch","audience":"expert",
+          "focus":"keep it practical","voice":"af_heart","captions":true,
+          "length":"medium"}'
+```
+
+A `PUT` replaces the whole object, so a field left out returns to its default
+rather than keeping a value nobody can see. An unknown field is refused.
+
+What is **not** settable is the tier's business: voice engine, resolution,
+watermark and snippet cap. Those are decided by the plan and merged over
+anything a client sends, so a free-tier job cannot ask for the paid voice.
+
 ---
 
 ## 3. Tests
 
 ```bash
-$PYCODING/.venv/bin/pytest                  # 153 tests
+$PYCODING/.venv/bin/pytest                  # 242 tests
 cd $PYCODING/web && npx playwright test     # 3 browser tests
 ```
 
@@ -127,6 +179,7 @@ Then `pycoding`, `pycoding-api` and `pycoding-worker` work as plain commands.
 
 | flag | what it does |
 |---|---|
+| `--mode both\|coding\|illustration` | `coding` is code alone; `illustration` is drawn explanation alone, no code on screen |
 | `--execute` | run snippets for real; without it, no terminal output |
 | `--tts kokoro\|elevenlabs\|espeak` | voice. `auto` prefers Kokoro (free, local), then ElevenLabs, then espeak |
 | `--voice af_heart` | pick among Kokoro's 54 voices |
