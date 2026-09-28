@@ -131,16 +131,20 @@ class Worker:
 # ------------------------------------------------------------------ renderers
 
 class EngineRenderer:
-    """Render a job with the pycoding engine.
+    """Render a job with the pycoding engine, then store the result.
 
-    Phase 4 stops here: the artifact is a local file. Phase 6 swaps the final
-    step for an upload and returns a storage key instead of a path.
+    The job's ``artifact_key`` is a storage key, not a path, so the API can
+    hand out a URL without knowing where the bytes are. With no storage
+    configured it falls back to the local path, which is what the tests and a
+    bare checkout use.
     """
 
-    def __init__(self, output_dir: Path, *, tts: str = "auto", execute: bool = True):
+    def __init__(self, output_dir: Path, *, tts: str = "auto", execute: bool = True,
+                 storage=None):
         self.output_dir = Path(output_dir)
         self.tts = tts
         self.execute = execute
+        self.storage = storage
 
     def _speaker(self):
         from pycoding.cli import _real_speaker
@@ -189,5 +193,16 @@ class EngineRenderer:
 
         beat("rendering", 0.7)
         render_plan(tutorial.plan, out)
+
+        if self.storage is None:
+            beat("done", 1.0)
+            return str(out), tutorial.plan.duration_s
+
+        from .storage import video_key
+
+        beat("uploading", 0.95)
+        key = video_key(job.tier, job.id)
+        self.storage.put(key, out)
+        out.unlink(missing_ok=True)  # the store has it now
         beat("done", 1.0)
-        return str(out), tutorial.plan.duration_s
+        return key, tutorial.plan.duration_s

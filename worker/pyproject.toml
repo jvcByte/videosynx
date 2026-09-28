@@ -9,6 +9,7 @@ description = "Queue consumer: claims jobs and renders them."
 requires-python = ">=3.11"
 dependencies = [
     "psycopg[binary]>=3.1",
+    "boto3>=1.34",
     # The engine. Installed separately (`pip install -e engine`) because it is
     # its own project; this is a workspace, not a single distribution.
     "pycoding",

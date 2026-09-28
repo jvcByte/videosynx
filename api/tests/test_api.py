@@ -18,6 +18,7 @@ from psycopg.rows import dict_row
 from pycoding_api.app import create_app
 from pycoding_api.quota import TIERS, QuotaExceeded, submit_within_quota, used_today
 from pycoding_worker.db import Queue
+from pycoding_worker.storage import LocalStorage, video_key
 
 DSN = os.environ.get("PYCODING_TEST_DSN", "postgresql:///pycoding_test")
 
@@ -257,3 +258,113 @@ def test_listing_only_returns_your_own_jobs(client):
 def test_unknown_job_is_404(client):
     assert client.get("/jobs/00000000-0000-0000-0000-000000000000",
                       headers=auth()).status_code == 404
+
+
+# ------------------------------------------------------------------- delivery
+
+@pytest.fixture
+def stored(tmp_path) -> tuple[TestClient, LocalStorage]:
+    """An app backed by local storage, so the whole loop is exercisable."""
+    from pycoding_api.app import create_app
+
+    store = LocalStorage(tmp_path / "artifacts")
+    with TestClient(create_app(DSN, storage=store)) as c:
+        yield c, store
+
+
+def _succeed(job_id: str, store: LocalStorage, *, tier: str = "free",
+             body: bytes = b"mp4 bytes") -> str:
+    """Stand in for the worker: render, upload, mark the job succeeded."""
+    key = video_key(tier, job_id)
+    source = store.root / "tmp_render.mp4"
+    source.write_bytes(body)
+    store.put(key, source)
+    with psycopg.connect(DSN, autocommit=True) as conn:
+        conn.execute(
+            "update jobs set status='succeeded', artifact_key=%s, duration_s=12.5 "
+            "where id=%s",
+            (key, job_id),
+        )
+    return key
+
+
+@requires_db
+def test_video_is_not_offered_until_the_job_succeeds(stored):
+    client, _ = stored
+    job_id = client.post("/jobs", json={"topic": "still queued"},
+                         headers=auth()).json()["id"]
+    r = client.get(f"/jobs/{job_id}/video", headers=auth())
+    assert r.status_code == 409
+    assert r.json()["detail"]["error"] == "not_ready"
+
+
+@requires_db
+def test_the_owner_can_fetch_the_video(stored):
+    client, store = stored
+    job_id = client.post("/jobs", json={"topic": "a finished job"},
+                         headers=auth()).json()["id"]
+    _succeed(job_id, store)
+
+    body = client.get(f"/jobs/{job_id}/video", headers=auth()).json()
+    assert body["duration_s"] == pytest.approx(12.5)
+    fetched = client.get(body["url"], headers=auth())
+    assert fetched.status_code == 200
+    assert fetched.content == b"mp4 bytes"
+    assert fetched.headers["content-type"] == "video/mp4"
+
+
+@requires_db
+def test_the_video_url_is_not_public(stored):
+    """Handing out a URL must not hand out the video."""
+    client, store = stored
+    job_id = client.post("/jobs", json={"topic": "private"}, headers=auth()).json()["id"]
+    _succeed(job_id, store)
+
+    url = client.get(f"/jobs/{job_id}/video", headers=auth()).json()["url"]
+    assert client.get(url).status_code == 401
+
+
+@requires_db
+def test_another_user_cannot_fetch_the_video(stored):
+    client, store = stored
+    job_id = client.post("/jobs", json={"topic": "mine"},
+                         headers=auth("owner")).json()["id"]
+    _succeed(job_id, store)
+    url = client.get(f"/jobs/{job_id}/video", headers=auth("owner")).json()["url"]
+
+    assert client.get(url, headers=auth("intruder")).status_code == 404
+    assert client.get(f"/jobs/{job_id}/video",
+                      headers=auth("intruder")).status_code == 404
+
+
+@requires_db
+def test_the_artifact_route_is_closed_with_object_storage():
+    """With R2 the client already has a presigned URL.
+
+    The file route must not survive as an unauthenticated file server.
+    """
+    from pycoding_api.app import create_app
+
+    class _ObjectStore:
+        def url(self, key, *, expires_in=3600):
+            return f"https://r2.example/{key}"
+
+        def put(self, key, path): ...
+        def delete(self, key): ...
+        def exists(self, key): return True
+        def read(self, key): return b"should never be served"
+
+    with TestClient(create_app(DSN, storage=_ObjectStore())) as c:
+        job_id = c.post("/jobs", json={"topic": "object stored"},
+                        headers=auth()).json()["id"]
+        with psycopg.connect(DSN, autocommit=True) as conn:
+            conn.execute(
+                "update jobs set status='succeeded', artifact_key=%s where id=%s",
+                (video_key("free", job_id), job_id),
+            )
+        assert c.get(f"/artifacts/artifacts/free/{job_id}.mp4",
+                     headers=auth()).status_code == 404
+        # ...but the presigned URL is still issued.
+        assert c.get(f"/jobs/{job_id}/video", headers=auth()).json()["url"].startswith(
+            "https://r2.example/"
+        )
