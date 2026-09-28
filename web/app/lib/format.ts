@@ -30,6 +30,18 @@ export function isStructuredLesson(text: string): boolean {
 }
 
 /**
+ * Whether a pasted script has a fenced code block in it.
+ *
+ * Mirrors how `prose.py` decides: a scene with a fence becomes a code
+ * section, one without becomes slides. In local mode that is the only thing
+ * choosing which half of "Both" a scene belongs to, so the composer says
+ * which way it will go rather than leaving the setting looking ignored.
+ */
+export function hasCodeBlock(text: string): boolean {
+  return /```[\s\S]*?(?:```|$)/.test(text);
+}
+
+/**
  * A filename for a downloaded video, derived from its title.
  *
  * Everything that is not a letter or a digit becomes a dash, so a title with

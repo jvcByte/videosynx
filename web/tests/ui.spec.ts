@@ -110,7 +110,13 @@ test("a script takes over from the topic and the mode", async ({ page }) => {
   // video that had no code in it.
   await expect(page.getByLabel("Topic")).toBeDisabled();
   await expect(page.getByRole("radio", { name: "Illustration" })).toBeDisabled();
-  await expect(page.getByText("A script decides its own content")).toBeVisible();
+  // Says what will actually happen, and how to get the other half. "The mode
+  // is not applied" reads as a limitation rather than as an instruction.
+  await expect(page.getByText("This script is all explanation")).toBeVisible();
+
+  // A fence is what decides it, so a script with one says the other thing.
+  await page.getByLabel("Script").fill("Scene 1.\n```python\nprint(1)\n```\n");
+  await expect(page.getByText("This script has code in it")).toBeVisible();
 
   // Clearing the script gives them back, and the topic is still there.
   await page.getByLabel("Script").fill("");

@@ -2,7 +2,7 @@
 
 import { FormEvent } from "react";
 import { Mode, Quota } from "../lib/api";
-import { isStructuredLesson } from "../lib/format";
+import { hasCodeBlock, isStructuredLesson } from "../lib/format";
 
 const MODES: { value: Mode; label: string; blurb: string }[] = [
   {
@@ -110,9 +110,13 @@ export function Composer({
         </div>
         {/* Only what the chosen one means, not all three at once. */}
         <p className="field-note">
-          {scriptActive
-            ? "A script decides its own content, so no mode is applied. Put code in the script if you want code on screen."
-            : chosen.blurb}
+          {!scriptActive
+            ? chosen.blurb
+            : hasCodeBlock(script)
+              // Said concretely, because "the mode is not applied" reads as a
+              // limitation rather than as what will actually happen.
+              ? "This script has code in it, so its code scenes render as code and the rest as illustrated slides. The mode is not applied."
+              : "This script is all explanation, so it renders as illustrated slides — there is no code in it to show. Add a ``` code block to a scene to get code."}
         </p>
       </div>
 

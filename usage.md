@@ -121,10 +121,17 @@ curl -s -X POST localhost:8000/jobs \
 script's first line instead, so it does not appear as a blank row.
 
 **A script replaces the topic and the mode.** It carries its own content, so
-neither `mode` nor `topic` is applied: a script of pure explanation produces a
-video of pure explanation, however the mode was set. Put code in the script if
-you want code on screen. The page says so and dims both controls once a script
-is present.
+neither `mode` nor `topic` is applied. The page dims both controls once a script
+is present and says which of the two the script will produce, because "the mode
+is not applied" reads as a limitation rather than as an answer:
+
+- **has a ```` ``` ```` block** — its code scenes render as code, the rest as
+  illustrated slides. This is how "Both" works in local mode.
+- **no code in it** — illustrated slides throughout, and the page says there is
+  no code in it to show, and how to add some.
+
+Neither of the two scripts pasted so far has a fence, so both are in the second
+case.
 
 ### Settings
 
@@ -217,11 +224,26 @@ So there is a mode that never calls a model at all:
 **Settings → Generation → Local only**, or `"generation": "local"` on a
 submission.
 
-It takes **prose as well as lesson JSON**, and it structures prose itself — a
-script pasted in is split at its scene markers, its hard-wrapped lines are
-rejoined into sentences, and each scene becomes a slide with its own words on
-it. It does not summarise and it does not invent, so what you pasted is what
-gets filmed.
+It takes **prose as well as lesson JSON**, and it structures prose itself. It
+does not summarise and it does not invent, so what you pasted is what gets
+filmed.
+
+**Scenes are found wherever the markers are.** A script pasted as one
+continuous line — which is how they usually arrive — is split at its `Scene N —`
+markers just as one with a marker per line is. The marker itself is never read
+aloud. A scene number that does not go up is a *mention*, not a scene: "bring
+back the engineer from Scene 1" is a sentence, and stays one.
+
+**Each sentence gets its own thing on screen.** A slide shows one item per
+narrated sentence rather than the whole scene at once, so the words arrive with
+the voice instead of being dumped and then read out. A scene the writer built as
+a comparison — *"On the left: … On the right: …"* — becomes two labelled panels,
+using their labels and their words. Anything with a ```` ``` ```` block in it
+becomes a real code section instead, which is what "Both" means in local mode.
+
+Because there is no model, nothing is drawn that the text does not already say.
+A scene with no structure in it is set as sentences revealed one at a time, and
+that is the floor rather than a fallback that quietly loses content.
 
 What it cannot do is invent a tutorial from a bare topic, and it does not
 pretend to — that is refused *before it is queued*, so nothing is spent and
@@ -312,7 +334,7 @@ offer a voice that dies at synthesis.
 ## 3. Tests
 
 ```bash
-$PYCODING/.venv/bin/pytest                  # 312 tests
+$PYCODING/.venv/bin/pytest                  # 322 tests
 cd $PYCODING/web && npx playwright test     # 3 browser tests
 ```
 
