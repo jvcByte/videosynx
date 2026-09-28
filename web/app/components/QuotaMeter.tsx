@@ -1,0 +1,37 @@
+import { Quota } from "../lib/api";
+
+/**
+ * How much of today's allowance is left.
+ *
+ * The bar only appears once some of it is gone. A full meter at zero usage is
+ * three quarters of a bar saying nothing, and the number already carries it.
+ */
+export function QuotaMeter({ quota }: { quota: Quota | null }) {
+  if (!quota) {
+    // A placeholder, not a zero. Showing "0 left" while loading would be a
+    // lie that looks exactly like running out.
+    return (
+      <div className="quota quota-loading" aria-hidden>
+        <span className="skeleton skeleton-line" />
+      </div>
+    );
+  }
+
+  const used = Math.min(quota.used_today, quota.jobs_per_day);
+  const percent = quota.jobs_per_day ? (used / quota.jobs_per_day) * 100 : 0;
+
+  return (
+    <div className="quota">
+      <span className="tier">{quota.tier}</span>
+      <span className="figure">
+        {quota.remaining} of {quota.jobs_per_day}
+      </span>
+      <span className="quota-rest">left today</span>
+      {used > 0 && (
+        <span className="meter" aria-hidden>
+          <span style={{ width: `${percent}%` }} />
+        </span>
+      )}
+    </div>
+  );
+}

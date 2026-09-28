@@ -1,33 +1,75 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, Job, Quota, absolute, api, isPending } from "./lib/api";
+import { Composer } from "./components/Composer";
+import { Library } from "./components/Library";
+import { Player } from "./components/Player";
+import { QuotaMeter } from "./components/QuotaMeter";
+import { SettingsSheet } from "./components/SettingsSheet";
+import {
+  ApiError, Job, Mode, Quota, Settings, SubmitBody, absolute, api, isPending,
+} from "./lib/api";
 
 const POLL_MS = 2000;
 
 export default function Home() {
   const [topic, setTopic] = useState("");
+  const [script, setScript] = useState("");
+  const [mode, setMode] = useState<Mode>("both");
+
+  // Preferences, which belong to the account rather than this browser.
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [settingsFailed, setSettingsFailed] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [listFailed, setListFailed] = useState(false);
   const [quota, setQuota] = useState<Quota | null>(null);
-  const [error, setError] = useState<string | null>(null);
+
+  // Errors are kept apart by where they happened, so one failing thing does
+  // not take over a page whose other half is working.
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [playError, setPlayError] = useState<string | null>(null);
+
   const [submitting, setSubmitting] = useState(false);
-  const [playing, setPlaying] = useState<{ id: string; url: string } | null>(null);
+  const [playing, setPlaying] = useState<{ url: string; title: string } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(async () => {
-    try {
-      const [nextJobs, nextQuota] = await Promise.all([api.jobs(), api.quota()]);
-      setJobs(nextJobs);
-      setQuota(nextQuota);
-      return nextJobs;
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not reach the API");
-      return [];
+    // Settled, not all: a quota that failed to load must not blank the list,
+    // and a list that failed must not hide a working allowance.
+    const [jobsResult, quotaResult] = await Promise.allSettled([api.jobs(), api.quota()]);
+
+    if (jobsResult.status === "fulfilled") {
+      setJobs(jobsResult.value);
+      setListFailed(false);
+    } else {
+      setListFailed(true);
     }
+    if (quotaResult.status === "fulfilled") setQuota(quotaResult.value);
+    setLoaded(true);
+
+    return jobsResult.status === "fulfilled" ? jobsResult.value : [];
   }, []);
 
-  // Poll only while something is actually running: a job list that is all
-  // finished has nothing to wait for.
+  // Fetched once, not per submission. A failure leaves the defaults working --
+  // losing a saved preference is not a reason to stop someone submitting.
+  useEffect(() => {
+    api
+      .settings()
+      .then((loadedSettings) => {
+        setSettings(loadedSettings);
+        setMode(loadedSettings.mode);
+      })
+      .catch(() => setSettingsFailed(true));
+  }, []);
+
+  // Poll only while something is actually running: a list that is all finished
+  // has nothing to wait for.
   useEffect(() => {
     let cancelled = false;
 
@@ -49,18 +91,24 @@ export default function Home() {
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
     const value = topic.trim();
-    if (!value || submitting) return;
+    const pasted = script.trim();
+    if ((!value && !pasted) || submitting) return;
+
+    const body: SubmitBody = { mode };
+    if (value) body.topic = value;
+    if (pasted) body.script = pasted;
 
     setSubmitting(true);
-    setError(null);
+    setSubmitError(null);
     try {
-      const { id } = await api.submit(value);
+      const { id } = await api.submit(body);
       setTopic("");
+      setScript("");
       setJobs((current) => [
         {
-          id, status: "queued", topic: value, stage: null, progress: 0,
-          duration_s: null, error_code: null, error_message: null,
-          attempt: 0, created_at: new Date().toISOString(),
+          id, status: "queued", topic: value || labelFor(pasted), mode,
+          stage: null, progress: 0, duration_s: null, error_code: null,
+          error_message: null, attempt: 0, created_at: new Date().toISOString(),
         },
         ...current,
       ]);
@@ -69,127 +117,123 @@ export default function Home() {
     } catch (err) {
       // A quota rejection is the common case and deserves the server's own
       // words rather than a generic failure.
-      setError(err instanceof ApiError ? err.message : "Could not submit");
+      setSubmitError(err instanceof ApiError ? err.message : "Could not submit");
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function onPlay(id: string) {
+  async function onPlay(job: Job) {
+    setPlayError(null);
     try {
-      const { url } = await api.videoUrl(id);
-      setPlaying({ id, url: absolute(url) });
+      const { url } = await api.videoUrl(job.id);
+      setPlaying({ url: absolute(url), title: job.topic });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not load the video");
+      setPlayError(err instanceof ApiError ? err.message : "Could not load the video");
+    }
+  }
+
+  function editSettings(patch: Partial<Settings>) {
+    setSettings((current) => (current ? { ...current, ...patch } : current));
+    setSaved(false);
+  }
+
+  async function onSaveSettings(event: React.FormEvent) {
+    event.preventDefault();
+    if (!settings || saving) return;
+    setSaving(true);
+    setSaved(false);
+    setSettingsError(null);
+    try {
+      setSettings(await api.saveSettings(settings));
+      setSaved(true);
+    } catch (err) {
+      // Reported in the sheet, not in the composer: it is the sheet's problem,
+      // and the composer may not even be on screen behind it.
+      setSettingsError(err instanceof ApiError ? err.message : "Could not save settings");
+    } finally {
+      setSaving(false);
     }
   }
 
   return (
-    <main>
-      <header className="masthead">
-        <h1>pycoding</h1>
-        <p className="tagline">
-          Give it a topic. Get back a narrated video of the code being written,
-          run, and explained line by line.
-        </p>
+    <>
+      <header className="topbar">
+        <div className="topbar-inner">
+          <h1>pycoding</h1>
+          <div className="topbar-right">
+            <QuotaMeter quota={quota} />
+            <button className="ghost" onClick={() => setSettingsOpen(true)}>
+              Settings
+            </button>
+          </div>
+        </div>
       </header>
 
-      <form className="submit" onSubmit={onSubmit}>
-        <label htmlFor="topic" className="label">Topic</label>
-        <div className="row">
-          <input
-            id="topic"
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            placeholder="Python list comprehensions"
-            autoComplete="off"
-          />
-          <button type="submit" disabled={submitting || !topic.trim()}>
-            {submitting ? "Submitting…" : "Generate"}
-          </button>
-        </div>
-        {quota && (
-          <p className="quota">
-            <span className="tier">{quota.tier}</span>
-            <span className="sep">·</span>
-            <span className="figure">{quota.remaining}</span> of{" "}
-            <span className="figure">{quota.jobs_per_day}</span> left today
-            <span className="sep">·</span>
-            narration: {quota.tts}
-          </p>
-        )}
-      </form>
+      <main className="layout">
+        <Composer
+          topic={topic}
+          onTopic={setTopic}
+          script={script}
+          onScript={setScript}
+          mode={mode}
+          onMode={setMode}
+          onSubmit={onSubmit}
+          submitting={submitting}
+          error={submitError}
+          onDismissError={() => setSubmitError(null)}
+        />
 
-      {error && (
-        <p className="error" role="alert" data-testid="error">
-          {error}
-          <button className="dismiss" onClick={() => setError(null)}>dismiss</button>
-        </p>
-      )}
+        <div className="column">
+          {playError && (
+            <p className="notice notice-bad" role="alert">
+              <span>{playError}</span>
+              <button className="ghost" onClick={() => setPlayError(null)}>Dismiss</button>
+            </p>
+          )}
+          <Library
+            jobs={jobs}
+            loaded={loaded}
+            failed={listFailed}
+            onPlay={onPlay}
+            onRetry={refresh}
+          />
+        </div>
+      </main>
 
       {playing && (
-        <section className="player">
-          <video
-            key={playing.url}
-            src={playing.url}
-            controls
-            autoPlay
-            data-testid="player"
-          />
-          <button className="dismiss" onClick={() => setPlaying(null)}>close</button>
-        </section>
+        <Player
+          url={playing.url}
+          title={playing.title}
+          onClose={() => setPlaying(null)}
+        />
       )}
 
-      <section className="jobs">
-        <h2>Your videos</h2>
-        {jobs.length === 0 ? (
-          <p className="empty">Nothing yet. Submit a topic above.</p>
-        ) : (
-          <ul>
-            {jobs.map((job) => (
-              <li key={job.id} data-testid="job" data-status={job.status}>
-                <div className="job-head">
-                  <span className="job-topic">{job.topic}</span>
-                  <Status status={job.status} error={job.error_code} />
-                </div>
-                {isPending(job.status) && (
-                  <div className="bar" aria-hidden>
-                    <span style={{ width: `${Math.round(job.progress * 100)}%` }} />
-                  </div>
-                )}
-                {job.status === "failed" && (
-                  <p className="job-note">{job.error_message ?? "render failed"}</p>
-                )}
-                {job.status === "succeeded" && (
-                  <div className="job-actions">
-                    <button onClick={() => onPlay(job.id)}>Watch</button>
-                    {job.duration_s != null && (
-                      <span className="figure">
-                        {Math.floor(job.duration_s / 60)}m{" "}
-                        {Math.round(job.duration_s % 60)}s
-                      </span>
-                    )}
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </main>
+      <SettingsSheet
+        open={settingsOpen}
+        settings={settings}
+        failed={settingsFailed}
+        saving={saving}
+        saved={saved}
+        error={settingsError}
+        onEdit={editSettings}
+        onSave={onSaveSettings}
+        onClose={() => setSettingsOpen(false)}
+      />
+    </>
   );
 }
 
-function Status({ status, error }: { status: string; error: string | null }) {
-  const label: Record<string, string> = {
-    queued: "queued", leased: "starting", generating: "writing code",
-    narrating: "writing narration", executing: "running the code",
-    rendering: "rendering", uploading: "uploading",
-    succeeded: "ready", failed: error ?? "failed", canceled: "canceled",
-  };
-  return (
-    <span className={`status status-${status}`}>
-      {label[status] ?? status}
-    </span>
-  );
+/**
+ * What to call a script-only job until the server's own label arrives.
+ *
+ * Deliberately the same rule as `job_label` on the API: the row should not
+ * rename itself a second after it appears.
+ */
+function labelFor(script: string): string {
+  const line = script
+    .split("\n")
+    .map((l) => l.trim().replace(/^#+/, "").trim())
+    .find(Boolean);
+  return line ? line.slice(0, 120) : "untitled";
 }

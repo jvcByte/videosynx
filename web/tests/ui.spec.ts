@@ -31,6 +31,86 @@ async function submit(topic: string): Promise<string> {
   return JSON.parse(body).id;
 }
 
+/** The job's stored options, read straight from the row. */
+function storedOptions(jobId: string): Record<string, unknown> {
+  const out = execFileSync(
+    "psql",
+    [DSN, "-t", "-A", "-c", `select options from jobs where id = '${jobId}'`],
+    { encoding: "utf8" },
+  );
+  return JSON.parse(out.trim());
+}
+
+async function jobIdFor(topic: string): Promise<string> {
+  const response = await fetch(`${API}/jobs`, { headers: DEV_USER });
+  const jobs = (await response.json()) as { id: string; topic: string }[];
+  const job = jobs.find((j) => j.topic === topic);
+  expect(job, `no job was created for ${topic}`).toBeTruthy();
+  return job!.id;
+}
+
+test("a script can be pasted instead of a topic", async ({ page }) => {
+  const heading = `Queues ${Date.now()}`;
+  await page.goto("/");
+
+  // Nothing typed in Topic: the script alone is enough to submit.
+  await page.getByLabel("Script").fill(`# ${heading}\n\nScene 1. A request arrives.`);
+  await expect(page.getByRole("button", { name: "Generate" })).toBeEnabled();
+  await page.getByRole("button", { name: "Generate" }).click();
+
+  // Named from the script, by the same rule the API uses.
+  const row = page.locator(`[data-testid="job"]:has-text("${heading}")`);
+  await expect(row).toBeVisible();
+
+  // And the text itself travelled with the job, rather than being a file path
+  // the worker would have to be able to read.
+  const options = storedOptions(await jobIdFor(heading));
+  expect(options.script).toContain("A request arrives");
+});
+
+test("the mode chosen for one job is stored on it", async ({ page }) => {
+  const topic = `modes ${Date.now()}`;
+  await page.goto("/");
+
+  await page.getByLabel("Topic").fill(topic);
+  await page.getByRole("radio", { name: "Illustration" }).check();
+  await page.getByRole("button", { name: "Generate" }).click();
+
+  const row = page.locator(`[data-testid="job"]:has-text("${topic}")`);
+  await expect(row).toBeVisible();
+  // The library says what kind of video it is, not just what it is about.
+  await expect(row.locator(".badge")).toHaveText("Illustration");
+  expect(storedOptions(await jobIdFor(topic)).mode).toBe("illustration");
+});
+
+test("settings are saved and come back after a reload", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByLabel("Audience")).toBeVisible();
+
+  await page.getByLabel("Audience").selectOption("expert");
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.locator(".saved")).toBeVisible();
+
+  await page.reload();
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByLabel("Audience")).toHaveValue("expert");
+});
+
+test("the library does not claim to be empty while it is loading", async ({ page }) => {
+  // Hold the first response open so the loading state is observable at all.
+  // Without this the fetch resolves before the assertion could see it, which
+  // is exactly why the bug it guards went unnoticed for so long.
+  await page.route("**/jobs", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    await route.continue();
+  });
+
+  await page.goto("/");
+  await expect(page.locator(".job-skeleton").first()).toBeVisible();
+  await expect(page.getByText("No videos yet")).toHaveCount(0);
+});
+
 test("submit, poll, and play a video", async ({ page }) => {
   const topic = `decorators ${Date.now()}`;
   const jobId = await submit(topic);
@@ -46,7 +126,7 @@ test("submit, poll, and play a video", async ({ page }) => {
   await expect(queued).toHaveAttribute("data-status", "succeeded", {
     timeout: 15_000,
   });
-  await expect(queued.locator(".status")).toHaveText("ready");
+  await expect(queued.locator(".status")).toHaveText("Ready");
 
   // 3. Playback: clicking through must produce a video element with a real
   //    source, which means the API issued a URL the browser can fetch.

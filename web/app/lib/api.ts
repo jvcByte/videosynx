@@ -16,6 +16,8 @@ export interface Job {
   id: string;
   status: JobStatus;
   topic: string;
+  /** Which kind of video this is: coding, illustration, or both. */
+  mode: string;
   stage: string | null;
   progress: number;
   duration_s: number | null;
@@ -33,6 +35,35 @@ export interface Quota {
   narration: boolean;
   tts: string;
   max_snippets: number;
+}
+
+/** Which halves of a tutorial to produce. The API owns these names. */
+export type Mode = "coding" | "illustration" | "both";
+
+/**
+ * What a user chose, saved server-side so it follows them between machines.
+ *
+ * Deliberately does not include voice engine, resolution, watermark or the
+ * snippet cap: those belong to the tier, and the server merges them over
+ * anything sent from here.
+ */
+export interface Settings {
+  mode: Mode;
+  style: "sketch" | "clean";
+  audience: "beginner" | "intermediate" | "expert";
+  focus: string;
+  voice: string;
+  captions: boolean;
+  length: "short" | "medium" | "long";
+}
+
+export interface SubmitBody {
+  /** What to teach. Optional when a script is given instead. */
+  topic?: string;
+  /** A written script to render, as text. */
+  script?: string;
+  /** One job can differ from the saved default without changing it. */
+  mode?: Mode;
 }
 
 export class ApiError extends Error {
@@ -83,10 +114,16 @@ export function absolute(url: string): string {
 export const api = {
   quota: () => request<Quota>("/me/quota"),
   jobs: () => request<Job[]>("/jobs"),
-  submit: (topic: string) =>
+  settings: () => request<Settings>("/me/settings"),
+  saveSettings: (settings: Settings) =>
+    request<Settings>("/me/settings", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
+  submit: (body: SubmitBody) =>
     request<{ id: string }>("/jobs", {
       method: "POST",
-      body: JSON.stringify({ topic }),
+      body: JSON.stringify(body),
     }),
   videoUrl: (id: string) => request<{ url: string; duration_s: number | null }>(
     `/jobs/${id}/video`

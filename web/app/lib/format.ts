@@ -1,0 +1,46 @@
+// Presentation helpers. Kept out of the components so the same value reads the
+// same way wherever it appears.
+
+const MODE_LABELS: Record<string, string> = {
+  both: "Both",
+  illustration: "Illustration",
+  coding: "Code",
+};
+
+/** A mode's short name, for a badge. Unknown values are shown as they came. */
+export function modeLabel(mode: string): string {
+  return MODE_LABELS[mode] ?? mode;
+}
+
+/** `4:07` for a video length. Minutes are worth showing, seconds alone are not. */
+export function duration(seconds: number): string {
+  const total = Math.round(seconds);
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return minutes ? `${minutes}:${String(rest).padStart(2, "0")}` : `${rest}s`;
+}
+
+/**
+ * When something happened, in the roughest unit that is still true.
+ *
+ * An absolute date is right for anything older than a week; "just now" is
+ * right for a job that finished while you were looking at the page.
+ */
+export function relativeTime(iso: string | null): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+
+  const seconds = Math.round((Date.now() - then) / 1000);
+  if (seconds < 45) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(then).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}

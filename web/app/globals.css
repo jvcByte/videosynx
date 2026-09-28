@@ -1,17 +1,39 @@
-/* Restrained on purpose: no gradients, no shadows on static content, one
-   accent colour. Weight is spent on what matters -- the topic being typed,
-   the status of a running render -- and nothing else competes with it. */
+/* Hierarchy first, colour last.
+   Weight is spent where it means something: the Generate button, a running
+   render, the title of a video you made. Everything else recedes in size,
+   weight and contrast rather than in a different hue. Depth is spent in
+   exactly two places -- the player and the settings sheet -- because those
+   are the only two things that genuinely sit above the page. */
 
 :root {
-  --bg: #0f1215;
-  --surface: #161b21;
-  --line: #262d36;
-  --fg: #e7ebf0;
-  --dim: #8b95a3;
+  /* Surfaces, darkest to lightest. A card is separated by a step in this
+     ramp, not by a shadow. */
+  --bg: #0b0e13;
+  --surface-1: #12171e;
+  --surface-2: #1a2028;
+  --surface-3: #222a34;
+  --line: #242c37;
+  --line-strong: #333d4a;
+
+  /* Text, loudest to quietest. */
+  --fg: #e9eef5;
+  --fg-muted: #9aa5b4;
+  --fg-faint: #667283;
+
   --accent: #4c9aff;
-  --ok: #46b17b;
+  --accent-ink: #04121f;
+  --ok: #48b47f;
   --bad: #e06c75;
-  --radius: 10px;
+
+  /* Radii scale with the size of the thing they round. */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+
+  --shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
 * { box-sizing: border-box; }
@@ -21,181 +43,422 @@ html, body {
   padding: 0;
   background: var(--bg);
   color: var(--fg);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-size: 16px;
-  line-height: 1.5;
-}
-
-main {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 56px 24px 96px;
-}
-
-/* ---------------------------------------------------------------- masthead */
-
-.masthead h1 {
-  margin: 0;
-  font-size: 28px;
-  letter-spacing: -0.02em;
-}
-
-.tagline {
-  margin: 8px 0 0;
-  color: var(--dim);
-  max-width: 52ch;
-}
-
-/* ------------------------------------------------------------------ submit */
-
-.submit { margin-top: 40px; }
-
-.label {
-  display: block;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--dim);
-  margin-bottom: 8px;
-}
-
-.row { display: flex; gap: 10px; }
-
-input[type="text"], input:not([type]) {
-  flex: 1;
-  padding: 12px 14px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--fg);
-  font-size: 16px;
-  font-family: inherit;
-}
-
-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-button {
-  padding: 12px 20px;
-  background: var(--accent);
-  color: #06131f;
-  border: none;
-  border-radius: var(--radius);
+  font-family: var(--font);
   font-size: 15px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
 
-button:disabled { opacity: 0.4; cursor: default; }
+h1, h2, h3, p { margin: 0; }
+
+/* Numbers that change should not make the text around them move. */
+.figure { font-variant-numeric: tabular-nums; }
+
+.skeleton {
+  display: block;
+  height: 12px;
+  border-radius: var(--r-sm);
+  background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.skeleton-line { width: 70%; }
+.skeleton-line.short { width: 35%; margin-top: 10px; }
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ------------------------------------------------------------------ topbar */
+
+/* The frame the page hangs on. Without it the composer is a form floating on
+   a background, which is what made this look unfinished. */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(11, 14, 19, 0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+
+.topbar-inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 24px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.topbar h1 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* ------------------------------------------------------------------ layout */
+
+.layout {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 32px 24px 96px;
+  display: grid;
+  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+}
+
+.column { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+/* -------------------------------------------------------------------- card */
+
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 24px;
+}
+
+/* ------------------------------------------------------------------- quota */
 
 .quota {
-  margin: 12px 0 0;
-  font-size: 13px;
-  color: var(--dim);
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--fg-muted);
 }
+
+.quota-loading { width: 140px; }
+.quota-loading .skeleton { height: 10px; width: 100%; }
 
 .tier {
   color: var(--accent);
   text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.quota .figure { color: var(--fg); }
+
+.meter {
+  width: 44px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.meter span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 400ms ease;
+}
+
+/* ------------------------------------------------------------------ fields */
+
+.field { margin-top: 18px; }
+.field:first-of-type { margin-top: 0; }
+
+.field label,
+.field-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
   letter-spacing: 0.06em;
-  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  margin-bottom: 8px;
 }
 
-.sep { opacity: 0.4; }
+.optional {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--fg-faint);
+  font-weight: 400;
+}
 
-/* Numbers line up when they change, which they do every poll. */
-.figure {
-  font-variant-numeric: tabular-nums;
+.field-note {
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--fg-faint);
+  line-height: 1.5;
+}
+
+input[type="text"], input:not([type]), textarea, select {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
   color: var(--fg);
+  font-size: 14.5px;
+  font-family: inherit;
+  transition: border-color 120ms ease, background 120ms ease;
 }
 
-/* ------------------------------------------------------------------ errors */
+input[type="text"]:hover, input:not([type]):hover,
+textarea:hover, select:hover { border-color: var(--line-strong); }
 
-.error {
-  margin-top: 20px;
-  padding: 12px 14px;
-  border: 1px solid var(--bad);
-  border-radius: var(--radius);
-  color: var(--bad);
+input::placeholder, textarea::placeholder { color: var(--fg-faint); }
+
+textarea {
+  display: block;
+  resize: vertical;
+  min-height: 76px;
+  line-height: 1.55;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface-1);
+}
+
+.check {
   display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.check input { accent-color: var(--accent); width: 16px; height: 16px; }
+
+/* --------------------------------------------------------------- segmented */
+
+/* Three choices, all visible, none hidden behind a dropdown. */
+.segmented {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.segmented label { position: relative; flex: 1; }
+
+.segmented input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.segmented span {
+  display: block;
+  text-align: center;
+  padding: 7px 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  transition: background 120ms ease, color 120ms ease;
+  white-space: nowrap;
+}
+
+.segmented label:hover span { color: var(--fg); }
+
+.segmented input:checked + span {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.segmented input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ----------------------------------------------------------------- buttons */
+
+button {
+  padding: 10px 18px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: none;
+  border-radius: var(--r-md);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: filter 120ms ease, opacity 120ms ease;
+}
+
+button:hover:not(:disabled) { filter: brightness(1.08); }
+button:disabled { opacity: 0.35; cursor: not-allowed; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Everything that is not the primary action. */
+.ghost {
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--fg-muted);
+  font-weight: 500;
+}
+
+.ghost:hover:not(:disabled) {
+  filter: none;
+  background: var(--surface-2);
+  color: var(--fg);
+  border-color: var(--line-strong);
+}
+
+/* ------------------------------------------------------------------ notices */
+
+.notice {
+  margin-top: 18px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  border: 1px solid;
+  font-size: 13.5px;
+  display: flex;
+  align-items: center;
   justify-content: space-between;
+  gap: 12px;
+}
+
+.notice-bad { border-color: rgba(224, 108, 117, 0.4); background: rgba(224, 108, 117, 0.08); color: var(--bad); }
+.notice .ghost { border-color: transparent; padding: 4px 8px; font-size: 12.5px; }
+
+.compose-actions {
+  margin-top: 22px;
+  display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.dismiss {
-  background: none;
-  border: none;
-  color: var(--dim);
-  font-size: 13px;
-  padding: 0;
-  cursor: pointer;
-  font-weight: 400;
-}
+.compose-hint { font-size: 12.5px; color: var(--fg-faint); }
 
-/* ------------------------------------------------------------------ player */
+/* ----------------------------------------------------------------- library */
 
-.player {
-  margin-top: 28px;
-  position: relative;
-}
-
-.player video {
-  width: 100%;
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: #000;
-  display: block;
-}
-
-.player .dismiss { margin-top: 10px; }
-
-/* -------------------------------------------------------------------- jobs */
-
-.jobs { margin-top: 48px; }
-
-.jobs h2 {
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--dim);
-  font-weight: 600;
-  margin: 0 0 16px;
-}
-
-.jobs ul { list-style: none; margin: 0; padding: 0; }
-
-.jobs li {
-  padding: 14px 0;
-  border-top: 1px solid var(--line);
-}
-
-.job-head {
+.section-head {
   display: flex;
-  justify-content: space-between;
   align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.section-head h2 {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.count { font-size: 12px; color: var(--fg-faint); }
+
+.jobs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+
+.job {
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 16px 18px;
+}
+
+.job-skeleton { display: flex; flex-direction: column; gap: 10px; }
+
+.job-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 16px;
 }
 
-/* The topic is the thing the user wrote; it gets the weight. */
-.job-topic { font-weight: 500; }
+/* The title is what the person wrote, so it carries the weight. */
+.job-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-.status { font-size: 13px; color: var(--dim); white-space: nowrap; }
+.job-meta {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--fg-faint);
+}
+
+.badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-muted);
+}
+
+.dot { opacity: 0.5; }
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.5;
+}
+
+/* The dot is what says "still going" down a list; colour alone would not. */
 .status-succeeded { color: var(--ok); }
+.status-succeeded .status-dot { opacity: 1; }
 .status-failed { color: var(--bad); }
+.status-failed .status-dot { opacity: 1; }
+
+.status-queued .status-dot,
+.status-leased .status-dot,
+.status-generating .status-dot,
+.status-narrating .status-dot,
+.status-executing .status-dot,
+.status-rendering .status-dot,
+.status-uploading .status-dot {
+  color: var(--accent);
+  opacity: 1;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
 
 .bar {
-  margin-top: 10px;
+  margin-top: 12px;
   height: 2px;
-  background: var(--line);
   border-radius: 2px;
+  background: var(--line);
   overflow: hidden;
 }
 
@@ -206,22 +469,155 @@ button:disabled { opacity: 0.4; cursor: default; }
   transition: width 400ms ease;
 }
 
-.job-note {
-  margin: 8px 0 0;
-  font-size: 13px;
-  color: var(--bad);
+.job-note { margin-top: 10px; font-size: 13px; color: var(--bad); }
+.job-actions { margin-top: 12px; }
+.job-actions button { padding: 7px 14px; font-size: 13px; }
+
+/* ------------------------------------------------------------- empty states */
+
+.empty {
+  padding: 40px 24px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-lg);
+  text-align: center;
 }
 
-.job-actions {
-  margin-top: 10px;
+.empty-title { font-size: 15px; font-weight: 500; color: var(--fg); }
+.empty-body { margin-top: 6px; font-size: 13.5px; color: var(--fg-faint); max-width: 44ch; margin-inline: auto; }
+.empty button { margin-top: 16px; }
+
+/* ----------------------------------------------------------------- overlays */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  background: rgba(4, 6, 9, 0.72);
+  cursor: default;
+}
+
+.overlay-backdrop:hover:not(:disabled) { filter: none; }
+
+.overlay-body {
+  position: relative;
+  width: min(960px, 100%);
+  background: var(--surface-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.overlay-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.overlay-head h2 { font-size: 14px; font-weight: 500; }
+.overlay-body video { display: block; width: 100%; background: #000; }
+
+.sheet {
+  position: relative;
+  margin-left: auto;
+  width: min(420px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  background: var(--surface-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+}
+
+/* The overlay is centred; the sheet is pushed to the right edge. */
+.overlay:has(.sheet) { justify-content: flex-end; }
+
+.sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--line);
+}
+
+.sheet-head h2 { font-size: 15px; font-weight: 600; }
+.sheet-head button { padding: 6px 12px; font-size: 13px; }
+
+.sheet-note { padding: 20px; font-size: 13.5px; color: var(--fg-faint); }
+.sheet-body { padding: 20px; }
+
+.group {
+  border: 0;
+  margin: 0 0 24px;
+  padding: 0;
+}
+
+.group legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+.group .field { margin-top: 14px; }
+.group .field label { font-size: 12.5px; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--fg-muted); }
+.group .check { margin-top: 16px; }
+
+.sheet-foot {
   display: flex;
   align-items: center;
   gap: 12px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  padding-block: 16px;
 }
 
-.job-actions button {
-  padding: 7px 14px;
-  font-size: 14px;
+.saved { font-size: 13px; color: var(--ok); }
+
+/* --------------------------------------------------------------- responsive */
+
+@media (max-width: 940px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .topbar-inner { padding: 0 16px; }
+  .layout { padding: 24px 16px 72px; }
+  .quota-rest { display: none; }
 }
 
-.empty { color: var(--dim); font-size: 14px; }
+@media (max-width: 560px) {
+  .topbar-inner { height: auto; padding: 12px 16px; flex-wrap: wrap; }
+  .overlay { padding: 0; align-items: flex-end; }
+  .sheet, .overlay-body { border-radius: var(--r-lg) var(--r-lg) 0 0; }
+  .job-main { flex-direction: column; align-items: flex-start; gap: 6px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
