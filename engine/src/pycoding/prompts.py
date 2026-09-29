@@ -21,22 +21,33 @@ CODE_PROMPT = """Write Python code for a short tutorial video on the topic below
 **Topic:** {topic}
 {context}
 **Instructions:**
-1. Ground everything in ONE concrete scenario from a real system -- the kind of
-   code that runs in production, not a textbook illustration. Name the domain
-   in the comments (a webhook dispatcher, a billing pipeline, a log ingester,
-   a feature store), and keep the same scenario across every block.
-2. Use realistic names and data: `pending_invoices`, `retry_backoff`,
+1. **The topic is the subject. The scenario is only the setting.** Everything
+   here must teach the topic named above, and the scenario must be chosen
+   because the topic is *what turns on it* -- the place where getting the topic
+   wrong is the thing that breaks. A video about data types belongs in code
+   where a value arriving as the wrong type is the bug; putting it in a webhook
+   dispatcher teaches the viewer about webhooks and nothing about data types.
+   If a line of the code is not there because of the topic, it does not belong
+   in the video.
+2. Ground that scenario in ONE real system -- the kind of code that runs in
+   production, not a textbook illustration -- name it in the comments, and keep
+   it the same across every block.
+3. Use realistic names and data: `pending_invoices`, `retry_backoff`,
    `failed_uploads`, real-looking records. Never `foo`, `bar`, `x`, `[1, 2, 3]`
    or any placeholder that says nothing about what the value is.
-3. Split the code into several separate ```python blocks, one per step.
-4. Each block must be small enough to explain in a few sentences.
-5. Each block must be runnable on its own: import anything it needs, and do
+4. **Introduce nothing the narration will not explain.** Every setting-specific
+   word the code brings with it -- a webhook, a retry budget, a pool -- has to
+   be paid for with a sentence saying what it is before it is used. Keep those
+   words to a minimum, and prefer the topic's own vocabulary.
+5. Split the code into several separate ```python blocks, one per step.
+6. Each block must be small enough to explain in a few sentences.
+7. Each block must be runnable on its own: import anything it needs, and do
    not rely on variables defined in an earlier block.
-6. Keep each block well under five minutes to run, and never wait for input.
-7. Use only the standard library, plus numpy, pandas or matplotlib.
+8. Keep each block well under five minutes to run, and never wait for input.
+9. Use only the standard library, plus numpy, pandas or matplotlib.
    Do not install anything.
-8. Comment sparingly -- only where the code is not self-explanatory.
-9. Include a print statement so each block produces visible output.
+10. Comment sparingly -- only where the code is not self-explanatory.
+11. Include a print statement so each block produces visible output.
 """
 
 NARRATION_PROMPT = """Below is one Python snippet from a tutorial video. It will be
@@ -59,13 +70,18 @@ A sentence to say while that fragment is being typed.
 2. Write one block per idea, in the order the lines appear.
 3. Each sentence must say what the code *at that fragment* does. Never begin
    with a general statement about the topic.
-4. Speak in the scenario's terms. Name the system this is part of, and what
-   would go wrong without it -- a viewer should finish knowing what this is
-   *for*, not only what it does.
-5. Keep every sentence under twenty words, so it fits while that part is typed.
-6. Speak plainly. No markdown, no quotation marks, no code in the sentences.
-7. Name variables the way a person would say them, spelling out underscores.
-8. Cover the whole snippet -- do not leave a long stretch of code unexplained.
+4. Speak in the scenario's terms -- but never assume one. The first time a
+   setting-specific word appears, say what it is in that same sentence. A
+   viewer who has to guess what "backoff" means has stopped following the topic.
+5. Name the system this is part of, and what would go wrong without it -- a
+   viewer should finish knowing what this is *for*, not only what it does.
+6. Keep every sentence under twenty words, so it fits while that part is typed.
+7. Speak plainly. No markdown, no quotation marks, no code in the sentences.
+8. Say a variable name as the words it is made of: `max_retry_attempts` is
+   "max retry attempts". **Never say the word "underscore"** -- spelling the
+   name out character by character is not speech. If a name cannot be said
+   naturally, say what the value is instead.
+9. Cover the whole snippet -- do not leave a long stretch of code unexplained.
 """
 
 INTRO_PROMPT = """Write the opening narration for a short coding tutorial video.
@@ -144,19 +160,27 @@ Return JSON: {slide_range} slides, as a list of objects in exactly this shape:
 **Instructions:**
 1. The first slide answers "what is this?" in plain language, for someone who
    has never met the idea. Do not mention the scenario or any real system yet.
-2. Later slides may narrow toward the problem the video goes on to solve.
-3. Three to five shapes per diagram, or two to three columns of text. Keep
+2. **Name the actual things.** `int`, `str`, `list`, `dict` -- whatever the
+   topic is really about -- not "values", "information" or "data". A slide of
+   abstractions is one the viewer cannot use afterwards; it is the specific
+   words they take away.
+3. **Cover the vocabulary, and never use a word before it is defined.** By the
+   last slide the viewer must have met every term the rest of the video leans
+   on, each explained where it first appears. A viewer who has to guess what a
+   word means has already stopped following the topic.
+4. Later slides may narrow toward the problem the video goes on to solve.
+5. Three to five shapes per diagram, or two to three columns of text. Keep
    every label and every line under forty characters.
-4. `narration` must hold exactly one sentence more than there are things to
+6. `narration` must hold exactly one sentence more than there are things to
    reveal -- nodes for a diagram, columns for a text slide. The first is spoken
    over the heading alone, then one per shape as it appears, then a closing
    sentence. Three nodes need five sentences; the diagram example above has
    exactly that.
-5. Each sentence is under twenty words, and must not read the labels back word
+7. Each sentence is under twenty words, and must not read the labels back word
    for word -- say it in speech, not as a caption.
-6. The note is one sentence: what to remember from that slide.
-7. No code, no backticks, no function calls, no markdown.
-8. Never write placeholder text: "heading", "body", "text here", "line one"
+8. The note is one sentence: what to remember from that slide.
+9. No code, no backticks, no function calls, no markdown.
+10. Never write placeholder text: "heading", "body", "text here", "line one"
    or an ellipsis name a slot instead of filling it, and a slide made of them
    is worse than no slide. Write the real content or drop the slide.
 """

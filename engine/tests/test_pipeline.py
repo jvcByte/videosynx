@@ -18,6 +18,7 @@ import pytest
 from pycoding.prompts import (
     MAX_SLIDES,
     code_prompt,
+    concept_prompt,
     intro_prompt,
     narration_prompt,
     parse_anchored,
@@ -94,10 +95,35 @@ def test_intro_prompt_names_the_topic():
 
 def test_the_code_prompt_demands_a_real_scenario():
     prompt = code_prompt("Python decorators")
-    assert "concrete scenario" in prompt
+    assert "real system" in prompt
     assert "production" in prompt
     # The same system throughout, not a different toy per snippet.
-    assert "same scenario across every block" in prompt
+    assert "same across every block" in prompt
+
+
+def test_the_code_prompt_puts_the_topic_before_the_scenario():
+    """The failure this was written for: a video on Python data types whose
+    code was a webhook dispatcher.
+
+    "Ground everything in one concrete scenario" was read as licence to pick
+    any production system, and the model picked one from the prompt's own
+    examples. The scenario then replaced the subject -- four of the six
+    sections were about webhooks and said nothing about data types.
+    """
+    prompt = flat(code_prompt("Python data types"))
+    assert "The topic is the subject" in prompt
+    assert "because the topic is" in prompt and "what turns on it" in prompt
+    # And the example that caused it is gone: naming domains in the prompt is
+    # what the model reached for instead of choosing one to fit the topic.
+    assert "a webhook dispatcher, a billing pipeline" not in prompt
+    # A line that is not there because of the topic is out of scope.
+    assert "not there because of the topic" in prompt
+
+
+def test_the_code_prompt_asks_for_nothing_unexplained():
+    prompt = flat(code_prompt("Python data types"))
+    assert "Introduce nothing the narration will not explain" in prompt
+    assert "saying what it is before it is used" in prompt
 
 
 def test_the_code_prompt_bans_placeholder_names():
@@ -123,6 +149,34 @@ def test_the_narration_prompt_asks_what_it_is_for():
     assert "scenario's terms" in prompt
     assert "what would go wrong without it" in prompt
     assert "not only what it does" in prompt
+
+
+def test_the_narration_prompt_bans_saying_the_word_underscore():
+    """The rule that produced "http underscore status underscore code".
+
+    It asked for variables to be "named the way a person would say them,
+    spelling out underscores", which the model read literally -- and the
+    narration spelled every name out character by character as a result.
+    """
+    prompt = flat(narration_prompt(CODE))
+    assert "Never say the word \"underscore\"" in prompt
+    assert "max_retry_attempts" in prompt  # given as the example to say aloud
+
+
+def test_the_narration_prompt_defines_a_word_the_first_time_it_appears():
+    """A viewer who has to guess what a word means has stopped following."""
+    prompt = flat(narration_prompt(CODE))
+    assert "never assume one" in prompt
+    assert "say what it is in that same sentence" in prompt
+
+
+def test_the_concept_prompt_asks_for_the_actual_words():
+    """The slides for the data-types video said "raw data has no meaning on
+    its own" and never named one type the viewer would take away."""
+    prompt = flat(concept_prompt("Python data types", "", "one to three"))
+    assert "Name the actual things" in prompt
+    assert "`dict`" in prompt
+    assert "never use a word before it is defined" in prompt
 
 
 # ------------------------------------------------------------------ parsing
