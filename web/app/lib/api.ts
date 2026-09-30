@@ -41,6 +41,15 @@ export interface Job {
   /** When a requeued job becomes claimable again. */
   not_before: string | null;
   created_at: string | null;
+  /**
+   * Whether a finished video is still there to play.
+   *
+   * Null for anything that has not finished — there is no file to be
+   * missing. False means the row keeps its place but stops offering Watch
+   * and Download, because the store is a temporary directory by default and
+   * a bucket can be emptied.
+   */
+  available?: boolean | null;
 }
 
 /**

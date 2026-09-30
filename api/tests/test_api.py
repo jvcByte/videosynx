@@ -1021,6 +1021,57 @@ def test_the_owner_can_fetch_the_video(stored):
 
 
 @requires_db
+def test_a_video_whose_file_has_gone_says_so_instead_of_404ing(stored):
+    """The default store is a /tmp directory, and /tmp gets cleared.
+
+    Signing a URL for a file that is not there hands the browser an address
+    that answers 404, which reads as a broken page rather than as a video
+    that is no longer kept. The job is still real, so it is a 410 with a
+    reason, not a 404 saying the job does not exist.
+    """
+    client, store = stored
+    job_id = client.post("/jobs", json={"topic": "a job that outlives its video"},
+                         headers=auth()).json()["id"]
+    key = _succeed(job_id, store)
+
+    assert client.get(f"/jobs/{job_id}/video", headers=auth()).status_code == 200
+
+    store.delete(key)
+
+    r = client.get(f"/jobs/{job_id}/video", headers=auth())
+    assert r.status_code == 410
+    assert r.json()["detail"]["error"] == "artifact_missing"
+
+
+@requires_db
+def test_a_finished_job_reports_whether_its_file_is_still_there(stored):
+    """The row has to know before it is clicked.
+
+    Watch and Download are only offered while there is something to play, and
+    the list is the only thing that can tell the page that.
+    """
+    client, store = stored
+    job_id = client.post("/jobs", json={"topic": "listed before and after"},
+                         headers=auth()).json()["id"]
+
+    # Nothing finished yet, so there is no file to be missing.
+    listed = next(j for j in client.get("/jobs", headers=auth()).json()
+                  if j["id"] == job_id)
+    assert listed["available"] is None
+
+    key = _succeed(job_id, store)
+    listed = next(j for j in client.get("/jobs", headers=auth()).json()
+                  if j["id"] == job_id)
+    assert listed["available"] is True
+    assert client.get(f"/jobs/{job_id}", headers=auth()).json()["available"] is True
+
+    store.delete(key)
+    listed = next(j for j in client.get("/jobs", headers=auth()).json()
+                  if j["id"] == job_id)
+    assert listed["available"] is False
+
+
+@requires_db
 def test_the_video_url_is_signed_and_expires(stored):
     """Handing out a URL must not hand out the video forever.
 

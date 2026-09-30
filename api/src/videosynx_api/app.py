@@ -164,6 +164,17 @@ class JobResponse(BaseModel):
     not_before: datetime | None = None
     created_at: datetime | None = None
     finished_at: datetime | None = None
+    # Whether the finished file is still there to serve.
+    #
+    # A job keeps its place in the library when its object is gone -- the
+    # render happened, and the row is the record of it -- but it must not go
+    # on offering to play something that is not there. The default local
+    # store is a `/tmp` directory, and `/tmp` is cleared; a bucket can be
+    # emptied; either way the row is the only place that knows.
+    #
+    # None when it does not apply: nothing that has not finished has a file
+    # to be missing.
+    available: bool | None = None
 
     @field_validator("id", mode="before")
     @classmethod
@@ -221,6 +232,28 @@ def _published_example_ids() -> list[str]:
         except ValueError:
             continue
     return ids
+
+
+def _with_availability(store, row: dict) -> dict:
+    """Say whether a finished job's file can still be served.
+
+    Deliberately a question asked at read time rather than a column: a row
+    that recorded "present" when it finished would be wrong the moment
+    anything emptied the store, and nothing would ever correct it.
+
+    It costs one ``exists()`` per finished job per call -- a stat locally, a
+    HEAD on object storage. At twenty rows that is twenty of them on every
+    poll, which is why this is the first thing to memoise if a list ever
+    feels slow; the answer for a given key does not change back.
+    """
+    if row["status"] != "succeeded":
+        return row
+    # Finished with nothing to show for it counts as gone, not as unknown: a
+    # succeeded row with no key is not a file the page can play either.
+    return {
+        **row,
+        "available": bool(row["artifact_key"]) and store.exists(row["artifact_key"]),
+    }
 
 
 def _poster_for(store, row: dict) -> str:
@@ -664,7 +697,7 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
                 """,
                 (user.id, limit),
             ).fetchall()
-        return [JobResponse(**row) for row in rows]
+        return [JobResponse(**_with_availability(store, row)) for row in rows]
 
     @app.get("/jobs/{job_id}", response_model=JobResponse)
     def get_job(job_id: str, user: User = Depends(current_user)) -> JobResponse:
@@ -673,7 +706,7 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
             # Same response as a missing job: whether someone else's id exists
             # is not this caller's business.
             raise HTTPException(status.HTTP_404_NOT_FOUND, "no such job")
-        return JobResponse(**row)
+        return JobResponse(**_with_availability(store, row))
 
     @app.post("/jobs/{job_id}/retry", response_model=JobResponse,
               status_code=status.HTTP_202_ACCEPTED)
@@ -774,6 +807,16 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 detail={"error": "not_ready", "status": row["status"]},
+            )
+        # A finished job whose file has since gone. Signing a URL for it would
+        # hand the browser an address that answers 404, which reads as a
+        # broken page rather than as a video that is no longer kept.
+        if not store.exists(row["artifact_key"]):
+            raise HTTPException(
+                status.HTTP_410_GONE,
+                detail={"error": "artifact_missing",
+                        "message": "This video is no longer stored. The record "
+                                   "of the render is here, but the file is not."},
             )
         return {
             "id": row["id"],

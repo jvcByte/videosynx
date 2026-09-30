@@ -558,3 +558,41 @@ test("the navigation survives scrolling on a phone", async ({ page }) => {
   await expect(page.locator(".sidebar-nav")).toBeInViewport();
   await expect(page.getByRole("link", { name: "Dashboard" })).toBeInViewport();
 });
+
+test("a video that outlived its file offers nothing it cannot do", async ({ page }) => {
+  // The default store is a /tmp directory and /tmp gets cleared, so a row
+  // can outlive the video it describes. It keeps its place -- the render
+  // happened -- but Watch used to hand the browser an address that 404s,
+  // which reads as a broken page rather than as a video no longer kept.
+  const id = insertJob("a video that outlived its file", "succeeded");
+  execFileSync("psql", [
+    DSN, "-q", "-c",
+    `update jobs set artifact_key = 'artifacts/free/${id}.mp4', duration_s = 42
+      where id = '${id}'`,
+  ]);
+
+  await page.goto(at("videos"));
+  const row = page.locator('[data-testid="job"]:has-text("a video that outlived its file")');
+
+  await expect(row).toHaveAttribute("data-available", "no");
+  await expect(row.getByText("File no longer available")).toBeVisible();
+  await expect(row.getByRole("button", { name: "Watch" })).toHaveCount(0);
+  await expect(row.getByRole("button", { name: "Download" })).toHaveCount(0);
+
+  // The plan is a different question and still has an answer -- and when it
+  // does not, the viewer says so rather than failing.
+  await expect(row.getByRole("button", { name: "Inspect" })).toBeVisible();
+});
+
+test("a video that is still stored plays as it always did", async ({ page }) => {
+  // The other half of the guard: the check must not take Watch away from
+  // every row, which is the failure mode of getting availability wrong.
+  const id = insertJob("a video still on disk");
+  seed(id);
+
+  await page.goto(at("videos"));
+  const row = page.locator('[data-testid="job"]:has-text("a video still on disk")');
+  await expect(row).not.toHaveAttribute("data-available", "no");
+  await row.getByRole("button", { name: "Watch" }).click();
+  await expect(page.getByTestId("player")).toBeVisible();
+});

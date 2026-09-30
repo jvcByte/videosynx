@@ -610,7 +610,16 @@ input:disabled, textarea:disabled, select:disabled {
   transition: width 400ms ease;
 }
 
+/* A row whose video is gone. Dimmed rather than removed: it is still the
+   record of a render, and it stays where you remember leaving it. Not red --
+   nothing failed, the file is simply no longer kept. */
+.job-unavailable { opacity: 0.62; }
+.job-unavailable .job-title { color: var(--fg-muted); }
+.job-unavailable:hover { opacity: 0.85; }
+
 .job-note { margin-top: 10px; font-size: 13px; color: var(--bad); }
+/* The same line, for something that is not an error. */
+.job-note-quiet { color: var(--fg-faint); }
 .job-hint { margin-top: 4px; font-size: 12.5px; color: var(--fg-faint); }
 .job-actions { margin-top: 12px; }
 .job-actions button { padding: 7px 14px; font-size: 13px; }

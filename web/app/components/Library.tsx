@@ -110,8 +110,14 @@ function JobCard({
   onInspect: (job: Job) => void;
   onCancel: (job: Job) => void;
 }) {
+  // Finished, but the file it finished with is not there any more. Its own
+  // state rather than a kind of failure: nothing went wrong with the render.
+  const gone = job.status === "succeeded" && job.available === false;
+
   return (
-    <li className="job" data-testid="job" data-status={job.status}>
+    <li className={`job${gone ? " job-unavailable" : ""}`}
+        data-testid="job" data-status={job.status}
+        data-available={job.available === false ? "no" : undefined}>
       <div className="job-main">
         <p className="job-title">{job.topic}</p>
         <Status status={job.status} attempt={job.attempt} />
@@ -184,14 +190,31 @@ function JobCard({
         </>
       )}
 
+      {gone && (
+        <p className="job-note job-note-quiet">
+          File no longer available. The render is on record, but the video
+          itself is not stored any more.
+        </p>
+      )}
+
       {job.status === "succeeded" && (
         <div className="job-actions">
-          <button className="ghost" onClick={() => onPlay(job)}>Watch</button>
-          {/* Downloading from the card, not only from the player: the row is
-              where you look for a video you made earlier. */}
-          <button className="ghost" onClick={() => onDownload(job)}>Download</button>
+          {/* Offered only while there is a file to offer. The store is a
+              `/tmp` directory by default and `/tmp` is cleared, so a render
+              outlives its video -- and a Watch button that answers 404 is
+              worse than no button. */}
+          {job.available !== false && (
+            <>
+              <button className="ghost" onClick={() => onPlay(job)}>Watch</button>
+              {/* Downloading from the card, not only from the player: the row
+                  is where you look for a video you made earlier. */}
+              <button className="ghost" onClick={() => onDownload(job)}>Download</button>
+            </>
+          )}
           {/* The other two give you the video; this gives you what went into
-              it, which is the only way to find out why one came out wrong. */}
+              it, which is the only way to find out why one came out wrong.
+              Kept when the file is gone, because the plan may still be there
+              and, when it is not, it says so rather than failing. */}
           <button className="ghost" onClick={() => onInspect(job)}>Inspect</button>
         </div>
       )}
