@@ -20,16 +20,40 @@ from dataclasses import dataclass
 import jwt
 from fastapi import Header, HTTPException, status
 
-JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET", "")
-JWT_AUDIENCE = os.environ.get("SUPABASE_JWT_AUDIENCE", "authenticated")
+def _setting(name: str, default: str = "") -> str:
+    """The environment, read when it is asked for rather than at import.
 
-# Supabase publishes its public keys at a fixed path under the project URL, so
-# naming the project is enough; the explicit variable is there for a self-hosted
-# deployment that serves them from somewhere else.
-_SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
-JWKS_URL = os.environ.get("SUPABASE_JWKS_URL", "") or (
-    f"{_SUPABASE_URL}/auth/v1/.well-known/jwks.json" if _SUPABASE_URL else ""
-)
+    These were module constants, and that made them empty. `videosynx_api.app`
+    is imported at the top of `__main__`, and `load()` -- which is what opens
+    the .env file -- is called inside `main()`, so every one of them was read
+    from a process that had not read its configuration yet. Nothing noticed:
+    a developer who exports the variables by hand has them present from the
+    first instruction, so only the documented way of running this, from a
+    .env file, lost them.
+    """
+    return os.environ.get(name, default)
+
+
+def jwt_secret() -> str:
+    return _setting("SUPABASE_JWT_SECRET")
+
+
+def jwt_audience() -> str:
+    return _setting("SUPABASE_JWT_AUDIENCE", "authenticated")
+
+
+def jwks_url() -> str:
+    """Where the signing keys are published.
+
+    Supabase serves them from a fixed path under the project URL, so naming
+    the project is enough; the explicit variable is there for a self-hosted
+    deployment that serves them from somewhere else.
+    """
+    explicit = _setting("SUPABASE_JWKS_URL")
+    if explicit:
+        return explicit
+    base = _setting("SUPABASE_URL").rstrip("/")
+    return f"{base}/auth/v1/.well-known/jwks.json" if base else ""
 
 # What a current project signs with. HS256 is deliberately absent: it is only
 # accepted on the secret path, where the key that verifies is the key that
@@ -46,7 +70,7 @@ class User:
 
 def configured() -> bool:
     """Whether this server can check a token at all."""
-    return bool(JWKS_URL or JWT_SECRET)
+    return bool(jwks_url() or jwt_secret())
 
 
 _jwks_client: jwt.PyJWKClient | None = None
@@ -60,7 +84,7 @@ def _signing_keys() -> jwt.PyJWKClient:
     """
     global _jwks_client
     if _jwks_client is None:
-        _jwks_client = jwt.PyJWKClient(JWKS_URL)
+        _jwks_client = jwt.PyJWKClient(jwks_url())
     return _jwks_client
 
 
@@ -70,7 +94,7 @@ def _verified(token: str, key, algorithms: list[str]) -> dict:
             token,
             key,
             algorithms=algorithms,
-            audience=JWT_AUDIENCE,
+            audience=jwt_audience(),
             options={"require": ["exp", "sub"]},
         )
     except jwt.ExpiredSignatureError:
@@ -99,14 +123,23 @@ def _decode_asymmetric(token: str) -> dict:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, f"invalid token: {exc}"
         ) from None
+    except jwt.InvalidTokenError as exc:
+        # The token is not even shaped like one -- "not.a.token" fails here,
+        # decoding the header, before any key is chosen. A 500 for something
+        # the caller sent is wrong twice over: it reads as the server being
+        # broken, and it is the answer a fuzzer gets for every junk string.
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, f"invalid token: {exc}"
+        ) from None
     return _verified(token, key.key, list(ASYMMETRIC_ALGORITHMS))
 
 
 def _decode(token: str) -> dict:
-    if JWKS_URL:
+    if jwks_url():
         return _decode_asymmetric(token)
-    if JWT_SECRET:
-        return _verified(token, JWT_SECRET, ["HS256"])
+    secret = jwt_secret()
+    if secret:
+        return _verified(token, secret, ["HS256"])
     raise HTTPException(
         status.HTTP_503_SERVICE_UNAVAILABLE,
         "auth is not configured on this server "

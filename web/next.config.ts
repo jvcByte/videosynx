@@ -1,4 +1,21 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
+
 import type { NextConfig } from "next";
+
+// One .env, at the top of the repository.
+//
+// Next reads env files from its own directory, which is this one, and there is
+// none here -- so NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY
+// were undefined in every build, the Supabase client was never constructed,
+// and the web app could not sign anyone in no matter what was configured on
+// the API. The other three programs all find the file by walking up; this
+// makes the fourth do the same rather than keeping a second copy of the same
+// two values in a second place.
+const ROOT_ENV = path.resolve(__dirname, "..", ".env");
+if (existsSync(ROOT_ENV)) {
+  process.loadEnvFile(ROOT_ENV);
+}
 
 // Where the API is. Read by the server when it starts, and never sent to the
 // browser -- see the rewrite below.
@@ -6,6 +23,17 @@ const API_ORIGIN = process.env.VIDEOSYNX_API_URL ?? "http://localhost:8000";
 
 const config: NextConfig = {
   reactStrictMode: true,
+
+  // Inlined into the client bundle explicitly rather than left to the
+  // NEXT_PUBLIC_ convention, because the values were only just put into
+  // process.env above: this is the one place that guarantees what the config
+  // read is what the browser is compiled with. Both are public by design --
+  // the anon key is constrained by row-level security at the database, not by
+  // being secret.
+  env: {
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+  },
 
   // A build directory of its own when asked for one.
   //

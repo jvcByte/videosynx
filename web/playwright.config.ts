@@ -36,6 +36,13 @@ export default defineConfig({
         `VIDEOSYNX_DSN=postgresql:///videosynx_e2e ` +
         `VIDEOSYNX_ARTIFACTS=/tmp/videosynx/e2e-artifacts ` +
         `CORS_ORIGINS=http://127.0.0.1:${WEB_PORT} ` +
+        // Empty, and deliberately so. The API loads the repository's .env,
+        // which in a configured deployment has a Supabase project in it --
+        // and configuring one disables the X-Dev-User header these tests
+        // sign in with, so every request would come back 401. An empty value
+        // wins: loading a .env file never overwrites a variable that is
+        // already set, which is what makes this work.
+        `SUPABASE_URL= SUPABASE_JWKS_URL= SUPABASE_JWT_SECRET= ` +
         `${PYTHON} -m videosynx_api --port ${API_PORT}`,
       url: `http://127.0.0.1:${API_PORT}/health`,
       reuseExistingServer: false,
@@ -56,6 +63,10 @@ export default defineConfig({
         `VIDEOSYNX_API_URL=http://127.0.0.1:${API_PORT} ` +
         `NEXT_PUBLIC_DEV_USER=e2e-user:free ` +
         `VIDEOSYNX_DIST_DIR=.next-e2e ` +
+        // The same, on the browser side: with a Supabase URL compiled in, the
+        // app renders the sign-in screen and never sends the development
+        // header at all, so there is nothing here to test.
+        `NEXT_PUBLIC_SUPABASE_URL= NEXT_PUBLIC_SUPABASE_ANON_KEY= ` +
         `npm run dev`,
       url: `http://127.0.0.1:${WEB_PORT}`,
       reuseExistingServer: false,

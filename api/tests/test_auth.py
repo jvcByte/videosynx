@@ -81,10 +81,10 @@ def jwks(monkeypatch):
     """A server, a key, and `auth` pointed at them."""
     private, jwk = keypair()
     server = JwksServer(jwk)
-    monkeypatch.setattr(auth, "JWKS_URL", server.url)
-    monkeypatch.setattr(auth, "JWT_SECRET", "")
+    monkeypatch.setattr(auth, "jwks_url", lambda: server.url)
+    monkeypatch.setattr(auth, "jwt_secret", lambda: "")
     monkeypatch.setattr(auth, "_jwks_client", None)
-    monkeypatch.setattr(auth, "JWT_AUDIENCE", AUDIENCE)
+    monkeypatch.setattr(auth, "jwt_audience", lambda: AUDIENCE)
     yield private, server
     server.stop()
 
@@ -171,9 +171,9 @@ def test_an_unreachable_key_set_is_503_not_401(monkeypatch):
     may be perfectly good -- we simply could not check it -- and the honest
     answer is "try again shortly".
     """
-    monkeypatch.setattr(auth, "JWT_SECRET", "")
+    monkeypatch.setattr(auth, "jwt_secret", lambda: "")
     # A port nothing is listening on.
-    monkeypatch.setattr(auth, "JWKS_URL", "http://127.0.0.1:9/jwks.json")
+    monkeypatch.setattr(auth, "jwks_url", lambda: "http://127.0.0.1:9/jwks.json")
     monkeypatch.setattr(auth, "_jwks_client", None)
 
     private, _ = keypair()
@@ -196,8 +196,8 @@ def test_the_key_set_is_fetched_once_for_many_requests(jwks):
 
 def test_a_legacy_hs256_project_still_works(monkeypatch):
     """Older projects sign with the shared secret and must keep working."""
-    monkeypatch.setattr(auth, "JWKS_URL", "")
-    monkeypatch.setattr(auth, "JWT_SECRET", LEGACY_SECRET)
+    monkeypatch.setattr(auth, "jwks_url", lambda: "")
+    monkeypatch.setattr(auth, "jwt_secret", lambda: LEGACY_SECRET)
     monkeypatch.setattr(auth, "_jwks_client", None)
 
     good = jwt.encode(
@@ -219,8 +219,8 @@ def test_the_dev_bypass_is_off_once_a_credential_is_configured(jwks):
 
 
 def test_the_dev_bypass_works_when_nothing_is_configured(monkeypatch):
-    monkeypatch.setattr(auth, "JWKS_URL", "")
-    monkeypatch.setattr(auth, "JWT_SECRET", "")
+    monkeypatch.setattr(auth, "jwks_url", lambda: "")
+    monkeypatch.setattr(auth, "jwt_secret", lambda: "")
 
     assert auth.current_user(authorization=None, x_dev_user="user-1:paid").tier == "paid"
     assert auth.current_user(authorization=None, x_dev_user="user-1").tier == "free"
@@ -228,13 +228,46 @@ def test_the_dev_bypass_works_when_nothing_is_configured(monkeypatch):
 
 def test_no_credential_anywhere_is_503_rather_than_401(monkeypatch):
     """A server that cannot check anything is not the caller's fault either."""
-    monkeypatch.setattr(auth, "JWKS_URL", "")
-    monkeypatch.setattr(auth, "JWT_SECRET", "")
+    monkeypatch.setattr(auth, "jwks_url", lambda: "")
+    monkeypatch.setattr(auth, "jwt_secret", lambda: "")
     monkeypatch.setattr(auth, "_jwks_client", None)
 
     with pytest.raises(HTTPException) as caught:
         auth.current_user(authorization="Bearer whatever", x_dev_user=None)
     assert caught.value.status_code == 503
+
+
+def test_credentials_in_the_environment_are_seen(monkeypatch):
+    """The documented way to run this is a .env file.
+
+    `videosynx_api.app` is imported at the top of `__main__`, and the call that
+    opens the .env file is inside `main()` -- so anything read at import time
+    read a process that had not loaded its configuration yet. The settings
+    were empty, `configured()` was false, and the X-Dev-User bypass stayed
+    open on a server that had been told to require a token. Every test here
+    patched the settings directly, which is exactly why none of them caught
+    it: they never went through the environment at all.
+    """
+    monkeypatch.delenv("SUPABASE_JWKS_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_JWT_SECRET", raising=False)
+    assert not auth.configured()
+
+    monkeypatch.setenv("SUPABASE_URL", "https://project.supabase.co")
+    assert auth.configured()
+    assert auth.jwks_url() == (
+        "https://project.supabase.co/auth/v1/.well-known/jwks.json"
+    )
+
+
+def test_the_dev_bypass_is_refused_when_the_environment_configures_auth(monkeypatch):
+    """The whole point of the bypass being conditional."""
+    monkeypatch.setenv("SUPABASE_URL", "https://project.supabase.co")
+    monkeypatch.delenv("SUPABASE_JWKS_URL", raising=False)
+
+    with pytest.raises(HTTPException) as caught:
+        auth.current_user(authorization=None, x_dev_user="someone-else:free")
+    assert caught.value.status_code == 401
 
 
 def test_the_dev_bypass_is_not_reachable_while_signed_out(jwks):
@@ -243,3 +276,13 @@ def test_the_dev_bypass_is_not_reachable_while_signed_out(jwks):
         auth.current_user(authorization=None, x_dev_user=None)
     assert caught.value.status_code == 401
     assert caught.value.headers["WWW-Authenticate"] == "Bearer"
+
+
+def test_a_malformed_token_is_401_and_not_500(jwks):
+    """The shape is checked before the key is, so junk fails somewhere the
+    JWKS client did not catch: a 500 for something the caller sent reads as
+    the server being broken, and it is what a fuzzer gets for every string."""
+    for junk in ("not.a.token", "a", "", "....", "eyJhbGciOiJub25lIn0"):
+        with pytest.raises(HTTPException) as caught:
+            auth.current_user(authorization=f"Bearer {junk}", x_dev_user=None)
+        assert caught.value.status_code == 401, junk
