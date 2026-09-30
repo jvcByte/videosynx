@@ -845,6 +845,93 @@ def stored(tmp_path) -> tuple[TestClient, LocalStorage]:
         yield c, store
 
 
+# ---------------------------------------------------------------- examples
+
+def _real_mp4(path) -> bytes:
+    """A video ffmpeg will actually open, for the tests that need a frame.
+
+    Longer than the 12.5s `_succeed` records on the row, because the still is
+    taken from a third of the way in and seeking past the end of a shorter
+    file yields no frame at all -- a fixture that cannot produce a still would
+    pass this test for the wrong reason. Never smaller than roughly 100px on a
+    side either: the JPEG encoder refuses a frame below that.
+    """
+    import subprocess
+
+    subprocess.run(
+        ["ffmpeg", "-loglevel", "error", "-f", "lavfi",
+         "-i", "color=c=black:s=320x180:r=10:d=20", "-pix_fmt", "yuv420p",
+         "-y", str(path)],
+        check=True, timeout=60,
+    )
+    return path.read_bytes()
+
+
+@requires_db
+def test_examples_are_public_but_only_what_was_published(stored, monkeypatch):
+    """The landing page is public, so this has to be -- and it must show only
+    videos someone deliberately published. A user's video becoming public
+    because it was recent would be a privacy bug dressed as a feature."""
+    client, store = stored
+    mine = client.post("/jobs", json={"topic": "published"},
+                       headers=auth()).json()["id"]
+    theirs = client.post("/jobs", json={"topic": "private"},
+                         headers=auth()).json()["id"]
+    _succeed(mine, store)
+    _succeed(theirs, store)
+
+    monkeypatch.setenv("PYCODING_EXAMPLES", mine)
+    body = client.get("/examples").json()          # no auth header
+
+    assert [e["title"] for e in body] == ["published"]
+    assert body[0]["duration_s"] == 12.5
+    assert body[0]["video_url"]
+
+
+@requires_db
+def test_an_example_gets_a_still_from_the_video(stored, monkeypatch):
+    """Frame zero is a blank editor, so the still is taken from further in --
+    this checks one is actually made rather than the card falling back."""
+    client, store = stored
+    job_id = client.post("/jobs", json={"topic": "has a poster"},
+                         headers=auth()).json()["id"]
+    _succeed(job_id, store, body=_real_mp4(store.root / "src.mp4"))
+
+    monkeypatch.setenv("PYCODING_EXAMPLES", job_id)
+    example = client.get("/examples").json()[0]
+
+    assert example["poster_url"], "no still was made from a readable video"
+    poster_key = video_key("free", job_id, ".poster.jpg")
+    assert store.exists(poster_key)
+
+
+@requires_db
+def test_an_unreadable_video_loses_its_still_not_the_example(stored, monkeypatch):
+    """A thumbnail is not worth failing a public page over."""
+    client, store = stored
+    job_id = client.post("/jobs", json={"topic": "broken bytes"},
+                         headers=auth()).json()["id"]
+    _succeed(job_id, store)                        # b"mp4 bytes", not a video
+
+    monkeypatch.setenv("PYCODING_EXAMPLES", job_id)
+    r = client.get("/examples")
+
+    assert r.status_code == 200
+    assert r.json()[0]["poster_url"] is None, "a still appeared from nowhere"
+    assert r.json()[0]["video_url"], "the example itself was dropped"
+
+
+@requires_db
+def test_a_job_that_never_finished_is_not_published(stored, monkeypatch):
+    """A queued or failed job has no video to show."""
+    client, store = stored
+    job_id = client.post("/jobs", json={"topic": "still going"},
+                         headers=auth()).json()["id"]
+
+    monkeypatch.setenv("PYCODING_EXAMPLES", f"{job_id},not-a-real-id")
+    assert client.get("/examples").json() == []
+
+
 def _succeed(job_id: str, store: LocalStorage, *, tier: str = "free",
              body: bytes = b"mp4 bytes") -> str:
     """Stand in for the worker: render, upload, mark the job succeeded."""

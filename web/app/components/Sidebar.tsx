@@ -26,7 +26,10 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      <Link className="sidebar-logo" href="/">pycoding</Link>
+      <Link className="sidebar-logo" href="/">
+        <img src="/logo-mark.png" alt="" width={20} height={20} />
+        pycoding
+      </Link>
 
       <nav className="sidebar-nav">
         <a href="#top" className="is-current">Dashboard</a>

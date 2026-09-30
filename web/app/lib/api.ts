@@ -205,8 +205,19 @@ export interface Stats {
   topics_covered: number;
 }
 
+/** A tutorial the operator has published. Public, like the page it is on. */
+export interface PublishedExample {
+  id: string;
+  title: string;
+  duration_s: number | null;
+  mode: string;
+  poster_url: string | null;
+  video_url: string;
+}
+
 export const api = {
   stats: () => request<Stats>("/stats"),
+  examples: () => request<PublishedExample[]>("/examples"),
   quota: () => request<Quota>("/me/quota"),
   jobs: () => request<Job[]>("/jobs"),
   settings: () => request<Settings>("/me/settings"),

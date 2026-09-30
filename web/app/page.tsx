@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Stats, api } from "./lib/api";
+import { PublishedExample, Stats, api } from "./lib/api";
+import { duration, modeLabel } from "./lib/format";
 
 /**
  * The public page.
@@ -51,19 +52,69 @@ const STEPS = [
   { n: "4", title: "You get the file", body: "An MP4 and an SRT, served from storage on a signed link." },
 ];
 
-/** What the service can make, as opposed to what it has made. */
+/**
+ * What the service can make, as opposed to what it has made.
+ *
+ * Shown only while nothing has been published — these carry no durations,
+ * because a running time for a video nobody rendered is the same kind of
+ * claim as a user count nobody earned.
+ */
 const EXAMPLES = [
   { title: "Data types in Python", body: "A billing engine where a value arriving as a string is the bug.", tag: "Python" },
   { title: "Asynchronous ingestion", body: "One market stall against three, and why the queue is what helps.", tag: "Concepts" },
   { title: "When to fine-tune", body: "Fifteen scenes on choosing a strategy instead of reaching for one.", tag: "ML" },
 ];
 
+/** A card is either a published render or one of the topics above. */
+type Example = Partial<PublishedExample> & { title: string; body?: string; tag?: string };
+
+function ExampleCard({ example }: { example: Example }) {
+  const art = (
+    <>
+      {example.poster_url
+        ? <img className="landing-card-poster" src={example.poster_url} alt="" />
+        : null}
+      <span className="landing-card-play" />
+      {example.duration_s != null && (
+        <span className="landing-card-time figure">
+          {duration(example.duration_s)}
+        </span>
+      )}
+    </>
+  );
+
+  return (
+    <article className="landing-card">
+      {example.video_url ? (
+        // Straight to the file: the landing page has no player, and a video
+        // that opens in its own tab is one less thing to build here.
+        <a className="landing-card-art" href={example.video_url} target="_blank"
+           rel="noreferrer" aria-label={`Play ${example.title}`}>
+          {art}
+        </a>
+      ) : (
+        <div className="landing-card-art" aria-hidden>{art}</div>
+      )}
+
+      <h3>{example.title}</h3>
+      {example.body && <p>{example.body}</p>}
+      <div className="landing-card-tags">
+        <span className="landing-tag">{example.tag ?? modeLabel(example.mode ?? "both")}</span>
+      </div>
+    </article>
+  );
+}
+
 export default function Landing() {
   // Null until it arrives. Not zero: see the note above.
   const [stats, setStats] = useState<Stats | null>(null);
+  const [examples, setExamples] = useState<PublishedExample[]>([]);
 
   useEffect(() => {
     api.stats().then(setStats).catch(() => setStats(null));
+    // A failure leaves the section on the topics it can make, which is the
+    // same thing it shows before anything has been published.
+    api.examples().then(setExamples).catch(() => setExamples([]));
   }, []);
 
   const hasNumbers = stats !== null && stats.tutorials_rendered > 0;
@@ -72,7 +123,10 @@ export default function Landing() {
     <div className="landing">
       <nav className="landing-nav">
         <div className="landing-wrap landing-nav-inner">
-          <span className="landing-logo">pycoding</span>
+          <span className="landing-logo">
+            <img src="/logo-mark.png" alt="" width={26} height={26} />
+            pycoding
+          </span>
           <div className="landing-links">
             <a href="#features">Features</a>
             <a href="#how">How it works</a>
@@ -161,24 +215,28 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="landing-wrap landing-examples" id="examples">
-        <span className="landing-eyebrow">Example tutorials</span>
-        <h2 className="landing-h2">See it in action</h2>
-        <p className="landing-sub">
-          Some of what the service produces. Every one of these is generated
-          from a topic or a script — no footage, no screen recording.
-        </p>
-        <div className="landing-cards">
-          {EXAMPLES.map((example) => (
-            <article className="landing-card" key={example.title}>
-              <div className="landing-card-art" aria-hidden>
-                <span className="landing-card-play" />
-              </div>
-              <h3>{example.title}</h3>
-              <p>{example.body}</p>
-              <span className="landing-tag">{example.tag}</span>
-            </article>
-          ))}
+      <section className="landing-examples" id="examples">
+        <div className="landing-wrap landing-examples-inner">
+          <div className="landing-examples-aside">
+            <span className="landing-eyebrow">Example tutorials</span>
+            <h2 className="landing-h2">See it in action</h2>
+            <p className="landing-sub">
+              Beautiful, clear, and engaging coding tutorials — generated
+              automatically.
+            </p>
+            <Link className="landing-cta" href="/dashboard">
+              View more examples →
+            </Link>
+          </div>
+
+          <div className="landing-cards">
+            {/* Real renders when the operator has published any, and the
+                topics the service can make when they have not. Both are
+                true; only one of them has a video behind it. */}
+            {(examples.length > 0 ? examples : EXAMPLES).map((example) => (
+              <ExampleCard key={example.title} example={example} />
+            ))}
+          </div>
         </div>
       </section>
 
@@ -222,7 +280,10 @@ export default function Landing() {
 
       <footer className="landing-footer">
         <div className="landing-wrap landing-footer-inner">
-          <span className="landing-logo">pycoding</span>
+          <span className="landing-logo">
+            <img src="/logo-mark.png" alt="" width={26} height={26} />
+            pycoding
+          </span>
           <div className="landing-links">
             <a href="#features">Features</a>
             <a href="#how">How it works</a>

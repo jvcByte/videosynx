@@ -17,6 +17,9 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import tempfile
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -199,6 +202,62 @@ class QuotaResponse(BaseModel):
     max_snippets: int
 
 
+def _published_example_ids() -> list[str]:
+    """Which videos the operator has chosen to show on the landing page.
+
+    An environment variable rather than a schema column, because publishing
+    one is a decision someone makes about a particular video, not a property
+    a video accumulates.
+    """
+    # Checked as UUIDs here rather than left to the database, which rejects a
+    # malformed one with an error rather than an empty result -- a typo in the
+    # variable would take the public landing page down instead of quietly
+    # showing one example fewer.
+    ids: list[str] = []
+    for part in os.environ.get("PYCODING_EXAMPLES", "").split(","):
+        try:
+            ids.append(str(uuid.UUID(part.strip())))
+        except ValueError:
+            continue
+    return ids
+
+
+def _poster_for(store, row: dict) -> str:
+    """A still for the video, made once and kept.
+
+    Frame zero is a blank editor with nothing typed in it, which is a
+    thumbnail of nothing, so this takes a frame from a fifth of the way in --
+    far enough in that the code or the slide is established rather than still
+    arriving, and short of the end where the summary is.
+    """
+    key = video_key(row["tier"], str(row["id"]), ".poster.jpg")
+    if store.exists(key):
+        return key
+
+    body = store.read(video_key(row["tier"], str(row["id"])))
+    if body is None:
+        return key  # the caller checks exists() and falls back to no poster
+    at = max(1.0, float(row["duration_s"] or 0) * 0.45)
+
+    with tempfile.TemporaryDirectory(prefix="pycoding_poster_") as td:
+        source = Path(td) / "in.mp4"
+        out = Path(td) / "poster.jpg"
+        source.write_bytes(body)
+        try:
+            subprocess.run(
+                ["ffmpeg", "-loglevel", "error", "-ss", f"{at:.1f}",
+                 "-i", str(source), "-frames:v", "1", "-q:v", "4",
+                 "-y", str(out)],
+                check=True, timeout=60,
+            )
+        except (subprocess.SubprocessError, OSError):
+            # A thumbnail is not worth failing a public page over.
+            return key
+        if out.exists():
+            store.put(key, out)
+    return key
+
+
 def _connect(dsn: str) -> psycopg.Connection:
     return psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
 
@@ -273,6 +332,33 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         with _connect(dsn) as conn:
             conn.execute("select 1")
         return {"ok": True}
+
+    @app.get("/examples")
+    def examples() -> list[dict]:
+        """Published tutorials, for the landing page.
+
+        Public, because the landing page is. Which videos appear is a written
+        list rather than a query -- a user's video becoming public because it
+        happened to be recent would be a privacy bug dressed as a feature.
+
+        The URLs are signed the same way a private one is, so this works with
+        object storage as well as disk, and they expire like any other.
+        """
+        published: list[dict] = []
+        for job_id in _published_example_ids():
+            row = Queue(dsn).get(job_id)
+            if row is None or row["status"] != "succeeded":
+                continue
+            poster = _poster_for(store, row)
+            published.append({
+                "id": str(row["id"]),
+                "title": row["topic"],
+                "duration_s": row["duration_s"],
+                "mode": str((row["options"] or {}).get("mode") or "both"),
+                "poster_url": store.url(poster) if store.exists(poster) else None,
+                "video_url": store.url(video_key(row["tier"], str(row["id"]))),
+            })
+        return published
 
     @app.get("/stats")
     def stats() -> dict:

@@ -1004,15 +1004,26 @@ input:disabled, textarea:disabled, select:disabled {
 .landing-steps h3 { font-size: 15.5px; font-weight: 650; }
 .landing-steps p { margin-top: 6px; font-size: 14px; color: var(--l-muted); }
 
-.landing-examples { padding-top: 76px; padding-bottom: 76px; text-align: center; }
-.landing-examples .landing-h2 { margin-top: 14px; }
+.landing-examples { padding-top: 76px; padding-bottom: 76px; }
+
+/* Text on the left as its own column, cards filling the rest -- the cards
+   are wider than the words, so they get the space. */
+.landing-examples-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 260px) minmax(0, 1fr);
+  gap: 56px;
+  align-items: start;
+}
+
+.landing-examples-aside { text-align: left; position: sticky; top: 92px; }
+.landing-examples-aside .landing-h2 { margin-top: 14px; }
+.landing-examples-aside .landing-sub { margin-top: 12px; margin-inline: 0; }
+.landing-examples-aside .landing-cta { margin-top: 22px; }
 
 .landing-cards {
-  margin-top: 44px;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px;
-  text-align: left;
+  gap: 20px;
 }
 
 .landing-card {
@@ -1023,11 +1034,23 @@ input:disabled, textarea:disabled, select:disabled {
 }
 
 .landing-card-art {
-  height: 150px;
-  background: linear-gradient(135deg, #06231a 0%, #0a3b2c 55%, #086c50 100%);
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
+  height: 168px;
+  background: linear-gradient(135deg, #06231a 0%, #0a3b2c 55%, #086c50 100%);
+  text-decoration: none;
+  overflow: hidden;
+}
+
+/* The real frame, under the play button and the running time. */
+.landing-card-poster {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .landing-card-play {
@@ -1049,8 +1072,23 @@ input:disabled, textarea:disabled, select:disabled {
   border-bottom: 8px solid transparent;
 }
 
-.landing-card h3 { padding: 18px 18px 0; font-size: 15.5px; font-weight: 650; }
-.landing-card p { padding: 6px 18px 0; font-size: 14px; color: var(--l-muted); }
+.landing-card h3 { padding: 16px 16px 0; font-size: 15px; font-weight: 650; line-height: 1.35; }
+.landing-card p { padding: 6px 16px 0; font-size: 13.5px; color: var(--l-muted); }
+
+/* The running time, bottom right of the still, as a player would show it. */
+.landing-card-time {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 12px;
+}
+
+.landing-card-tags { display: flex; flex-wrap: wrap; gap: 7px; padding: 12px 16px 16px; }
+.landing-card-tags .landing-tag { margin: 0; }
 
 .landing-tag {
   display: inline-block;
@@ -1137,12 +1175,14 @@ input:disabled, textarea:disabled, select:disabled {
   .landing-hero-inner { grid-template-columns: minmax(0, 1fr); gap: 40px; padding-top: 48px; }
   .landing-features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .landing-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .landing-cards { grid-template-columns: minmax(0, 1fr); }
+  .landing-examples-inner { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .landing-examples-aside { position: static; }
+  .landing-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .landing-links { display: none; }
 }
 
 @media (max-width: 560px) {
-  .landing-features, .landing-steps { grid-template-columns: minmax(0, 1fr); }
+  .landing-features, .landing-steps, .landing-cards { grid-template-columns: minmax(0, 1fr); }
   .landing-stats dl { grid-template-columns: minmax(0, 1fr); gap: 32px; }
   .landing-nav-inner { height: auto; padding: 12px 16px; }
 }
@@ -1416,3 +1456,11 @@ input:disabled, textarea:disabled, select:disabled {
 .panel-when { color: var(--fg-faint); }
 
 .panel-upgrade { width: 100%; margin-top: 16px; }
+
+/* The mark beside the wordmark. Sized in the markup, so it cannot be scaled
+   by a surrounding rule into something blurry or enormous. */
+.landing-logo,
+.sidebar-logo { display: inline-flex; align-items: center; gap: 8px; }
+
+.landing-logo img,
+.sidebar-logo img { border-radius: 6px; }
