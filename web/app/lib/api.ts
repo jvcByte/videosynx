@@ -204,7 +204,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 /** Absolute URL for a video, which is relative when the store is local. */
 export function absolute(url: string): string {
-  return url.startsWith("http") ? url : `${API_BASE}${url}`;
+  if (url.startsWith("http")) return url;
+  // Already through the rewrite. Without this a path that has been prefixed
+  // once becomes /api/api/... -- the API returns /artifacts/... today, so
+  // this is a trap rather than a live fault, and the cheapest kind to close.
+  if (url === API_BASE || url.startsWith(`${API_BASE}/`)) return url;
+  return `${API_BASE}${url}`;
 }
 
 /** What the service has actually done. Public — no account needed. */

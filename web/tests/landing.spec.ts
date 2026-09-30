@@ -73,7 +73,8 @@ test("a published video shows its still and its running time", async ({ page }) 
     route.fulfill({
       json: [{
         id: "e1", title: "A published tutorial", duration_s: 272,
-        mode: "both", poster_url: null, video_url: "/api/artifacts/x.mp4",
+        // What the API actually returns: the prefix is added by the page.
+        mode: "both", poster_url: null, video_url: "/artifacts/x.mp4",
       }],
     })
   );
@@ -87,6 +88,30 @@ test("a published video shows its still and its running time", async ({ page }) 
   await expect(section.getByRole("link", { name: /Play A published tutorial/ }))
     .toHaveAttribute("href", "/api/artifacts/x.mp4");
   await expect(section.getByRole("article")).toHaveCount(1);
+});
+
+test("a published still is fetched from the API, not from the page's own origin", async ({ page }) => {
+  // The API answers artifacts on /artifacts/..., but the browser only reaches
+  // it through the /api rewrite -- so a path used raw is a request to the Next
+  // server, which has never served one. Every example card showed a broken
+  // image, and nothing noticed because no example had ever been published.
+  await page.route("**/api/examples", (route) =>
+    route.fulfill({
+      json: [{
+        id: "e1", title: "A published tutorial", duration_s: 272, mode: "both",
+        poster_url: "/artifacts/artifacts/free/e1.poster.jpg?expires=1&sig=x",
+        video_url: "/artifacts/artifacts/free/e1.mp4?expires=1&sig=x",
+      }],
+    })
+  );
+
+  await page.goto("/");
+  const section = page.locator("#examples");
+
+  await expect(section.locator(".landing-card-poster"))
+    .toHaveAttribute("src", /^\/api\/artifacts\//);
+  await expect(section.getByRole("link", { name: /Play A published tutorial/ }))
+    .toHaveAttribute("href", /^\/api\/artifacts\//);
 });
 
 test("an empty service shows no numbers rather than zeroes", async ({ page }) => {

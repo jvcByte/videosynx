@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ThemeToggle } from "./components/ThemeToggle";
-import { PublishedExample, Stats, api } from "./lib/api";
+import { PublishedExample, Stats, absolute, api } from "./lib/api";
 import { duration, modeLabel } from "./lib/format";
 
 /**
@@ -81,8 +81,12 @@ type Example = Partial<PublishedExample> & { title: string; body?: string; tag?:
 function ExampleCard({ example }: { example: Example }) {
   const art = (
     <>
+      {/* Through `absolute`, like every other URL the API hands out. The
+          API answers on /artifacts/... but the browser only reaches it
+          through the /api rewrite, so an un-prefixed path is a request to
+          the Next server, which has never served one. */}
       {example.poster_url
-        ? <img className="landing-card-poster" src={example.poster_url} alt="" />
+        ? <img className="landing-card-poster" src={absolute(example.poster_url)} alt="" />
         : null}
       <span className="landing-card-play" />
       {example.duration_s != null && (
@@ -98,8 +102,9 @@ function ExampleCard({ example }: { example: Example }) {
       {example.video_url ? (
         // Straight to the file: the landing page has no player, and a video
         // that opens in its own tab is one less thing to build here.
-        <a className="landing-card-art" href={example.video_url} target="_blank"
-           rel="noreferrer" aria-label={`Play ${example.title}`}>
+        <a className="landing-card-art" href={absolute(example.video_url)}
+           target="_blank" rel="noreferrer"
+           aria-label={`Play ${example.title}`}>
           {art}
         </a>
       ) : (
