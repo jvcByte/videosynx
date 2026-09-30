@@ -404,6 +404,19 @@ test("a running job can be stopped from the page", async ({ page }) => {
   await expect(row.getByRole("button", { name: "Cancel" })).toHaveCount(0);
 });
 
+test("upgrading without billing configured says so", async ({ page }) => {
+  // No Stripe key in this run, which is the ordinary state of a deployment
+  // that has not set one up. The button exists because the tier is free and
+  // the endpoint exists; pressing it must explain itself rather than look
+  // like it worked and quietly go nowhere.
+  await page.goto(WORKSPACE);
+  const panel = page.getByRole("region", { name: "Your plan" });
+  await expect(panel).toBeVisible();
+
+  await panel.getByRole("button", { name: "Upgrade" }).click();
+  await expect(panel.getByRole("alert")).toContainText("billing is not configured");
+});
+
 test("a rejected submission explains itself", async ({ page }) => {
   // Exhaust the free allowance so the next submit is refused.
   const headers = { "Content-Type": "application/json", ...DEV_USER };
