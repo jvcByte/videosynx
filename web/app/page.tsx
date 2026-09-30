@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { ThemeToggle } from "./components/ThemeToggle";
 import { PublishedExample, Stats, api } from "./lib/api";
 import { duration, modeLabel } from "./lib/format";
 
@@ -133,8 +134,12 @@ export default function Landing() {
             <a href="#examples">Examples</a>
           </div>
           <div className="landing-nav-actions">
+            {/* The page follows the theme now, so a visitor whose system
+                prefers dark arrives on a dark page -- with no way out of it
+                but a system setting, unless the choice is offered here. */}
+            <ThemeToggle />
             <Link className="landing-ghost" href="/dashboard">Sign in</Link>
-            <Link className="landing-cta" href="/dashboard">Get started</Link>
+            <Link className="landing-cta" href="/dashboard#create">Get started</Link>
           </div>
         </div>
       </nav>
@@ -152,7 +157,7 @@ export default function Landing() {
               produces a finished MP4 with captions.
             </p>
             <div className="landing-actions">
-              <Link className="landing-cta landing-cta-lg" href="/dashboard">
+              <Link className="landing-cta landing-cta-lg" href="/dashboard#create">
                 Create your first tutorial
               </Link>
               <a className="landing-ghost landing-cta-lg" href="#how">See how it works</a>
@@ -273,7 +278,7 @@ export default function Landing() {
           Give it a topic. It does the rest — code, execution, narration,
           captions, and a video you can download.
         </p>
-        <Link className="landing-cta landing-cta-lg" href="/dashboard">
+        <Link className="landing-cta landing-cta-lg" href="/dashboard#create">
           Start for free
         </Link>
       </section>

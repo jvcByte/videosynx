@@ -1,57 +1,40 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Composer } from "../components/Composer";
-import { Library } from "../components/Library";
 import { Player } from "../components/Player";
 import { QuotaMeter } from "../components/QuotaMeter";
-import { SettingsSheet } from "../components/SettingsSheet";
-import { PlanPanel } from "../components/PlanPanel";
-import { Achievements, LevelCard, StreakCard } from "../components/Progress";
+import { SettingsPanel } from "../components/SettingsPanel";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { PlanViewer } from "../components/PlanViewer";
 import { Sidebar } from "../components/Sidebar";
 import { SignIn } from "../components/SignIn";
 import {
-  ApiError, Job, Mode, Progress, Quota, Settings, SubmitBody, Subscription,
-  Voice, absolute, api, isPending, setAccessToken,
+  AchievementsView, CreateView, OverviewView, VideoList, VideosView,
+} from "./views";
+import {
+  ApiError, Job, Mode, Progress, Quota, Settings, Subscription, Voice,
+  absolute, api, isPending, setAccessToken,
 } from "../lib/api";
 import { videoFilename } from "../lib/format";
 import { authEnabled, supabase } from "../lib/supabase";
+import { View, goToView, useView } from "../lib/view";
 
 const POLL_MS = 2000;
 
-/**
- * One figure, and what it is.
- *
- * Undefined renders as an em dash rather than a zero: the tiles are counts of
- * what has been made, and "none" and "we have not asked yet" are different
- * answers that must not look the same.
- */
-function Tile({ label, value, text, icon, tone }: {
-  label: string;
-  value?: number;
-  text?: string;
-  icon?: string;
-  // "accent" for what the account has earned, "ok" for what is finished.
-  // Two roles rather than four hues: a colour per tile would distinguish
-  // nothing, since the tiles are already distinguished by their labels.
-  tone?: "accent" | "ok";
-}) {
-  return (
-    <div className="tile">
-      {icon && <span className={`tile-icon tone-${tone ?? "accent"}`} aria-hidden>{icon}</span>}
-      <div className="tile-body">
-        <span className="tile-value figure">
-          {text ?? (value === undefined ? "—" : value)}
-        </span>
-        <span className="tile-label">{label}</span>
-      </div>
-    </div>
-  );
-}
+/** What each view is called, in the topbar. */
+const TITLES: Record<View, string> = {
+  overview: "Dashboard",
+  videos: "Your Videos",
+  create: "Create Video",
+  achievements: "Achievements",
+  settings: "Settings",
+};
 
 export default function Home() {
+  // Which view is on screen. It comes from the address, so the back button
+  // and a refresh both land where they should.
+  const view = useView();
+
   // Who is signed in. Null with auth configured means signed out, and the
   // page renders the sign-in form instead of itself -- the gate has to come
   // before the first fetch, because the API answers 401 and a 401 arriving as
@@ -68,6 +51,14 @@ export default function Home() {
   const [signedIn, setSignedIn] = useState(!authEnabled);
   const [email, setEmail] = useState<string | null>(null);
 
+  // What is half-written in the composer: the topic, the script, and the
+  // account's default mode.
+  //
+  // These sit here rather than in the Create view, and not for tidiness. A
+  // view unmounts when you leave it, so state kept inside one is thrown away
+  // -- paste a script, go and look at Your Videos, come back, and the script
+  // is gone. `mode` has a second reason: it is seeded by a settings fetch
+  // this view may not be mounted for.
   const [topic, setTopic] = useState("");
   const [script, setScript] = useState("");
   const [mode, setMode] = useState<Mode>("both");
@@ -76,7 +67,6 @@ export default function Home() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [settingsFailed, setSettingsFailed] = useState(false);
   const [voices, setVoices] = useState<Voice[]>([]);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -90,7 +80,9 @@ export default function Home() {
   // finished, so there is nothing here to keep in step by hand.
   const [progress, setProgress] = useState<Progress | null>(null);
 
-  const [query, setQuery] = useState("");
+  // Everything the views draw rows from, and the poll that keeps it current.
+  // It lives here, above the views, because a view unmounts when you leave it
+  // and a render in flight has to keep being watched from wherever you are.
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [listFailed, setListFailed] = useState(false);
@@ -99,12 +91,17 @@ export default function Home() {
 
   // Errors are kept apart by where they happened, so one failing thing does
   // not take over a page whose other half is working.
-  const [submitError, setSubmitError] = useState<string | null>(null);
   const [playError, setPlayError] = useState<string | null>(null);
 
-  const [submitting, setSubmitting] = useState(false);
   const [playing, setPlaying] = useState<{ url: string; title: string } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Which poll is the live one. A look already in flight when the next one
+  // starts would otherwise schedule behind it, and two loops would run.
+  const chain = useRef(0);
+  // How many jobs were still running at the last look, so the poll can tell
+  // when one has finished. -1 before the first, because the first look is not
+  // something having just finished.
+  const running = useRef(-1);
 
   const refresh = useCallback(async () => {
     // Settled, not all: a quota that failed to load must not blank the list,
@@ -127,6 +124,45 @@ export default function Home() {
 
     return jobsResult.status === "fulfilled" ? jobsResult.value : [];
   }, []);
+
+  // The figures a finished render moves. A failure keeps the last good ones
+  // rather than blanking the tiles, which would be a claim about the account.
+  const reloadProgress = useCallback(() => {
+    api.subscription().then(setPlan).catch(() => {});
+    api.progress().then(setProgress).catch(() => {});
+  }, []);
+
+  // Load the jobs now and again every couple of seconds while any of them is
+  // still running. The loop names itself so that a submission can arm this
+  // same one: arming a bare `refresh()` instead is what let a job submitted
+  // from an idle list stop being followed after a single tick.
+  const armPoll = useCallback(
+    (delay = 0) => {
+      const mine = ++chain.current;
+      if (timer.current) clearTimeout(timer.current);
+
+      const run = async () => {
+        const next = await refresh();
+        // Started over while this one was waiting: its answer is stale, and
+        // re-arming it would leave a second loop running.
+        if (mine !== chain.current) return;
+
+        const pending = next.filter((job) => isPending(job.status)).length;
+
+        // A render just ended, so the level, streak and totals have moved.
+        // They are not in the poll payload, and asking for them twice a
+        // second would be the wrong price for numbers that only change when
+        // a render finishes.
+        if (running.current >= 0 && pending < running.current) reloadProgress();
+        running.current = pending;
+
+        if (pending > 0) timer.current = setTimeout(run, POLL_MS);
+      };
+
+      timer.current = setTimeout(run, delay);
+    },
+    [refresh, reloadProgress]
+  );
 
   // Resolve the session before anything is fetched. `onAuthStateChange` fires
   // on sign-in, sign-out and every token refresh, so the module-level token the
@@ -154,7 +190,7 @@ export default function Home() {
     };
   }, []);
 
-  // Fetched once, not per submission. A failure leaves the defaults working --
+  // Fetched once, not per view. A failure leaves the defaults working --
   // losing a saved preference is not a reason to stop someone submitting.
   useEffect(() => {
     if (!signedIn) return;
@@ -175,91 +211,41 @@ export default function Home() {
     api.progress().then(setProgress).catch(() => setProgress(null));
   }, [signedIn]);
 
-  // Poll only while something is actually running: a list that is all finished
-  // has nothing to wait for.
   useEffect(() => {
     if (!signedIn) return;
-    let cancelled = false;
-
-    const tick = async () => {
-      const next = await refresh();
-      if (cancelled) return;
-      if (next.some((job) => isPending(job.status))) {
-        timer.current = setTimeout(tick, POLL_MS);
-      }
-    };
-    tick();
-
+    armPoll();
     return () => {
-      cancelled = true;
+      // Signed out or gone: nothing may re-arm.
+      chain.current++;
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [refresh, signedIn]);
+  }, [armPoll, signedIn]);
 
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    const value = topic.trim();
-    const pasted = script.trim();
-    if ((!value && !pasted) || submitting) return;
-
-    // A script carries its own content, so when one is present the topic and
-    // the mode are not sent at all -- the API names the job from the script
-    // for the same reason.
-    const body: SubmitBody = {};
-    if (pasted) {
-      body.script = pasted;
-    } else {
-      body.topic = value;
-      body.mode = mode;
-    }
-
-    setSubmitting(true);
-    setSubmitError(null);
-    try {
-      const { id } = await api.submit(body);
-      setTopic("");
-      setScript("");
-      setJobs((current) => [
-        {
-          id, status: "queued", topic: pasted ? labelFor(pasted) : value, mode,
-          stage: null, progress: 0, duration_s: null, error_code: null,
-          error_message: null, attempt: 0, max_attempts: 1, not_before: null,
-          created_at: new Date().toISOString(),
-        },
-        ...current,
-      ]);
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => refresh(), POLL_MS);
-    } catch (err) {
-      // A quota rejection is the common case and deserves the server's own
-      // words rather than a generic failure.
-      setSubmitError(err instanceof ApiError ? err.message : "Could not submit");
-    } finally {
-      setSubmitting(false);
-    }
-  }
+  // A submission is written straight in rather than waiting for the next
+  // poll, so the row stops saying Queued the moment it stops being true.
+  const onSubmitted = useCallback(
+    (job: Job) => {
+      setJobs((current) => [job, ...current]);
+      armPoll(POLL_MS);
+      // You have just asked for a video, and watching it appear is the next
+      // thing you want -- the composer has already cleared itself.
+      goToView("videos");
+    },
+    [armPoll]
+  );
 
   async function onRerun(job: Job) {
     setPlayError(null);
     try {
       const fresh = await api.retry(job.id);
-      // Written straight in rather than waiting for the next poll, so the row
-      // stops saying Failed the moment it stops being true.
       setJobs((current) =>
         current.map((row) => (row.id === fresh.id ? fresh : row))
       );
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => refresh(), POLL_MS);
+      armPoll(POLL_MS);
     } catch (err) {
       setPlayError(err instanceof ApiError ? err.message : "Could not retry the job");
     }
   }
-
-  // Filtered in place, and only on the title: a search box that quietly
-  // matched on hidden fields would be a worse lie than no search box.
-  const shown = query.trim()
-    ? jobs.filter((job) => job.topic.toLowerCase().includes(query.trim().toLowerCase()))
-    : jobs;
 
   async function onCancel(job: Job) {
     setPlayError(null);
@@ -316,13 +302,33 @@ export default function Home() {
       setSettings(await api.saveSettings(settings));
       setSaved(true);
     } catch (err) {
-      // Reported in the sheet, not in the composer: it is the sheet's problem,
-      // and the composer may not even be on screen behind it.
+      // Reported beside the form, not in the composer: it is this form's
+      // problem, and the composer is on another view entirely.
       setSettingsError(err instanceof ApiError ? err.message : "Could not save settings");
     } finally {
       setSaving(false);
     }
   }
+
+  // Both views that list videos draw the same rows with the same handlers,
+  // and every one of those handlers has to live up here: retrying rewrites
+  // the shared list, and watching opens an overlay that outlives the view
+  // that opened it.
+  const list: VideoList = {
+    jobs,
+    loaded,
+    failed: listFailed,
+    error: playError,
+    onDismissError: () => setPlayError(null),
+    onPlay,
+    onDownload,
+    // Not `refresh` alone: the poll stops on its own once nothing is running,
+    // so a list that just failed to load has no chain left to re-arm.
+    onRetry: () => armPoll(0),
+    onRerun,
+    onInspect: setInspecting,
+    onCancel,
+  };
 
   // Signed out, with a project configured: the sign-in form is the whole page.
   // Everything below fetches on mount, so rendering it first would fire
@@ -352,96 +358,59 @@ export default function Home() {
             ? Math.round((progress.xp_into_level / progress.xp_for_level) * 100)
             : null
         }
-        onSettings={() => setSettingsOpen(true)}
+        view={view}
         onSignOut={authEnabled ? () => { setAccessToken(null); supabase?.auth.signOut(); } : undefined}
       />
 
       <div className="shell-main">
-      <header className="topbar">
-        <div className="topbar-inner">
-          {/* Search is here because the design has it, and it filters the
-              tutorial list below rather than pretending to search a
-              catalogue that does not exist. */}
-          <label className="search">
-            <span className="search-icon" aria-hidden>⌕</span>
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search your tutorials"
-              aria-label="Search your tutorials"
-            />
-          </label>
-          <div className="topbar-right">
-            <QuotaMeter quota={quota} failed={quotaFailed} />
-            <ThemeToggle />
+        <header className="topbar">
+          <div className="topbar-inner">
+            <h1>{TITLES[view]}</h1>
+            <div className="topbar-right">
+              <QuotaMeter quota={quota} failed={quotaFailed} />
+              <ThemeToggle />
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      <main className="dash">
-        <section className="tiles" aria-label="What you have made">
-          <Tile icon="▶" tone="accent" label="Tutorials created"
-                value={plan?.tutorials_created} />
-          <Tile icon="✓" tone="ok" label="Completed"
-                value={plan?.tutorials_completed} />
-          <Tile icon="★" tone="accent" label="Total XP" value={progress?.xp} />
-          <Tile icon="🏆" tone="accent" label="Achievements"
-                value={progress?.achievements.filter((a) => a.earned).length} />
-        </section>
-
-        <div className="dash-grid">
-        <div className="dash-main">
-
-        <div className="layout layout-dash">
-        <Composer
-          topic={topic}
-          onTopic={setTopic}
-          script={script}
-          onScript={setScript}
-          mode={mode}
-          onMode={setMode}
-          onSubmit={onSubmit}
-          submitting={submitting}
-          error={submitError}
-          onDismissError={() => setSubmitError(null)}
-          generation={settings?.generation ?? "auto"}
-          quota={quota}
-        />
-
-        <div className="column">
-          {playError && (
-            <p className="notice notice-bad" role="alert">
-              <span>{playError}</span>
-              <button className="ghost" onClick={() => setPlayError(null)}>Dismiss</button>
-            </p>
+        <main className="dash">
+          {view === "overview" && (
+            <OverviewView list={list} plan={plan} progress={progress} />
           )}
-          <Library
-            jobs={shown}
-            loaded={loaded}
-            failed={listFailed}
-            onPlay={onPlay}
-            onDownload={onDownload}
-            onRetry={refresh}
-            onRerun={onRerun}
-            onInspect={setInspecting}
-            onCancel={onCancel}
-          />
-        </div>
-        </div>
-
-        <Achievements progress={progress} />
-        </div>
-
-        <aside className="dash-rail">
-          <LevelCard progress={progress} />
-          <StreakCard progress={progress} />
-          <PlanPanel plan={plan} />
-        </aside>
-        </div>
-      </main>
+          {view === "videos" && <VideosView list={list} />}
+          {view === "create" && (
+            <CreateView
+              settings={settings}
+              quota={quota}
+              topic={topic}
+              onTopic={setTopic}
+              script={script}
+              onScript={setScript}
+              mode={mode}
+              onMode={setMode}
+              onSubmitted={onSubmitted}
+            />
+          )}
+          {view === "achievements" && <AchievementsView progress={progress} />}
+          {view === "settings" && (
+            <div className="view-narrow">
+              <SettingsPanel
+                settings={settings}
+                voices={voices}
+                failed={settingsFailed}
+                saving={saving}
+                saved={saved}
+                error={settingsError}
+                onEdit={editSettings}
+                onSave={onSaveSettings}
+              />
+            </div>
+          )}
+        </main>
       </div>
 
+      {/* Overlays sit above whichever view is underneath, because the job
+          they belong to does not stop existing when you leave its view. */}
       {inspecting && (
         <PlanViewer job={inspecting} onClose={() => setInspecting(null)} />
       )}
@@ -453,33 +422,6 @@ export default function Home() {
           onClose={() => setPlaying(null)}
         />
       )}
-
-      <SettingsSheet
-        open={settingsOpen}
-        settings={settings}
-        voices={voices}
-        failed={settingsFailed}
-        saving={saving}
-        saved={saved}
-        error={settingsError}
-        onEdit={editSettings}
-        onSave={onSaveSettings}
-        onClose={() => setSettingsOpen(false)}
-      />
     </div>
   );
-}
-
-/**
- * What to call a script-only job until the server's own label arrives.
- *
- * Deliberately the same rule as `job_label` on the API: the row should not
- * rename itself a second after it appears.
- */
-function labelFor(script: string): string {
-  const line = script
-    .split("\n")
-    .map((l) => l.trim().replace(/^#+/, "").trim())
-    .find(Boolean);
-  return line ? line.slice(0, 120) : "untitled";
 }

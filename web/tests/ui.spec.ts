@@ -14,6 +14,16 @@ const DEV_USER = { "X-Dev-User": "e2e-user:free" };
 // thing to test and has no workspace on it.
 const WORKSPACE = "/dashboard";
 
+/**
+ * Land on a view.
+ *
+ * The dashboard is one page with five views addressed by the hash, so a test
+ * that needs the composer has to say so. `goto` rather than clicking: it is
+ * the deep-link and refresh path, which is half of what the addresses are
+ * for. The sidebar's own behaviour has its own test.
+ */
+const at = (view: string) => `${WORKSPACE}#${view}`;
+
 /** Stand in for the worker's last step: upload, then mark the row. */
 function seed(jobId: string): void {
   execFileSync(PYTHON, [path.resolve(REPO, "web/tests/helpers/seed.py"), DSN, ARTIFACTS, jobId], {
@@ -55,7 +65,7 @@ async function jobIdFor(topic: string): Promise<string> {
 
 test("a script can be pasted instead of a topic", async ({ page }) => {
   const heading = `Queues ${Date.now()}`;
-  await page.goto(WORKSPACE);
+  await page.goto(at("create"));
 
   // Nothing typed in Topic: the script alone is enough to submit.
   await page.getByLabel("Script").fill(`# ${heading}\n\nScene 1. A request arrives.`);
@@ -74,7 +84,7 @@ test("a script can be pasted instead of a topic", async ({ page }) => {
 
 test("the mode chosen for one job is stored on it", async ({ page }) => {
   const topic = `modes ${Date.now()}`;
-  await page.goto(WORKSPACE);
+  await page.goto(at("create"));
 
   await page.getByLabel("Topic").fill(topic);
   await page.getByRole("radio", { name: "Illustration" }).check();
@@ -88,8 +98,8 @@ test("the mode chosen for one job is stored on it", async ({ page }) => {
 });
 
 test("settings are saved and come back after a reload", async ({ page }) => {
-  await page.goto(WORKSPACE);
-  await page.getByRole("button", { name: "Settings" }).click();
+  await page.goto(at("settings"));
+  await page.getByRole("link", { name: "Settings" }).click();
   await expect(page.getByLabel("Audience")).toBeVisible();
 
   await page.getByLabel("Audience").selectOption("expert");
@@ -97,12 +107,12 @@ test("settings are saved and come back after a reload", async ({ page }) => {
   await expect(page.locator(".saved")).toBeVisible();
 
   await page.reload();
-  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("link", { name: "Settings" }).click();
   await expect(page.getByLabel("Audience")).toHaveValue("expert");
 });
 
 test("a script takes over from the topic and the mode", async ({ page }) => {
-  await page.goto(WORKSPACE);
+  await page.goto(at("create"));
   await page.getByLabel("Topic").fill("dictionary in python");
   await expect(page.getByLabel("Topic")).toBeEnabled();
   await expect(page.getByRole("radio", { name: "Illustration" })).toBeEnabled();
@@ -129,8 +139,8 @@ test("a script takes over from the topic and the mode", async ({ page }) => {
 });
 
 test("the voice is chosen from a list, not typed", async ({ page }) => {
-  await page.goto(WORKSPACE);
-  await page.getByRole("button", { name: "Settings" }).click();
+  await page.goto(at("settings"));
+  await page.getByRole("link", { name: "Settings" }).click();
 
   const voice = page.getByLabel("Voice");
   await expect(voice).toBeVisible();
@@ -146,7 +156,7 @@ test("the voice is chosen from a list, not typed", async ({ page }) => {
 
   // And it survives the round trip, which is the point of the dropdown.
   await page.reload();
-  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("link", { name: "Settings" }).click();
   await expect(page.getByLabel("Voice")).toHaveValue("am_michael");
 });
 
@@ -160,7 +170,7 @@ const LESSON_JSON = JSON.stringify({
 });
 
 test("the composer says what a submission will cost", async ({ page }) => {
-  await page.goto(WORKSPACE);
+  await page.goto(at("create"));
 
   // A topic has to be written, so it costs a call.
   await expect(page.locator(".compose-cost"))
@@ -177,12 +187,11 @@ test("the composer says what a submission will cost", async ({ page }) => {
 });
 
 test("local mode renders pasted prose with no model at all", async ({ page }) => {
-  await page.goto(WORKSPACE);
-  await page.getByRole("button", { name: "Settings" }).click();
+  await page.goto(at("settings"));
   await page.getByLabel("Generation").selectOption("local");
   await page.getByRole("button", { name: "Save settings" }).click();
   await expect(page.locator(".saved")).toBeVisible();
-  await page.getByRole("button", { name: "Close" }).click();
+  await page.goto(at("create"));
 
   // Prose is the case the mode exists for: a script in hand, nothing left to
   // spend. This is what a plain topic cannot do.
@@ -192,19 +201,18 @@ test("local mode renders pasted prose with no model at all", async ({ page }) =>
   await expect(page.locator(".compose-cost")).toContainText("No model call");
   await expect(page.getByRole("button", { name: "Generate" })).toBeEnabled();
 
-  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("link", { name: "Settings" }).click();
   await page.getByLabel("Generation").selectOption("auto");
   await page.getByRole("button", { name: "Save settings" }).click();
   await expect(page.locator(".saved")).toBeVisible();
 });
 
 test("local mode refuses a topic rather than spending", async ({ page }) => {
-  await page.goto(WORKSPACE);
-  await page.getByRole("button", { name: "Settings" }).click();
+  await page.goto(at("settings"));
   await page.getByLabel("Generation").selectOption("local");
   await page.getByRole("button", { name: "Save settings" }).click();
   await expect(page.locator(".saved")).toBeVisible();
-  await page.getByRole("button", { name: "Close" }).click();
+  await page.goto(at("create"));
 
   await page.getByLabel("Topic").fill("decorators");
   // Refused before it is queued, not queued and failed: the promise is that
@@ -218,7 +226,7 @@ test("local mode refuses a topic rather than spending", async ({ page }) => {
 
   // Put it back. The tests share one database, and a saved setting would
   // otherwise decide whether later ones pass.
-  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("link", { name: "Settings" }).click();
   await page.getByLabel("Generation").selectOption("auto");
   await page.getByRole("button", { name: "Save settings" }).click();
   await expect(page.locator(".saved")).toBeVisible();
@@ -233,7 +241,7 @@ test("the library does not claim to be empty while it is loading", async ({ page
     await route.continue();
   });
 
-  await page.goto(WORKSPACE);
+  await page.goto(at("videos"));
   await expect(page.locator(".job-skeleton").first()).toBeVisible();
   await expect(page.getByText("No videos yet")).toHaveCount(0);
 });
@@ -243,7 +251,7 @@ test("submit, poll, and play a video", async ({ page }) => {
   const jobId = await submit(topic);
 
   // 1. The job reaches the page as soon as it exists, before it is rendered.
-  await page.goto(WORKSPACE);
+  await page.goto(at("videos"));
   const queued = page.locator(`[data-testid="job"]:has-text("${topic}")`);
   await expect(queued).toBeVisible();
 
@@ -287,7 +295,7 @@ test("submit, poll, and play a video", async ({ page }) => {
 });
 
 test("the quota is shown and a bad topic is refused", async ({ page }) => {
-  await page.goto(WORKSPACE);
+  await page.goto(at("create"));
 
   // The allowance is visible before spending anything.
   await expect(page.locator(".quota")).toContainText("left today");
@@ -316,7 +324,7 @@ test("a job that failed and is coming back reads as Retrying", async ({ page }) 
              now() + interval '5 minutes')`,
   ]);
 
-  await page.goto(WORKSPACE);
+  await page.goto(at("videos"));
   const row = page.locator('[data-testid="job"]:has-text("a job that will be retried")');
 
   // Not "Queued" -- that hides a failure the user would otherwise see -- and
@@ -337,7 +345,7 @@ test("a failed job can be retried from the page", async ({ page }) => {
              'provider_quota', 'every model failed: quota', now())`,
   ]);
 
-  await page.goto(WORKSPACE);
+  await page.goto(at("videos"));
   const row = page.locator('[data-testid="job"]:has-text("a job that has given up")');
   await expect(row.locator(".status")).toHaveText("Failed");
 
@@ -368,7 +376,7 @@ test("the plan behind a video can be inspected", async ({ page }) => {
   // pulling the plan out of the database by hand.
   const id = insertJob("show me what went in");
   seed(id);
-  await page.goto(WORKSPACE);
+  await page.goto(at("videos"));
 
   const row = page.locator('[data-testid="job"]:has-text("show me what went in")');
   await row.getByRole("button", { name: "Inspect" }).click();
@@ -393,7 +401,7 @@ test("a running job can be stopped from the page", async ({ page }) => {
   // left queued, so this is the trivially cancelable case -- the hard one,
   // mid-render, is a worker test.
   insertJob("stop me");
-  await page.goto(WORKSPACE);
+  await page.goto(at("videos"));
 
   const row = page.locator('[data-testid="job"]:has-text("stop me")');
   await row.getByRole("button", { name: "Cancel" }).click();
@@ -409,6 +417,9 @@ test("upgrading without billing configured says so", async ({ page }) => {
   // that has not set one up. The button exists because the tier is free and
   // the endpoint exists; pressing it must explain itself rather than look
   // like it worked and quietly go nowhere.
+  //
+  // Deliberately the bare address: the plan panel is in the overview's rail,
+  // and the overview is what /dashboard means with nothing after it.
   await page.goto(WORKSPACE);
   const panel = page.getByRole("region", { name: "Your plan" });
   await expect(panel).toBeVisible();
@@ -429,7 +440,7 @@ test("a rejected submission explains itself", async ({ page }) => {
     });
   }
 
-  await page.goto(WORKSPACE);
+  await page.goto(at("create"));
   await page.getByLabel("Topic").fill("one too many topics");
   await page.getByRole("button", { name: "Generate" }).click();
 
@@ -437,4 +448,73 @@ test("a rejected submission explains itself", async ({ page }) => {
   const alert = page.getByTestId("error");
   await expect(alert).toBeVisible();
   await expect(alert).toContainText("quota_exceeded");
+});
+
+test("the sidebar swaps views, and the address carries them", async ({ page }) => {
+  await page.goto(WORKSPACE);
+  // Nothing after the address means the overview, and the overview is where
+  // the plan rail is.
+  await expect(page.getByRole("region", { name: "Your plan" })).toBeVisible();
+
+  await page.getByRole("link", { name: "Your Videos" }).click();
+  await expect(page).toHaveURL(/#videos$/);
+  await expect(page.getByRole("link", { name: "Your Videos" }))
+    .toHaveAttribute("aria-current", "page");
+  await expect(page.getByLabel("Search your videos")).toBeVisible();
+
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByLabel("Audience")).toBeVisible();
+
+  // Back goes to the view you came from rather than out of the dashboard,
+  // which is most of the reason the views are in the address.
+  await page.goBack();
+  await expect(page).toHaveURL(/#videos$/);
+  await expect(page.getByLabel("Search your videos")).toBeVisible();
+
+  // A hash nobody knows lands on the overview rather than on nothing.
+  await page.goto(`${WORKSPACE}#typo`);
+  await expect(page.getByRole("region", { name: "Your plan" })).toBeVisible();
+});
+
+test("a job submitted into an idle list keeps being followed", async ({ page }) => {
+  // The failure this guards is invisible on a busy account: the poll re-arms
+  // itself only while something is running, so a submission that armed a
+  // bare refresh() instead took one look and stopped. The list here answers
+  // "nothing running" until the submission lands, which is exactly the state
+  // that used to break it.
+  const id = "11111111-1111-4111-8111-111111111111";
+  let submitted = false;
+  let polls = 0;
+
+  await page.route("**/jobs", (route) => {
+    // The submission is answered here too. What is under test is the poll's
+    // chain, and a real one would make this depend on the day's allowance and
+    // on every job the tests before it left behind.
+    if (route.request().method() !== "GET") {
+      return route.fulfill({ status: 202, json: { id } });
+    }
+    polls++;
+    return route.fulfill({
+      json: submitted
+        ? [{
+            id, status: "queued", topic: "idle poll", mode: "both", stage: null,
+            progress: 0, duration_s: null, error_code: null, error_message: null,
+            attempt: 0, max_attempts: 1, not_before: null,
+            created_at: new Date().toISOString(),
+          }]
+        : [],
+    });
+  });
+
+  await page.goto(at("create"));
+  // Let the first look happen and the chain settle, so it really is idle.
+  await expect.poll(() => polls, { timeout: 10_000 }).toBeGreaterThan(0);
+  const idle = polls;
+
+  submitted = true;
+  await page.getByLabel("Topic").fill(`idle poll ${Date.now()}`);
+  await page.getByRole("button", { name: "Generate" }).click();
+
+  // More than the single look a one-shot refresh would have taken.
+  await expect.poll(() => polls, { timeout: 10_000 }).toBeGreaterThan(idle + 1);
 });

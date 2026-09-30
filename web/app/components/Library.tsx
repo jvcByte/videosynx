@@ -15,6 +15,8 @@ export function Library({
   jobs,
   loaded,
   failed,
+  title = "Your videos",
+  count,
   onPlay,
   onDownload,
   onRetry,
@@ -25,6 +27,16 @@ export function Library({
   jobs: Job[];
   loaded: boolean;
   failed: boolean;
+  /** The overview shows five of them, so it does not call them all yours. */
+  title?: string;
+  /**
+   * What the corner says, or `null` for nothing at all.
+   *
+   * Left out, it is how many are listed. The overview passes null: it shows
+   * five of them, so "5" would be a false total -- and the real total there
+   * would read as five recent ones, which is worse.
+   */
+  count?: number | null;
   onPlay: (job: Job) => void;
   onDownload: (job: Job) => void;
   /** Reload the library, which is what the failed-to-load state offers. */
@@ -39,9 +51,9 @@ export function Library({
   return (
     <section className="library">
       <div className="section-head">
-        <h2>Your videos</h2>
-        {loaded && jobs.length > 0 && (
-          <span className="count figure">{jobs.length}</span>
+        <h2>{title}</h2>
+        {loaded && jobs.length > 0 && count !== null && (
+          <span className="count figure">{count ?? jobs.length}</span>
         )}
       </div>
 

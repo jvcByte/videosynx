@@ -57,6 +57,20 @@ export function videoFilename(title: string): string {
   return `${slug || "videosynx"}.mp4`;
 }
 
+/**
+ * What to call a script-only job until the server's own label arrives.
+ *
+ * Deliberately the same rule as `job_label` on the API: the row should not
+ * rename itself a second after it appears.
+ */
+export function labelFor(script: string): string {
+  const line = script
+    .split("\n")
+    .map((l) => l.trim().replace(/^#+/, "").trim())
+    .find(Boolean);
+  return line ? line.slice(0, 120) : "untitled";
+}
+
 /** `4:07` for a video length. Minutes are worth showing, seconds alone are not. */
 export function duration(seconds: number): string {
   const total = Math.round(seconds);

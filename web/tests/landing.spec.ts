@@ -41,11 +41,14 @@ test("the landing page makes no authenticated requests", async ({ page }) => {
   }
 });
 
-test("the landing page leads to the workspace", async ({ page }) => {
+test("the landing page leads to the composer", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("link", { name: "Get started" }).click();
 
-  await expect(page).toHaveURL(/\/dashboard$/);
+  // The create view, not the bare workspace: someone who pressed "Get
+  // started" has said what they came to do, and the address carries that
+  // through a sign-in rather than dropping them on an overview afterwards.
+  await expect(page).toHaveURL(/\/dashboard#create$/);
   await expect(page.getByRole("button", { name: "Generate" })).toBeVisible();
 });
 

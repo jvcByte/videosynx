@@ -2,8 +2,7 @@
    Weight is spent where it means something: the Generate button, a running
    render, the title of a video you made. Everything else recedes in size,
    weight and contrast rather than in a different hue. Depth is spent in
-   exactly two places -- the player and the settings sheet -- because those
-   are the only two things that genuinely sit above the page. */
+   exactly one place -- the player, which genuinely sits above the page. */
 
 /* ==================================================================== themes
  *
@@ -89,11 +88,11 @@
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
-/* The landing page is always the light palette -- it is a page someone reads
-   once, and it carried its own colours before either theme existed. It is
-   scoped rather than global so a signed-in visitor's choice cannot change how
-   the marketing page looks to a stranger. */
-.landing { color-scheme: light; }
+/* The landing page used to be pinned to light with its own `--l-*` palette.
+   It follows the theme now, like every other surface: the tokens it needs
+   already exist, and a second colour family kept in step by hand is a second
+   thing to get wrong. What stays fixed is what is a depiction rather than
+   chrome -- the editor mockup, the artwork, the stats band. */
 
 * { box-sizing: border-box; }
 
@@ -659,39 +658,9 @@ input:disabled, textarea:disabled, select:disabled {
 .overlay-actions > * { padding: 6px 12px; font-size: 13px; }
 .overlay-body video { display: block; width: 100%; background: #000; }
 
-.sheet {
-  position: relative;
-  margin-left: auto;
-  width: min(420px, 100%);
-  max-height: 100%;
-  overflow-y: auto;
-  background: var(--surface-1);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow);
-}
-
-/* The overlay is centred; the sheet is pushed to the right edge. */
-.overlay:has(.sheet) { justify-content: flex-end; }
-
-.sheet-head {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 20px;
-  background: var(--surface-1);
-  border-bottom: 1px solid var(--line);
-}
-
-.sheet-head h2 { font-size: 15px; font-weight: 600; }
-.sheet-head button { padding: 6px 12px; font-size: 13px; }
-
+/* The settings sheet's own chrome is gone -- settings is a view now. This
+   note is all that is left of the family, and the plan viewer uses it. */
 .sheet-note { padding: 20px; font-size: 13.5px; color: var(--fg-faint); }
-.sheet-body { padding: 20px; }
 
 .group {
   border: 0;
@@ -713,16 +682,6 @@ input:disabled, textarea:disabled, select:disabled {
 .group .field label { font-size: 12.5px; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--fg-muted); }
 .group .check { margin-top: 16px; }
 
-.sheet-foot {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding-top: 4px;
-  border-top: 1px solid var(--line);
-  margin-top: 4px;
-  padding-block: 16px;
-}
-
 .saved { font-size: 13px; color: var(--ok); }
 
 /* --------------------------------------------------------------- responsive */
@@ -737,7 +696,7 @@ input:disabled, textarea:disabled, select:disabled {
 @media (max-width: 560px) {
   .topbar-inner { height: auto; padding: 12px 16px; flex-wrap: wrap; }
   .overlay { padding: 0; align-items: flex-end; }
-  .sheet, .overlay-body { border-radius: var(--r-lg) var(--r-lg) 0 0; }
+  .overlay-body { border-radius: var(--r-lg) var(--r-lg) 0 0; }
   .job-main { flex-direction: column; align-items: flex-start; gap: 6px; }
 }
 
@@ -757,25 +716,8 @@ input:disabled, textarea:disabled, select:disabled {
  * Everything here is namespaced `.landing-*` so it cannot leak upward.
  */
 
-.landing {
-  --l-bg: #ffffff;
-  --l-soft: #f2f7f5;
-  --l-ink: #0b1a15;
-  --l-muted: #47574f;
-  --l-faint: #7a8a83;
-  --l-line: #dde6e1;
-  /* The brand green, and the only saturated colour on the page. */
-  --l-accent: #086c50;
-  --l-accent-ink: #ffffff;
-  /* Tints of the same hue, for the one place the accent needs to recede. */
-  --l-accent-soft: #e3f0eb;
-  --l-accent-deep: #06543e;
-
-  background: var(--l-bg);
-  color: var(--l-ink);
-  font-family: var(--font);
-  line-height: 1.6;
-}
+/* The background, the ink and the font are the page's, from `html, body`. */
+.landing { line-height: 1.6; }
 
 .landing-wrap {
   max-width: 1180px;
@@ -789,9 +731,9 @@ input:disabled, textarea:disabled, select:disabled {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: rgba(255, 255, 255, 0.9);
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
   backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--l-line);
+  border-bottom: 1px solid var(--line);
 }
 
 .landing-nav-inner {
@@ -806,7 +748,7 @@ input:disabled, textarea:disabled, select:disabled {
   font-size: 19px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: var(--l-ink);
+  color: var(--fg);
 }
 
 .landing-links {
@@ -815,13 +757,13 @@ input:disabled, textarea:disabled, select:disabled {
 }
 
 .landing-links a {
-  color: var(--l-muted);
+  color: var(--fg-muted);
   text-decoration: none;
   font-size: 14.5px;
   font-weight: 500;
 }
 
-.landing-links a:hover { color: var(--l-ink); }
+.landing-links a:hover { color: var(--fg); }
 
 .landing-nav-actions {
   display: flex;
@@ -838,16 +780,16 @@ input:disabled, textarea:disabled, select:disabled {
   background-image:
     linear-gradient(
       90deg,
-      rgba(255, 255, 255, 0.97) 0%,
-      rgba(255, 255, 255, 0.94) 36%,
-      rgba(255, 255, 255, 0.58) 62%,
-      rgba(255, 255, 255, 0.12) 100%
+      color-mix(in srgb, var(--bg) 97%, transparent) 0%,
+      color-mix(in srgb, var(--bg) 94%, transparent) 36%,
+      color-mix(in srgb, var(--bg) 58%, transparent) 62%,
+      color-mix(in srgb, var(--bg) 12%, transparent) 100%
     ),
     url("/hero_bg.jpg");
   background-size: cover, cover;
   background-position: center, center right;
   background-repeat: no-repeat, no-repeat;
-  border-bottom: 1px solid var(--l-line);
+  border-bottom: 1px solid var(--line);
 }
 
 .landing-hero-inner {
@@ -863,8 +805,8 @@ input:disabled, textarea:disabled, select:disabled {
   display: inline-block;
   padding: 5px 12px;
   border-radius: 999px;
-  background: var(--l-accent-soft);
-  color: var(--l-accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
   font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -882,13 +824,13 @@ input:disabled, textarea:disabled, select:disabled {
 }
 
 /* The one word the page wants you to read twice. */
-.landing h1 em { font-style: normal; color: var(--l-accent); }
+.landing h1 em { font-style: normal; color: var(--accent); }
 
 .landing-lede {
   margin-top: 18px;
   max-width: 46ch;
   font-size: 17px;
-  color: var(--l-muted);
+  color: var(--fg-muted);
 }
 
 .landing-actions {
@@ -912,16 +854,16 @@ input:disabled, textarea:disabled, select:disabled {
   transition: filter 120ms ease, background 120ms ease;
 }
 
-.landing-cta { background: var(--l-accent); color: var(--l-accent-ink); }
+.landing-cta { background: var(--accent); color: var(--accent-ink); }
 .landing-cta:hover { filter: brightness(1.08); }
 
 .landing-ghost {
-  background: #ffffff;
-  border-color: var(--l-line);
-  color: var(--l-ink);
+  background: var(--surface-1);
+  border-color: var(--line);
+  color: var(--fg);
 }
 
-.landing-ghost:hover { background: var(--l-soft); }
+.landing-ghost:hover { background: var(--surface-2); }
 .landing-cta-lg { padding: 14px 26px; font-size: 15.5px; }
 
 .landing-checks {
@@ -931,13 +873,13 @@ input:disabled, textarea:disabled, select:disabled {
   gap: 10px 22px;
   list-style: none;
   font-size: 13.5px;
-  color: var(--l-muted);
+  color: var(--fg-muted);
 }
 
 .landing-checks li::before {
   content: "✓";
   margin-right: 7px;
-  color: var(--l-accent);
+  color: var(--accent);
   font-weight: 700;
 }
 
@@ -1014,12 +956,12 @@ input:disabled, textarea:disabled, select:disabled {
 }
 
 .landing-feature h3 { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
-.landing-feature p { margin-top: 8px; font-size: 14.5px; color: var(--l-muted); }
+.landing-feature p { margin-top: 8px; font-size: 14.5px; color: var(--fg-muted); }
 
 .landing-band {
-  background: var(--l-soft);
-  border-top: 1px solid var(--l-line);
-  border-bottom: 1px solid var(--l-line);
+  background: var(--surface-1);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
   padding: 76px 0;
   text-align: center;
 }
@@ -1033,7 +975,7 @@ input:disabled, textarea:disabled, select:disabled {
 .landing-sub {
   margin-top: 12px;
   font-size: 15.5px;
-  color: var(--l-muted);
+  color: var(--fg-muted);
   max-width: 56ch;
   margin-inline: auto;
 }
@@ -1055,15 +997,15 @@ input:disabled, textarea:disabled, select:disabled {
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: var(--l-accent);
-  color: #fff;
+  background: var(--accent);
+  color: var(--accent-ink);
   font-size: 14px;
   font-weight: 700;
   margin-bottom: 14px;
 }
 
 .landing-steps h3 { font-size: 15.5px; font-weight: 650; }
-.landing-steps p { margin-top: 6px; font-size: 14px; color: var(--l-muted); }
+.landing-steps p { margin-top: 6px; font-size: 14px; color: var(--fg-muted); }
 
 .landing-examples { padding-top: 76px; padding-bottom: 76px; }
 
@@ -1088,10 +1030,10 @@ input:disabled, textarea:disabled, select:disabled {
 }
 
 .landing-card {
-  border: 1px solid var(--l-line);
+  border: 1px solid var(--line);
   border-radius: 14px;
   overflow: hidden;
-  background: #fff;
+  background: var(--surface-1);
 }
 
 .landing-card-art {
@@ -1134,7 +1076,7 @@ input:disabled, textarea:disabled, select:disabled {
 }
 
 .landing-card h3 { padding: 16px 16px 0; font-size: 15px; font-weight: 650; line-height: 1.35; }
-.landing-card p { padding: 6px 16px 0; font-size: 13.5px; color: var(--l-muted); }
+.landing-card p { padding: 6px 16px 0; font-size: 13.5px; color: var(--fg-muted); }
 
 /* The running time, bottom right of the still, as a player would show it. */
 .landing-card-time {
@@ -1156,17 +1098,24 @@ input:disabled, textarea:disabled, select:disabled {
   margin: 14px 18px 18px;
   padding: 3px 10px;
   border-radius: 999px;
-  background: var(--l-soft);
-  border: 1px solid var(--l-line);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
   font-size: 12px;
-  color: var(--l-muted);
+  color: var(--fg-muted);
 }
 
 /* The band the design fills with photographs. It carries the counts instead,
    which is why it is a solid colour with nothing behind it. */
+/* A deep green band in both themes -- it carries the counts, and those are
+   worth a different surface rather than the same one twice. The rules are
+   here because on a dark page #062019 is a two-percent step from the
+   background: without them the band reads as a slightly different black
+   rather than as a band. */
 .landing-stats {
   background: #062019;
   color: #eaf3ee;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
   padding: 56px 0;
 }
 
@@ -1212,7 +1161,7 @@ input:disabled, textarea:disabled, select:disabled {
 .landing-final .landing-cta { margin-top: 24px; }
 
 .landing-footer {
-  border-top: 1px solid var(--l-line);
+  border-top: 1px solid var(--line);
   padding: 26px 0;
 }
 
@@ -1229,8 +1178,9 @@ input:disabled, textarea:disabled, select:disabled {
      scrim becomes a flat wash instead of a gradient across the text. */
   .landing-hero {
     background-image:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%,
-                              rgba(255, 255, 255, 0.9) 100%),
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--bg) 96%, transparent) 0%,
+        color-mix(in srgb, var(--bg) 90%, transparent) 100%),
       url("/hero_bg.jpg");
   }
   .landing-hero-inner { grid-template-columns: minmax(0, 1fr); gap: 40px; padding-top: 48px; }
@@ -1286,8 +1236,7 @@ input:disabled, textarea:disabled, select:disabled {
 
 .sidebar-nav { display: flex; flex-direction: column; gap: 2px; }
 
-.sidebar-nav a,
-.sidebar-link {
+.sidebar-nav a {
   display: block;
   width: 100%;
   text-align: left;
@@ -1301,11 +1250,7 @@ input:disabled, textarea:disabled, select:disabled {
   border: none;
 }
 
-.sidebar-nav a:hover,
-.sidebar-link:hover { background: var(--surface-2); color: var(--fg); }
-
-/* Which one you are on. There is one page, so it is always the first. */
-.sidebar-nav a.is-current { background: var(--surface-2); color: var(--fg); }
+.sidebar-nav a:hover { background: var(--surface-2); color: var(--fg); }
 
 .sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
 
@@ -1343,7 +1288,9 @@ input:disabled, textarea:disabled, select:disabled {
 
 /* ---------------------------------------------------------------- the tiles */
 
-.dash { padding: 22px 24px 96px; }
+/* No room to scroll past the last section any more: a view ends where it
+   ends, rather than where a one-page layout needed the space. */
+.dash { padding: 22px 24px 64px; }
 
 .tiles {
   display: grid;
@@ -1472,6 +1419,11 @@ input:disabled, textarea:disabled, select:disabled {
     border-bottom: 1px solid var(--line);
   }
   .sidebar-nav { flex-direction: row; }
+  /* The sidebar is a strip along the top here, so the rule that marks the
+     current view has to move to the bottom edge -- a left border would point
+     at nothing. */
+  .sidebar-nav a { border-left: none; border-bottom: 3px solid transparent; }
+  .sidebar-nav a[aria-current="page"] { border-bottom-color: var(--accent); }
   .sidebar-foot { margin-top: 0; flex-direction: row; align-items: center; }
   .sidebar-email { display: none; }
   .dash { padding: 18px 16px 72px; }
@@ -1562,8 +1514,7 @@ input:disabled, textarea:disabled, select:disabled {
   margin-top: 1px;
 }
 
-.sidebar-nav a,
-.sidebar-link {
+.sidebar-nav a {
   padding: 11px 12px;
   border-radius: var(--r-md);
   font-size: 14.5px;
@@ -1572,7 +1523,10 @@ input:disabled, textarea:disabled, select:disabled {
   border-left: 3px solid transparent;
 }
 
-.sidebar-nav a.is-current {
+/* Which one you are on. `aria-current` rather than a class, because that is
+   already how the page says so -- and the old `.is-current` was hardcoded to
+   the first item, which stopped being true the moment there were views. */
+.sidebar-nav a[aria-current="page"] {
   background: var(--surface-2);
   border-left-color: var(--accent);
   color: var(--fg);
@@ -1796,4 +1750,44 @@ input:disabled, textarea:disabled, select:disabled {
 @media (max-width: 940px) {
   .sidebar-note { display: none; }
   .search { max-width: none; }
+}
+
+/* =================================================================== views
+ *
+ * The dashboard used to be one page with everything on it; it is now five
+ * views that the sidebar swaps. Each view lays itself out and the shell
+ * around it -- sidebar, topbar, overlays -- never moves, so switching is a
+ * change of content rather than a change of page.
+ */
+
+/* The views are narrower than the shell, so a wide monitor does not stretch a
+   form across it. The overview is the exception: it is a grid and wants the
+   room. */
+.view-narrow { max-width: 560px; }
+.view-head { margin-bottom: 20px; }
+
+.see-all {
+  align-self: flex-start;
+  font-size: 14px;
+  font-weight: 550;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.see-all:hover { text-decoration: underline; }
+
+/* Settings, which was a sheet over the page and is now a view. Same form,
+   same fields -- the depth is gone because nothing floats above anything. */
+.settings-view { padding: 24px; }
+/* `.sheet-note` carries its own padding for a sheet, where it is the whole
+   body. Inside a card that padding lands on top of the card's. */
+.settings-view .sheet-note { padding: 0; }
+.settings-body { display: flex; flex-direction: column; gap: 22px; }
+
+.settings-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
 }

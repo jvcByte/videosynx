@@ -87,7 +87,7 @@ export function Achievements({ progress }: { progress: Progress | null }) {
   if (!progress) return null;
 
   return (
-    <section className="card awards" id="achievements">
+    <section className="card awards">
       <div className="section-head">
         <h2>Achievements</h2>
         <span className="count figure">
