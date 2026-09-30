@@ -617,3 +617,23 @@ test("a planned feature says what is in its way, and counts you once", async ({ 
   await expect(first.locator(".want-count")).toHaveText("1 waiting");
   await expect(first.getByRole("button", { name: /on the list/ })).toBeDisabled();
 });
+
+test("text can be queued to be read aloud, and a clip is not a video", async ({ page }) => {
+  const line = `A variable is a name you give to a value ${Date.now()}`;
+
+  await page.goto(at("speech"));
+  await page.getByLabel("Text").fill(line);
+  await page.getByRole("button", { name: "Speak it" }).click();
+
+  // Straight into its own list. There is no worker in this stack, so a clip
+  // that had to finish first would never appear at all -- and what is being
+  // checked is that it was queued as the right kind of thing.
+  const clip = page.locator(".clip").filter({ hasText: line });
+  await expect(clip).toBeVisible();
+  await expect(clip.locator(".status")).toHaveText("Queued");
+
+  // Its own list, not the library: "Your Videos" containing something that is
+  // not a video is the kind of small lie that cheapens every other label.
+  await page.goto(at("videos"));
+  await expect(page.locator(`[data-testid="job"]:has-text("${line}")`)).toHaveCount(0);
+});

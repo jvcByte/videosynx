@@ -34,6 +34,7 @@ export function Sidebar({
     { label: "Dashboard", view: "overview" },
     { label: "Your Videos", view: "videos" },
     { label: "Create Video", view: "create" },
+    { label: "Text to speech", view: "speech" },
     { label: "Achievements", view: "achievements" },
     // One entry for everything not built yet rather than one each. Four more
     // rows would push this bar off the side of a phone, and the list grows.

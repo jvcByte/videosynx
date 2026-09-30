@@ -1,3 +1,5 @@
+import type { Voice } from "./api";
+
 // Presentation helpers. Kept out of the components so the same value reads the
 // same way wherever it appears.
 
@@ -124,4 +126,20 @@ export function relativeTime(iso: string | null): string {
     month: "short",
     day: "numeric",
   });
+}
+
+/**
+ * Voices grouped by language, in the order the API returned them.
+ *
+ * Two pickers want this now -- the settings form and the speech page -- and a
+ * grouping that lives in one of them is a grouping the other one drifts from.
+ */
+export function byLanguage(voices: Voice[]): [string, Voice[]][] {
+  const groups = new Map<string, Voice[]>();
+  for (const voice of voices) {
+    const list = groups.get(voice.language) ?? [];
+    list.push(voice);
+    groups.set(voice.language, list);
+  }
+  return [...groups.entries()];
 }

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 import uuid
@@ -71,6 +72,19 @@ DEFAULT_DSN = os.environ.get("VIDEOSYNX_DSN", "postgresql:///videosynx")
 # A script is sent as text, so this is the only bound on request size: there is
 # no body limit anywhere else.
 MAX_SCRIPT_CHARS = 60_000
+
+
+class SpeakRequest(BaseModel):
+    """Text to read aloud."""
+
+    text: str = Field(min_length=1, max_length=MAX_SCRIPT_CHARS,
+                      description="What to say. Read sentence by sentence, "
+                                  "through the same speaker the narration "
+                                  "uses.")
+    voice: str | None = Field(
+        default=None,
+        description="A voice id from /voices. Left out, the tier's default is "
+                    "used, the same as for a video.")
 
 
 class SubmitRequest(BaseModel):
@@ -151,6 +165,10 @@ class JobResponse(BaseModel):
     # Which kind of video this is. Lifted out of the options blob because a
     # library entry has to be able to say what it is without unpacking jsonb.
     mode: str = "both"
+    # What this job makes: "video" or "speech". Lifted out of the options blob
+    # for the same reason `mode` is -- a list has to be able to say what a row
+    # is without unpacking jsonb, and a clip is not a tutorial.
+    kind: str = "video"
     stage: str | None = None
     progress: float = 0.0
     duration_s: float | None = None
@@ -186,10 +204,16 @@ class JobResponse(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _mode_from_options(cls, data):
-        if isinstance(data, dict) and "mode" not in data:
+        if isinstance(data, dict):
             options = data.get("options")
             if isinstance(options, dict):
-                return {**data, "mode": str(options.get("mode") or "both")}
+                lifted = {}
+                if "mode" not in data:
+                    lifted["mode"] = str(options.get("mode") or "both")
+                if "kind" not in data:
+                    lifted["kind"] = str(options.get("kind") or "video")
+                if lifted:
+                    return {**data, **lifted}
         return data
 
 
@@ -233,6 +257,42 @@ def _published_example_ids() -> list[str]:
         except ValueError:
             continue
     return ids
+
+
+# What the store can hold. A key carries its own suffix, so the answer is in
+# the key rather than in a column somebody has to keep in step with it.
+MEDIA_TYPES = {
+    ".mp4": "video/mp4",
+    ".mp3": "audio/mpeg",
+    ".srt": "application/x-subrip",
+    ".json": "application/json",
+    ".jpg": "image/jpeg",
+}
+
+
+def label_for_speech(text: str, limit: int = 120) -> str:
+    """What to call a clip in a list.
+
+    The same rule the engine uses for a pasted script's label, so the row does
+    not rename itself once the worker has finished.
+    """
+    for line in text.splitlines():
+        cleaned = line.strip().lstrip("#").strip()
+        if cleaned:
+            first = re.split(r"(?<=[.!?])\s+", cleaned)[0]
+            return first[:limit]
+    return "untitled"
+
+
+def _media_type(key: str) -> str:
+    """What to call the thing at *key*.
+
+    It was `video/mp4` for everything, which was right while everything was a
+    video. Served as video/mp4 a browser will not play an mp3 inline -- it
+    offers to download a file it cannot open, which reads as the clip being
+    broken.
+    """
+    return MEDIA_TYPES.get(Path(key).suffix.lower(), "application/octet-stream")
 
 
 def _with_availability(store, row: dict) -> dict:
@@ -465,6 +525,50 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
                 "video_url": store.url(video_key(row["tier"], str(row["id"]))),
             })
         return published
+
+    @app.post("/speech", response_model=SubmitResponse,
+              status_code=status.HTTP_202_ACCEPTED)
+    def speak(
+        body: SpeakRequest,
+        user: User = Depends(current_user),
+    ) -> SubmitResponse:
+        """Read text aloud and keep the file.
+
+        Queued rather than answered here, for a measured reason: synthesis
+        runs at about 0.8x realtime, so five minutes of speech is four minutes
+        of CPU and an HTTP request that holds a worker for that long is a
+        request that times out. Everything the queue already does -- leases,
+        heartbeats, retries, cancel -- is what makes a long job survivable,
+        and none of it needed writing for this.
+
+        Free, and counted. It calls no model, so it is not a job that spends
+        money and does not draw on the allowance that exists to bound
+        spending. It does use the machine, so it is not unlimited either, and
+        it draws on the local renders -- which is exactly what `generation:
+        local` already means to the quota.
+        """
+        options: dict[str, object] = {
+            "kind": "speech",
+            "generation": "local",
+            "text": body.text,
+        }
+        if body.voice:
+            options["voice"] = body.voice
+
+        try:
+            job_id, tier = submit_within_quota(
+                dsn, user_id=user.id, topic=label_for_speech(body.text),
+                tier_name=user.tier, options=options,
+            )
+        except QuotaExceeded as exc:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={"error": "quota_exceeded", "message": str(exc)},
+            ) from None
+        with _connect(dsn) as conn:
+            used = used_today(conn, user.id)
+        return SubmitResponse(id=job_id, status="queued", tier=tier.name,
+                              jobs_per_day=tier.jobs_per_day, used_today=used)
 
     @app.get("/features")
     def features(user: User = Depends(current_user)) -> list[dict]:
@@ -915,7 +1019,7 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         body = store.read(key)
         if body is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
-        return Response(content=body, media_type="video/mp4")
+        return Response(content=body, media_type=_media_type(key))
 
     @app.get("/jobs/{job_id}/script")
     def get_script(job_id: str, user: User = Depends(current_user)) -> dict:

@@ -14,6 +14,7 @@ export const VIEWS = [
   "overview",
   "videos",
   "create",
+  "speech",
   "achievements",
   "coming-soon",
   "settings",

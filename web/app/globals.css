@@ -2029,3 +2029,41 @@ input:disabled, textarea:disabled, select:disabled {
 /* Joined is a fact, not an action -- so the button stops looking pressable
    without vanishing, which would leave the row looking unfinished. */
 .want-foot button:disabled { opacity: 1; color: var(--ok); }
+
+/* ----------------------------------------------------------- text to speech
+ *
+ * A form and the list of what it has made. The list is deliberately its own
+ * rather than the video library: a clip is not a tutorial, and "Your Videos"
+ * containing things that are not videos is the kind of small lie that makes
+ * every label on a page worth less.
+ */
+
+.speech-form h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+.speech-form .field-note { margin-bottom: 4px; }
+.speech-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+
+.clips-head {
+  margin: 30px 0 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+.clips-empty { font-size: 13.5px; color: var(--fg-faint); }
+.clips { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+
+.clip { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.clip-body { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
+.clip-title { font-size: 14.5px; font-weight: 500; color: var(--fg); min-width: 0; }
+.clip-actions { display: flex; align-items: center; gap: 8px; }
+.clip-actions button { padding: 6px 12px; font-size: 13px; }
+.clip-time { font-size: 12.5px; color: var(--fg-faint); margin-right: 4px; }
+.clip-note { font-size: 12.5px; color: var(--fg-faint); }

@@ -30,6 +30,14 @@ export interface Job {
   topic: string;
   /** Which kind of video this is: coding, illustration, or both. */
   mode: string;
+  /**
+   * What this job makes: "video" or "speech".
+   *
+   * A clip and a tutorial are the same row in the same queue -- they lease,
+   * heartbeat and get cancelled the same way -- so the list has to be able to
+   * tell them apart without unpacking the options blob.
+   */
+  kind: string;
   stage: string | null;
   progress: number;
   duration_s: number | null;
@@ -304,6 +312,12 @@ export const api = {
   /** Join the waitlist for one. Joining twice is still one person. */
   joinFeature: (id: string) =>
     request<Feature>(`/features/${id}/interest`, { method: "POST" }),
+  /** Queue text to be read aloud. Comes back as a job, like a video. */
+  speak: (text: string, voice?: string) =>
+    request<{ id: string }>("/speech", {
+      method: "POST",
+      body: JSON.stringify(voice ? { text, voice } : { text }),
+    }),
   subscription: () => request<Subscription>("/me/subscription"),
   /** A Stripe Checkout URL to open. 503 when billing is not configured. */
   checkout: () => request<{ url: string; id: string }>("/billing/checkout",

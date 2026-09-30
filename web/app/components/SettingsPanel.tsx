@@ -2,17 +2,7 @@
 
 import { FormEvent } from "react";
 import { Mode, Settings, Voice } from "../lib/api";
-
-/** Voices grouped by language, in the order the API returned them. */
-function byLanguage(voices: Voice[]): [string, Voice[]][] {
-  const groups = new Map<string, Voice[]>();
-  for (const voice of voices) {
-    const list = groups.get(voice.language) ?? [];
-    list.push(voice);
-    groups.set(voice.language, list);
-  }
-  return [...groups.entries()];
-}
+import { byLanguage } from "../lib/format";
 
 const MODE_OPTIONS: { value: Mode; label: string }[] = [
   { value: "both", label: "Explain, then code" },

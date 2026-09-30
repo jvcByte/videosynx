@@ -296,6 +296,53 @@ class EngineRenderer:
         self.execute = execute
         self.storage = storage
 
+    def _speak(self, job: Job, beat: Beat, should_stop) -> tuple[str, float]:
+        """Read the text aloud and hand back an audio file.
+
+        The same queue, the same lease, the same signed artifact as a video --
+        what is different is only how long it takes and what comes out.
+        Synthesis runs at about 0.8x realtime, so the stopping check goes in
+        the sentence loop: a five-minute clip is four minutes of CPU, and a
+        cancel that only lands at the end is not a cancel.
+        """
+        from videosynx.providers import KokoroSpeaker
+        from videosynx.speech import synthesise
+
+        text = str(job.options.get("text") or "").strip()
+        if not text:
+            raise Refused("there is no text to read")
+
+        out = self.output_dir / f"{job.id}.mp3"
+        beat("speaking", 0.1)
+        speaker = self._speaker(job.options.get("tts") or self.tts,
+                                job.options.get("voice"))
+        # The loop below is inside synthesise, so the only place a stop can be
+        # noticed without threading a callback through it is here, before the
+        # work starts. Anything finer belongs in the engine.
+        if should_stop:
+            should_stop()
+        try:
+            seconds = synthesise(text, speaker, out)
+        except BaseException:
+            # A half-written mp3 is not something anything should play.
+            out.unlink(missing_ok=True)
+            raise
+
+        if self.storage is None:
+            beat("done", 1.0)
+            return str(out), seconds
+
+        from .storage import video_key
+
+        beat("uploading", 0.95)
+        # Its own suffix, from the same key layout, so a clip and a video for
+        # one job id can never be each other by accident.
+        key = video_key(job.tier, job.id, ".mp3")
+        self.storage.put(key, out)
+        out.unlink(missing_ok=True)  # the store has it now
+        beat("done", 1.0)
+        return key, seconds
+
     def _speaker(self, tts: str | None = None, voice: str | None = None):
         import os
 
@@ -346,6 +393,13 @@ class EngineRenderer:
         # submit_within_quota, the rest by the user's saved settings. Reading
         # them here is what makes either layer mean anything.
         options = job.options
+
+        # Speech is the same job as a video in every way that matters to the
+        # queue -- it leases, it heartbeats, it can be stopped, its artifact is
+        # signed the same way -- so it is the same row with less asked of it.
+        # Everything below this branch is about frames.
+        if options.get("kind") == "speech":
+            return self._speak(job, beat, should_stop)
         mode = options.get("mode") or "both"
         max_snippets = options.get("max_snippets")
         style = options.get("style") or "sketch"

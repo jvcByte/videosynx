@@ -1,15 +1,19 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Composer } from "../components/Composer";
 import { Library } from "../components/Library";
 import { PlanPanel } from "../components/PlanPanel";
 import { Achievements, LevelCard, StreakCard } from "../components/Progress";
+import { Player } from "../components/Player";
+import { Status } from "../components/Status";
 import {
   ApiError, Feature, Job, Mode, Progress, Quota, Settings, SubmitBody,
-  Subscription, api,
+  Subscription, Voice, absolute, api, isPending,
 } from "../lib/api";
-import { labelFor } from "../lib/format";
+import { byLanguage, duration, labelFor, videoFilename } from "../lib/format";
+
+const POLL_MS = 2000;
 
 /**
  * The five things the dashboard can be showing.
@@ -229,6 +233,7 @@ export function CreateView({
       onScript("");
       onSubmitted({
         id, status: "queued", topic: pasted ? labelFor(pasted) : value, mode,
+        kind: "video",
         stage: null, progress: 0, duration_s: null, error_code: null,
         error_message: null, attempt: 0, max_attempts: 1, not_before: null,
         created_at: new Date().toISOString(),
@@ -377,6 +382,189 @@ export function ComingSoonView() {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+
+/**
+ * Text in, speech out.
+ *
+ * The narration half of the pipeline without the video around it. It is a job
+ * like any other -- five minutes of speech is four minutes of CPU, so it
+ * queues rather than holding a request open -- which is why this page has a
+ * list under it rather than handing back a download.
+ */
+export function SpeechView() {
+  const [text, setText] = useState("");
+  const [voice, setVoice] = useState("");
+  const [voices, setVoices] = useState<Voice[]>([]);
+  const [jobs, setJobs] = useState<Job[] | null>(null);
+  const [quota, setQuota] = useState<Quota | null>(null);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [playing, setPlaying] = useState<string | null>(null);
+
+  const refresh = useCallback(
+    () => api.jobs().then(setJobs).catch(() => setJobs([])),
+    []
+  );
+
+  useEffect(() => {
+    api.voices().then(setVoices).catch(() => setVoices([]));
+    // The allowance is the local renders, and it is what actually stops a
+    // long clip being queued -- so the number belongs on the page that spends
+    // it, not only on the one you submit videos from.
+    api.quota().then(setQuota).catch(() => setQuota(null));
+    refresh();
+  }, [refresh]);
+
+  // Only the clips. A tutorial is a different thing that happens to share a
+  // queue, and this list is about what you said.
+  const clips = (jobs ?? []).filter((job) => job.kind === "speech");
+  const pending = clips.some((job) => isPending(job.status));
+
+  useEffect(() => {
+    if (!pending) return;
+    const timer = setInterval(refresh, POLL_MS);
+    return () => clearInterval(timer);
+  }, [pending, refresh]);
+
+  async function onSubmit(event: FormEvent) {
+    event.preventDefault();
+    const value = text.trim();
+    if (!value || sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      await api.speak(value, voice || undefined);
+      setText("");
+      await refresh();
+      api.quota().then(setQuota).catch(() => {});
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not queue it");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function onPlay(job: Job) {
+    setError(null);
+    try {
+      const { url } = await api.videoUrl(job.id);
+      setPlaying(absolute(url));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not load the clip");
+    }
+  }
+
+  async function onDownload(job: Job) {
+    setError(null);
+    try {
+      const { url } = await api.videoUrl(job.id);
+      // An mp3, so the name says so -- a file called .mp4 that is audio is a
+      // file nothing on the desktop will open.
+      const link = document.createElement("a");
+      link.href = absolute(url);
+      link.download = videoFilename(job.topic).replace(/\.mp4$/, ".mp3");
+      document.body.append(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not download it");
+    }
+  }
+
+  return (
+    <div className="view-narrow">
+      <form className="card speech-form" onSubmit={onSubmit}>
+        <h2>Text to speech</h2>
+        <p className="field-note">
+          Read aloud with the voices the narration uses. No model is called, so
+          it costs none of your daily tutorials — it draws on the local
+          renders, which are the ones that use this machine and nothing else.
+        </p>
+
+        <label className="field">
+          <span className="field-label">Text</span>
+          <textarea
+            aria-label="Text"
+            rows={8}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            placeholder="Paste anything you want read aloud."
+          />
+        </label>
+
+        <label className="field">
+          <span className="field-label">Voice</span>
+          <select
+            aria-label="Voice"
+            value={voice}
+            onChange={(event) => setVoice(event.target.value)}
+          >
+            <option value="">The default for your plan</option>
+            {byLanguage(voices).map(([language, group]) => (
+              <optgroup key={language} label={language}>
+                {group.map((v) => (
+                  <option key={v.id} value={v.id}>{v.id} — {v.gender}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+
+        {error && <p className="notice notice-bad" role="alert">{error}</p>}
+
+        <div className="speech-foot">
+          <button type="submit" disabled={!text.trim() || sending}>
+            {sending ? "Queueing…" : "Speak it"}
+          </button>
+          {quota && (
+            <span className="field-note figure">
+              {quota.local_remaining} of {quota.local_jobs_per_day} local renders left today
+            </span>
+          )}
+        </div>
+      </form>
+
+      <h3 className="clips-head">Your audio</h3>
+      {jobs === null ? (
+        <div className="card"><span className="skeleton skeleton-line" /></div>
+      ) : clips.length === 0 ? (
+        <p className="clips-empty">
+          Nothing yet. Anything you have read aloud appears here.
+        </p>
+      ) : (
+        <ul className="clips">
+          {clips.map((job) => (
+            <li className="card clip" key={job.id}>
+              <div className="clip-body">
+                <p className="clip-title">{job.topic}</p>
+                <Status status={job.status} attempt={job.attempt} />
+              </div>
+              {job.status === "succeeded" && (
+                <div className="clip-actions">
+                  {job.duration_s != null && (
+                    <span className="figure clip-time">{duration(job.duration_s)}</span>
+                  )}
+                  <button className="ghost" onClick={() => onPlay(job)}>Play</button>
+                  <button className="ghost" onClick={() => onDownload(job)}>Download</button>
+                </div>
+              )}
+              {/* A clip whose file has gone says so rather than offering to
+                  play nothing. Same rule as the library. */}
+              {job.status === "succeeded" && job.available === false && (
+                <p className="clip-note">File no longer available.</p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {playing && (
+        <Player url={playing} title="Your audio" onClose={() => setPlaying(null)} />
+      )}
     </div>
   );
 }
