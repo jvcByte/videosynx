@@ -5,37 +5,95 @@
    exactly two places -- the player and the settings sheet -- because those
    are the only two things that genuinely sit above the page. */
 
-:root {
+/* ==================================================================== themes
+ *
+ * Two palettes, one set of names. Everything in the app is built from these,
+ * so switching the attribute on <html> restyles the whole thing without a
+ * single component knowing a theme exists.
+ *
+ * Dark is the app's own: near-black surfaces, gold for anything earned, green
+ * for anything finished. Light is the marketing page's palette -- white, ink,
+ * and the brand green -- which is what "the light theme" already meant before
+ * there was a way to choose it.
+ *
+ * The measurement colours are the same idea in both: a hue that means a state,
+ * never decoration. Gold is progress you made, green is something completed,
+ * blue and violet mark difficulty, red is a problem.
+ */
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
   /* Surfaces, darkest to lightest. A card is separated by a step in this
      ramp, not by a shadow. */
-  --bg: #0b0e13;
-  --surface-1: #12171e;
-  --surface-2: #1a2028;
-  --surface-3: #222a34;
-  --line: #242c37;
-  --line-strong: #333d4a;
+  --bg: #0a0f0e;
+  --surface-1: #111917;
+  --surface-2: #16211e;
+  --surface-3: #1d2a26;
+  --line: #1e2a27;
+  --line-strong: #2c3b36;
 
   /* Text, loudest to quietest. */
-  --fg: #e9eef5;
-  --fg-muted: #9aa5b4;
-  --fg-faint: #667283;
+  --fg: #eef4f1;
+  --fg-muted: #8b9a95;
+  --fg-faint: #5f6f6a;
 
-  --accent: #4c9aff;
-  --accent-ink: #04121f;
-  --ok: #48b47f;
-  --bad: #e06c75;
-  --warn: #d8a657;
+  --accent: #e8b04b;          /* gold: XP, levels, anything earned */
+  --accent-ink: #1a1204;      /* on top of the gold, not on top of the page */
+  --ok: #4ade80;              /* green: done, valid, on track */
+  --bad: #f87171;
+  --warn: #e8b04b;
+  --info: #60a5fa;            /* difficulty, and neutral callouts */
+  --violet: #c084fc;
 
+  --shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  /* A faint tint for cards that sit on a tinted surface -- the welcome
+     banner and the sidebar's motivational block. */
+  --wash: rgba(232, 176, 75, 0.07);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f4f7f5;
+  --surface-1: #ffffff;
+  --surface-2: #f2f7f5;
+  --surface-3: #e7efeb;
+  --line: #dde6e1;
+  --line-strong: #c2d1ca;
+
+  --fg: #0b1a15;
+  --fg-muted: #47574f;
+  --fg-faint: #7a8a83;
+
+  --accent: #086c50;
+  --accent-ink: #ffffff;
+  --ok: #0f9d58;
+  --bad: #c0392b;
+  --warn: #b7791f;
+  --info: #2563eb;
+  --violet: #7c3aed;
+
+  --shadow: 0 18px 48px rgba(11, 26, 21, 0.14);
+  --wash: rgba(8, 108, 80, 0.06);
+}
+
+:root {
   /* Radii scale with the size of the thing they round. */
   --r-sm: 6px;
   --r-md: 10px;
   --r-lg: 16px;
 
-  --shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
-
   --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
+
+/* The landing page is always the light palette -- it is a page someone reads
+   once, and it carried its own colours before either theme existed. It is
+   scoped rather than global so a signed-in visitor's choice cannot change how
+   the marketing page looks to a stranger. */
+.landing { color-scheme: light; }
 
 * { box-sizing: border-box; }
 
@@ -80,7 +138,10 @@ h1, h2, h3, p { margin: 0; }
   position: sticky;
   top: 0;
   z-index: 20;
-  background: rgba(11, 14, 19, 0.85);
+  /* Translucent so content scrolls under it. Was a hardcoded near-black,
+     which left the light theme with a dark bar and its own text invisible
+     against it. */
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--line);
 }
@@ -1464,3 +1525,275 @@ input:disabled, textarea:disabled, select:disabled {
 
 .landing-logo img,
 .sidebar-logo img { border-radius: 6px; }
+
+/* ================================================= dashboard, per the design
+ *
+ * The second pass over this page. The first was a sidebar bolted onto the
+ * existing workspace; this one is the design's own shape -- a wide column of
+ * cards with a rail beside it, gold for anything earned and green for
+ * anything finished.
+ *
+ * It reads from the theme tokens, so both palettes come out of it without a
+ * single rule below naming a colour of its own.
+ */
+
+.sidebar {
+  padding: 22px 16px;
+  gap: 26px;
+  background: var(--surface-1);
+}
+
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px;
+  text-decoration: none;
+  color: var(--fg);
+}
+
+.sidebar-logo img { border-radius: 8px; flex-shrink: 0; }
+.sidebar-logo b { display: block; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+.sidebar-logo small {
+  display: block;
+  font-size: 10.5px;
+  color: var(--fg-faint);
+  letter-spacing: 0.04em;
+  margin-top: 1px;
+}
+
+.sidebar-nav a,
+.sidebar-link {
+  padding: 11px 12px;
+  border-radius: var(--r-md);
+  font-size: 14.5px;
+  /* The design marks the current one with a rule down its left edge rather
+     than a fill, which leaves the fill free for hover. */
+  border-left: 3px solid transparent;
+}
+
+.sidebar-nav a.is-current {
+  background: var(--surface-2);
+  border-left-color: var(--accent);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.sidebar-note {
+  margin-top: auto;
+  padding: 16px;
+  border-radius: var(--r-lg);
+  background: var(--wash);
+  border: 1px solid var(--line);
+}
+
+.sidebar-note p { font-size: 14px; font-weight: 550; line-height: 1.4; }
+.sidebar-note-level { display: block; margin-top: 8px; font-size: 12px; color: var(--fg-muted); }
+
+.sidebar-note-bar {
+  display: block;
+  margin-top: 8px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.sidebar-note-bar > span { display: block; height: 100%; background: var(--ok); }
+
+.sidebar-foot { margin-top: 0; }
+
+/* ------------------------------------------------------------- the topbar */
+
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  max-width: 420px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 14px;
+  color: var(--fg-faint);
+  font-size: 15px;
+  pointer-events: none;
+}
+
+.search input {
+  width: 100%;
+  padding: 10px 14px 10px 36px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.search input::-webkit-search-cancel-button { filter: invert(0.5); }
+
+.theme-toggle { padding: 8px 11px; font-size: 15px; line-height: 1; }
+
+/* ---------------------------------------------------------- the two columns */
+
+.dash-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+  align-items: start;
+}
+
+.dash-main { min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+.dash-rail { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 76px; }
+
+/* ------------------------------------------------------------------ tiles */
+
+.tile {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+}
+
+.tile-icon {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+}
+
+/* A hue per measure, and only where it means something: the accent is what
+   you earned, green is what is finished. Mixed rather than spelled out, so
+   the tints follow whichever palette is loaded -- the accent is gold in the
+   dark theme and green in the light one. */
+.tone-accent { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.tone-ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+
+.tile-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+
+/* ------------------------------------------------------------------- rail */
+
+.rail-card { padding: 18px; }
+
+.rail-head { display: flex; align-items: center; gap: 12px; }
+.rail-head h2 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+.rail-sub { font-size: 12.5px; color: var(--fg-muted); }
+
+.medal {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 19px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.flame {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 19px;
+  background: color-mix(in srgb, var(--bad) 14%, transparent);
+}
+
+.meter-line {
+  margin-top: 16px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.meter-line > span { display: block; height: 100%; background: var(--accent); }
+
+.rail-figure { margin-top: 8px; font-size: 12.5px; color: var(--fg-muted); }
+.rail-note { margin-top: 10px; font-size: 12px; color: var(--fg-faint); line-height: 1.5; }
+
+/* --------------------------------------------------------------- the streak */
+
+.streak {
+  margin-top: 16px;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
+  text-align: center;
+}
+
+.streak li { font-size: 10.5px; color: var(--fg-faint); }
+
+.streak li > span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  margin-bottom: 5px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--accent-ink);
+  font-size: 11px;
+}
+
+.streak li.is-done > span { background: var(--ok); color: #04140a; }
+
+/* ----------------------------------------------------------- achievements */
+
+.awards { padding: 20px; }
+
+.awards-row {
+  margin-top: 16px;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 14px;
+}
+
+.awards-row li {
+  padding: 16px 12px;
+  border-radius: var(--r-md);
+  border: 1px dashed var(--line-strong);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+}
+
+/* Earned ones stop being dashed and pick up the gold. */
+.awards-row li.is-earned {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--wash);
+}
+
+.award-medal { font-size: 21px; filter: grayscale(1) opacity(0.4); }
+.awards-row li.is-earned .award-medal { filter: none; }
+
+.award-name { font-size: 13px; font-weight: 600; }
+.awards-row li:not(.is-earned) .award-name { color: var(--fg-muted); font-weight: 500; }
+.award-requires { font-size: 11.5px; color: var(--fg-faint); line-height: 1.4; }
+
+@media (max-width: 1100px) {
+  .dash-grid { grid-template-columns: minmax(0, 1fr); }
+  .dash-rail { position: static; }
+}
+
+@media (max-width: 940px) {
+  .sidebar-note { display: none; }
+  .search { max-width: none; }
+}

@@ -173,17 +173,17 @@ export default function Landing() {
               <span className="landing-mock-title">main.py — videosynx</span>
             </div>
             <pre className="landing-mock-code">
-              <span className="k">from</span> flask <span className="k">import</span> Flask{"\n"}
+              <span className="k">from</span> fastapi <span className="k">import</span> FastAPI{"\n"}
               {"\n"}
-              app = <span className="f">Flask</span>(__name__){"\n"}
+              app = <span className="f">FastAPI</span>(){"\n"}
               {"\n"}
-              <span className="d">@app.route(</span><span className="s">&quot;/&quot;</span><span className="d">)</span>{"\n"}
-              <span className="k">def</span> <span className="f">home</span>():{"\n"}
-              {"    "}<span className="k">return</span> <span className="f">render_template</span>(<span className="s">&quot;index.html&quot;</span>)
+              <span className="d">@app.get(</span><span className="s">&quot;/&quot;</span><span className="d">)</span>{"\n"}
+              <span className="k">async def</span> <span className="f">home</span>():{"\n"}
+              {"    "}<span className="k">return</span> {"{"}<span className="s">&quot;message&quot;</span>: <span className="s">&quot;Hello, World&quot;</span>{"}"}
             </pre>
             <div className="landing-mock-term">
               <span className="landing-mock-label">TERMINAL</span>
-              <span className="landing-mock-out">Serving on http://127.0.0.1:5000</span>
+              <span className="landing-mock-out">Uvicorn running on http://127.0.0.1:8000</span>
             </div>
           </div>
         </div>

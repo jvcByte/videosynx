@@ -21,7 +21,7 @@ import subprocess
 import tempfile
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -35,6 +35,7 @@ from videosynx_worker.db import Queue
 
 from .auth import User, current_user
 from .billing import SignatureError, balance, handle_webhook, ledger, tier_for_user
+from .progress import progress_for, streak_from
 from .quota import (
     QuotaExceeded,
     Tier,
@@ -258,6 +259,38 @@ def _poster_for(store, row: dict) -> str:
     return key
 
 
+def _achievement_dates(conn, user_id: str) -> dict:
+    """The day each milestone was first reached, where it can be known.
+
+    Read from the history rather than recorded when it happened: these are
+    derived facts about rows that already exist, and a table of award times
+    would be a second source of truth for something the jobs table already
+    answers. Anything not reached is absent.
+    """
+    dates: dict[str, "datetime | None"] = {}
+    row = conn.execute(
+        """
+        select min(created_at) filter (where running_rendered >= 1) as first,
+               min(created_at) filter (where running_rendered >= 5) as runner,
+               min(created_at) filter (where running_seconds >= 3600) as marathon,
+               min(created_at) filter (where running_rendered >= 25) as prolific
+          from (
+            select created_at, status,
+                   count(*) filter (where status = 'succeeded')
+                     over (order by created_at) as running_rendered,
+                   coalesce(sum(duration_s) filter (where status = 'succeeded')
+                     over (order by created_at), 0) as running_seconds
+              from jobs where user_id = %s
+          ) history
+        """,
+        (user_id,),
+    ).fetchone()
+    for key in ("first", "runner", "marathon", "prolific"):
+        when = row[key] if row else None
+        dates[key] = when.date() if when else None
+    return dates
+
+
 def _connect(dsn: str) -> psycopg.Connection:
     return psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
 
@@ -332,6 +365,45 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         with _connect(dsn) as conn:
             conn.execute("select 1")
         return {"ok": True}
+
+    @app.get("/me/progress")
+    def my_progress(user: User = Depends(current_user)) -> dict:
+        """What this account has earned, from what it has actually done.
+
+        Every figure is computed here from the job rows -- no stored total, no
+        award path, nothing that can go up without a render finishing. See
+        `progress.py` for why that is the constraint rather than an
+        implementation detail.
+        """
+        with _connect(dsn) as conn:
+            totals = conn.execute(
+                """
+                select count(*) filter (where status = 'succeeded') as rendered,
+                       coalesce(sum(duration_s)
+                                filter (where status = 'succeeded'), 0) as seconds
+                  from jobs where user_id = %s
+                """,
+                (user.id,),
+            ).fetchone()
+            # Every day this account started something, which is the only
+            # activity there is to count.
+            days = {
+                row["day"]
+                for row in conn.execute(
+                    "select distinct created_at::date as day from jobs "
+                    "where user_id = %s",
+                    (user.id,),
+                ).fetchall()
+            }
+            # When each milestone was first reached, for the badges that show
+            # a date.
+            earned_on = _achievement_dates(conn, user.id)
+
+        rendered = int(totals["rendered"])
+        minutes = float(totals["seconds"]) / 60
+        streak = streak_from(days, datetime.now(timezone.utc).date())
+        return progress_for(rendered=rendered, minutes=minutes, streak=streak,
+                            earned_on=earned_on).as_dict()
 
     @app.get("/examples")
     def examples() -> list[dict]:

@@ -205,6 +205,30 @@ export interface Stats {
   topics_covered: number;
 }
 
+/**
+ * What the account has earned, all of it computed from jobs that finished.
+ *
+ * There is no counter behind this that anything can increment: XP is the work
+ * multiplied out, the streak is days that actually had a submission, and a
+ * badge is a fact about the history.
+ */
+export interface Progress {
+  xp: number;
+  level: number;
+  xp_into_level: number;
+  xp_for_level: number;
+  streak: number;
+  achievements: Achievement[];
+}
+
+export interface Achievement {
+  id: string;
+  name: string;
+  requires: string;
+  earned: boolean;
+  earned_on: string | null;
+}
+
 /** A tutorial the operator has published. Public, like the page it is on. */
 export interface PublishedExample {
   id: string;
@@ -218,6 +242,7 @@ export interface PublishedExample {
 export const api = {
   stats: () => request<Stats>("/stats"),
   examples: () => request<PublishedExample[]>("/examples"),
+  progress: () => request<Progress>("/me/progress"),
   quota: () => request<Quota>("/me/quota"),
   jobs: () => request<Job[]>("/jobs"),
   settings: () => request<Settings>("/me/settings"),

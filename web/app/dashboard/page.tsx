@@ -7,12 +7,14 @@ import { Player } from "../components/Player";
 import { QuotaMeter } from "../components/QuotaMeter";
 import { SettingsSheet } from "../components/SettingsSheet";
 import { PlanPanel } from "../components/PlanPanel";
+import { Achievements, LevelCard, StreakCard } from "../components/Progress";
+import { ThemeToggle } from "../components/ThemeToggle";
 import { PlanViewer } from "../components/PlanViewer";
 import { Sidebar } from "../components/Sidebar";
 import { SignIn } from "../components/SignIn";
 import {
-  ApiError, Job, Mode, Quota, Settings, SubmitBody, Subscription, Voice,
-  absolute, api, isPending, setAccessToken,
+  ApiError, Job, Mode, Progress, Quota, Settings, SubmitBody, Subscription,
+  Voice, absolute, api, isPending, setAccessToken,
 } from "../lib/api";
 import { videoFilename } from "../lib/format";
 import { authEnabled, supabase } from "../lib/supabase";
@@ -26,17 +28,25 @@ const POLL_MS = 2000;
  * what has been made, and "none" and "we have not asked yet" are different
  * answers that must not look the same.
  */
-function Tile({ label, value, text }: {
+function Tile({ label, value, text, icon, tone }: {
   label: string;
   value?: number;
   text?: string;
+  icon?: string;
+  // "accent" for what the account has earned, "ok" for what is finished.
+  // Two roles rather than four hues: a colour per tile would distinguish
+  // nothing, since the tiles are already distinguished by their labels.
+  tone?: "accent" | "ok";
 }) {
   return (
     <div className="tile">
-      <span className="tile-value figure">
-        {text ?? (value === undefined ? "—" : value)}
-      </span>
-      <span className="tile-label">{label}</span>
+      {icon && <span className={`tile-icon tone-${tone ?? "accent"}`} aria-hidden>{icon}</span>}
+      <div className="tile-body">
+        <span className="tile-value figure">
+          {text ?? (value === undefined ? "—" : value)}
+        </span>
+        <span className="tile-label">{label}</span>
+      </div>
     </div>
   );
 }
@@ -76,7 +86,11 @@ export default function Home() {
   // anyone with more than twenty.
   const [plan, setPlan] = useState<Subscription | null>(null);
   const [inspecting, setInspecting] = useState<Job | null>(null);
+  // XP, level, streak and badges -- all computed by the server from jobs that
+  // finished, so there is nothing here to keep in step by hand.
+  const [progress, setProgress] = useState<Progress | null>(null);
 
+  const [query, setQuery] = useState("");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [listFailed, setListFailed] = useState(false);
@@ -158,6 +172,7 @@ export default function Home() {
     // A failure leaves the tiles blank rather than showing zeroes, which
     // would be a claim about how much has been made.
     api.subscription().then(setPlan).catch(() => setPlan(null));
+    api.progress().then(setProgress).catch(() => setProgress(null));
   }, [signedIn]);
 
   // Poll only while something is actually running: a list that is all finished
@@ -239,6 +254,12 @@ export default function Home() {
       setPlayError(err instanceof ApiError ? err.message : "Could not retry the job");
     }
   }
+
+  // Filtered in place, and only on the title: a search box that quietly
+  // matched on hidden fields would be a worse lie than no search box.
+  const shown = query.trim()
+    ? jobs.filter((job) => job.topic.toLowerCase().includes(query.trim().toLowerCase()))
+    : jobs;
 
   async function onCancel(job: Job) {
     setPlayError(null);
@@ -325,6 +346,12 @@ export default function Home() {
     <div className="shell" id="top">
       <Sidebar
         email={email}
+        level={progress?.level ?? null}
+        percent={
+          progress
+            ? Math.round((progress.xp_into_level / progress.xp_for_level) * 100)
+            : null
+        }
         onSettings={() => setSettingsOpen(true)}
         onSignOut={authEnabled ? () => { setAccessToken(null); supabase?.auth.signOut(); } : undefined}
       />
@@ -332,21 +359,39 @@ export default function Home() {
       <div className="shell-main">
       <header className="topbar">
         <div className="topbar-inner">
-          <h1>Dashboard</h1>
+          {/* Search is here because the design has it, and it filters the
+              tutorial list below rather than pretending to search a
+              catalogue that does not exist. */}
+          <label className="search">
+            <span className="search-icon" aria-hidden>⌕</span>
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search your tutorials"
+              aria-label="Search your tutorials"
+            />
+          </label>
           <div className="topbar-right">
             <QuotaMeter quota={quota} failed={quotaFailed} />
+            <ThemeToggle />
           </div>
         </div>
       </header>
 
       <main className="dash">
         <section className="tiles" aria-label="What you have made">
-          <Tile label="Tutorials created" value={plan?.tutorials_created} />
-          <Tile label="Completed" value={plan?.tutorials_completed} />
-          <Tile label="Minutes of video"
-                value={plan ? Math.round(plan.minutes_of_video) : undefined} />
-          <Tile label="Plan" text={plan?.tier} />
+          <Tile icon="▶" tone="accent" label="Tutorials created"
+                value={plan?.tutorials_created} />
+          <Tile icon="✓" tone="ok" label="Completed"
+                value={plan?.tutorials_completed} />
+          <Tile icon="★" tone="accent" label="Total XP" value={progress?.xp} />
+          <Tile icon="🏆" tone="accent" label="Achievements"
+                value={progress?.achievements.filter((a) => a.earned).length} />
         </section>
+
+        <div className="dash-grid">
+        <div className="dash-main">
 
         <div className="layout layout-dash">
         <Composer
@@ -372,7 +417,7 @@ export default function Home() {
             </p>
           )}
           <Library
-            jobs={jobs}
+            jobs={shown}
             loaded={loaded}
             failed={listFailed}
             onPlay={onPlay}
@@ -382,8 +427,17 @@ export default function Home() {
             onInspect={setInspecting}
             onCancel={onCancel}
           />
-          <PlanPanel plan={plan} />
         </div>
+        </div>
+
+        <Achievements progress={progress} />
+        </div>
+
+        <aside className="dash-rail">
+          <LevelCard progress={progress} />
+          <StreakCard progress={progress} />
+          <PlanPanel plan={plan} />
+        </aside>
         </div>
       </main>
       </div>

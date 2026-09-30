@@ -55,6 +55,7 @@ export default defineConfig({
         `PORT=${WEB_PORT} ` +
         `VIDEOSYNX_API_URL=http://127.0.0.1:${API_PORT} ` +
         `NEXT_PUBLIC_DEV_USER=e2e-user:free ` +
+        `VIDEOSYNX_DIST_DIR=.next-e2e ` +
         `npm run dev`,
       url: `http://127.0.0.1:${WEB_PORT}`,
       reuseExistingServer: false,
