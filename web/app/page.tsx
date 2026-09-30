@@ -138,7 +138,7 @@ export default function Landing() {
                 prefers dark arrives on a dark page -- with no way out of it
                 but a system setting, unless the choice is offered here. */}
             <ThemeToggle />
-            <Link className="landing-ghost" href="/dashboard">Sign in</Link>
+            <Link className="landing-ghost landing-signin" href="/dashboard">Sign in</Link>
             <Link className="landing-cta" href="/dashboard#create">Get started</Link>
           </div>
         </div>

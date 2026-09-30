@@ -715,7 +715,21 @@ input:disabled, textarea:disabled, select:disabled {
   .topbar-inner { height: auto; padding: 12px 16px; flex-wrap: wrap; }
   .overlay { padding: 0; align-items: flex-end; }
   .overlay-body { border-radius: var(--r-lg) var(--r-lg) 0 0; }
+
   .job-main { flex-direction: column; align-items: flex-start; gap: 6px; }
+  /* Stacked, the title is a cross-axis child of a flex-start row, so it sizes
+     to its text -- and a long topic ran the whole page sideways instead of
+     ending in an ellipsis. Stretching it is what gives the ellipsis a width
+     to end against. */
+  .job-title { align-self: stretch; }
+
+  /* Below here there is not room for the name as well as five destinations,
+     so the mark stands alone. Above it, a tablet keeps its brand. */
+  .sidebar-logo { padding: 0; }
+  .sidebar-logo span { display: none; }
+  /* The avatar is a letter from an address the email line has already given
+     up showing, so on its own it says nothing and costs the nav its width. */
+  .sidebar-user { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1210,10 +1224,32 @@ input:disabled, textarea:disabled, select:disabled {
   .landing-links { display: none; }
 }
 
+@media (max-width: 940px) {
+  /* "Sign in" and "Get started" wrapped onto two lines and pushed the bar
+     past the edge. Buttons say one thing; they do not wrap. */
+  .landing-nav-inner { gap: 12px; }
+  .landing-nav-actions { gap: 8px; flex-wrap: nowrap; }
+  .landing-nav-actions a,
+  .landing-nav-actions button { white-space: nowrap; }
+}
+
 @media (max-width: 560px) {
   .landing-features, .landing-steps, .landing-cards { grid-template-columns: minmax(0, 1fr); }
   .landing-stats dl { grid-template-columns: minmax(0, 1fr); gap: 32px; }
-  .landing-nav-inner { height: auto; padding: 12px 16px; }
+  .landing-nav-inner { height: 60px; padding: 0 16px; gap: 8px; }
+  .landing-wrap { padding: 0 16px; }
+  .landing-logo { font-size: 16px; gap: 8px; }
+  .landing-logo img { width: 22px; height: 22px; }
+  .landing-nav-actions { gap: 6px; }
+  .landing-nav-actions a,
+  .landing-nav-actions button { padding: 9px 12px; font-size: 13px; }
+
+  /* Both buttons lead to /dashboard, and the one that is left still reaches
+     the sign-in form -- that is the page a signed-out visitor lands on. It
+     has to be dropped here rather than up with the other rules: `.landing-ghost`
+     sets a display of its own and is defined further down the file, so at
+     equal specificity the later one wins. */
+  .landing-signin { display: none; }
 }
 
 /* ================================================================= dashboard
@@ -1426,23 +1462,52 @@ input:disabled, textarea:disabled, select:disabled {
 
 @media (max-width: 940px) {
   .shell { grid-template-columns: minmax(0, 1fr); }
+
+  /* The sidebar becomes the header.
+   *
+   * It is the one thing that has to survive scrolling -- the views are long,
+   * and a navigation that scrolls off the top is a navigation you have to
+   * walk back up the page to use. It sticks, and the topbar below it does
+   * not: the bar already says which view you are on, and the title it repeats
+   * is the first thing that should give way. */
   .sidebar {
-    position: static;
+    position: sticky;
+    top: 0;
+    z-index: 30;
     height: auto;
     flex-direction: row;
     align-items: center;
-    gap: 14px;
-    overflow-x: auto;
+    gap: 10px;
+    padding: 8px 12px;
+    overflow: visible;
     border-right: none;
     border-bottom: 1px solid var(--line);
   }
-  .sidebar-nav { flex-direction: row; }
-  /* The sidebar is a strip along the top here, so the rule that marks the
-     current view has to move to the bottom edge -- a left border would point
-     at nothing. */
+
+  /* One scrolling row rather than two wrapped ones, which is what it did
+     before -- and a wrapped row pushes half the destinations off the edge
+     where nothing can reach them. */
+  .sidebar-nav {
+    flex: 1;
+    min-width: 0;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .sidebar-nav::-webkit-scrollbar { display: none; }
+  .sidebar-nav a { white-space: nowrap; }
+
+  /* The rule that marks the current view moves to the bottom edge -- a left
+     border would point at nothing in a horizontal bar. */
   .sidebar-nav a { border-left: none; border-bottom: 3px solid transparent; }
   .sidebar-nav a[aria-current="page"] { border-bottom-color: var(--accent); }
-  .sidebar-foot { margin-top: 0; flex-direction: row; align-items: center; }
+
+  .sidebar-foot { margin-top: 0; flex-direction: row; align-items: center; gap: 4px; }
+  .sidebar-signout { width: auto; padding: 7px 10px; font-size: 12.5px; }
+
+  /* Static, so the two bars do not stack into a header that eats the screen. */
+  .topbar { position: static; }
   .sidebar-email { display: none; }
   .dash { padding: 18px 16px 72px; }
 }

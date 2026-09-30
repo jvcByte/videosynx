@@ -518,3 +518,43 @@ test("a job submitted into an idle list keeps being followed", async ({ page }) 
   // More than the single look a one-shot refresh would have taken.
   await expect.poll(() => polls, { timeout: 10_000 }).toBeGreaterThan(idle + 1);
 });
+
+test("nothing runs off the side of a phone", async ({ page }) => {
+  // The header was the worst of it: the landing's buttons wrapped onto two
+  // lines and pushed past the edge, and the dashboard's five destinations
+  // wrapped into a block that put two of them out of reach. The job titles
+  // were the other half -- stacked, they sized to their text, so a long topic
+  // ran the whole page sideways instead of ending in an ellipsis.
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  for (const url of ["/", WORKSPACE, at("videos"), at("create"), at("settings")]) {
+    await page.goto(url);
+    // Polled, because the width settles a frame or two after the data lands.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+          ),
+        { message: `${url} is wider than the screen` }
+      )
+      .toBeLessThanOrEqual(0);
+  }
+});
+
+test("the navigation survives scrolling on a phone", async ({ page }) => {
+  // It used to scroll away with the page, which on a long list of videos
+  // means walking back to the top to go anywhere else.
+  await page.setViewportSize({ width: 390, height: 700 });
+  // The settings form, because it is tall whatever the account has made --
+  // a list of videos is only long for someone who has some.
+  await page.goto(at("settings"));
+  await expect(page.getByLabel("Audience")).toBeVisible();
+
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  // The bar itself, and the first destination in it. Not one further along:
+  // the bar scrolls sideways on a phone, so a later link is legitimately off
+  // the right-hand edge and would fail a check that is about the vertical.
+  await expect(page.locator(".sidebar-nav")).toBeInViewport();
+  await expect(page.getByRole("link", { name: "Dashboard" })).toBeInViewport();
+});
