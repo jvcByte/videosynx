@@ -21,11 +21,30 @@ const MODE_OPTIONS: { value: Mode; label: string }[] = [
  * The controls carry explicit `aria-label`s: a wrapping label takes its
  * accessible name from all its text, which here would include every <option>.
  */
+/** What each engine is, in the order the picker lists them. */
+const ENGINES: { id: string; label: string; note: string; paid: boolean }[] = [
+  { id: "kokoro", label: "Kokoro", note: "Included", paid: false },
+  // "auto" is what the byok tier carries: the worker picks the best engine
+  // the machine can run, which today means Kokoro.
+  { id: "auto", label: "Kokoro", note: "Included", paid: false },
+  { id: "elevenlabs", label: "ElevenLabs", note: "Paid", paid: true },
+];
+
 export function SettingsPanel({
-  settings, voices, failed, saving, saved, error, onEdit, onSave,
+  settings, voices, engine, failed, saving, saved, error, onEdit, onSave,
 }: {
   settings: Settings | null;
   voices: Voice[];
+  /**
+   * The engine this account narrates with -- a property of the plan, not a
+   * preference, so it is shown rather than chosen.
+   *
+   * Narration is the cost driver: on ElevenLabs it is roughly sixty cents a
+   * video against about one for the code around it. Letting anyone switch it
+   * on would let anyone spend the operator's money by opening a dropdown,
+   * which is why the tier owns it and the worker reads it from the job.
+   */
+  engine?: string | null;
   failed: boolean;
   saving: boolean;
   saved: boolean;
@@ -158,6 +177,26 @@ export function SettingsPanel({
 
           <fieldset className="group">
             <legend>Narration</legend>
+
+            <label className="field">
+              <span className="field-label">Engine</span>
+              <select aria-label="Engine" value={engine ?? "kokoro"} disabled>
+                {ENGINES.map((option) => (
+                  <option key={option.id} value={option.id} disabled={option.paid}>
+                    {option.label} — {option.note}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {/* Said plainly rather than left as a greyed-out control: a
+                disabled box with no explanation is a puzzle. */}
+            {engine !== "elevenlabs" && (
+              <p className="field-note">
+                ElevenLabs narration is included in Paid.{" "}
+                <a className="field-link" href="#overview">See plans →</a>
+              </p>
+            )}
+
             <label className="field">
               <span className="field-label">Voice</span>
               <select
@@ -183,9 +222,8 @@ export function SettingsPanel({
               </select>
             </label>
             <p className="field-note">
-              Used when your tier narrates with Kokoro. The voice is picked
-              inside whichever engine the tier allows, so it is ignored by a
-              tier that narrates with ElevenLabs.
+              Which Kokoro voice. The engine above decides whether it is
+              used at all, so a plan narrating with ElevenLabs ignores it.
             </p>
           </fieldset>
 

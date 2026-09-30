@@ -402,6 +402,7 @@ export default function Home() {
               <SettingsPanel
                 settings={settings}
                 voices={voices}
+                engine={plan?.tts ?? null}
                 failed={settingsFailed}
                 saving={saving}
                 saved={saved}

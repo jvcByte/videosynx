@@ -637,3 +637,20 @@ test("text can be queued to be read aloud, and a clip is not a video", async ({ 
   await page.goto(at("videos"));
   await expect(page.locator(`[data-testid="job"]:has-text("${line}")`)).toHaveCount(0);
 });
+
+test("the voice engine is shown, and is the plan's to give", async ({ page }) => {
+  // It is a fact about the account, not a preference -- narration on
+  // ElevenLabs is roughly sixty cents a video against about one for the code
+  // around it, so a dropdown that let anyone switch it on would let anyone
+  // spend the operator's money.
+  await page.goto(at("settings"));
+
+  const engine = page.getByLabel("Engine");
+  await expect(engine).toBeVisible();
+  await expect(engine).toBeDisabled();
+  // This account is on free, so Kokoro is what it narrates with.
+  await expect(engine).toHaveValue("kokoro");
+
+  // And the reason is on the page rather than left as a greyed-out box.
+  await expect(page.getByText(/ElevenLabs narration is included in Paid/)).toBeVisible();
+});
