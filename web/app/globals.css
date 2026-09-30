@@ -698,13 +698,17 @@ input:disabled, textarea:disabled, select:disabled {
 
 .landing {
   --l-bg: #ffffff;
-  --l-soft: #f4f7f5;
-  --l-ink: #0c1a12;
-  --l-muted: #4a5a51;
-  --l-faint: #7d8c84;
-  --l-line: #dfe6e2;
-  --l-accent: #0f9d58;
+  --l-soft: #f2f7f5;
+  --l-ink: #0b1a15;
+  --l-muted: #47574f;
+  --l-faint: #7a8a83;
+  --l-line: #dde6e1;
+  /* The brand green, and the only saturated colour on the page. */
+  --l-accent: #086c50;
   --l-accent-ink: #ffffff;
+  /* Tints of the same hue, for the one place the accent needs to recede. */
+  --l-accent-soft: #e3f0eb;
+  --l-accent-deep: #06543e;
 
   background: var(--l-bg);
   color: var(--l-ink);
@@ -766,8 +770,22 @@ input:disabled, textarea:disabled, select:disabled {
 
 /* -------------------------------------------------------------- the hero */
 
+/* The workspace photo, with a scrim so the words stay readable over it.
+   Lightest behind the headline, fading out to the right where the mockup
+   sits on the photograph itself. */
 .landing-hero {
-  background: linear-gradient(180deg, #ffffff 0%, #f7faf8 100%);
+  background-image:
+    linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.97) 0%,
+      rgba(255, 255, 255, 0.94) 36%,
+      rgba(255, 255, 255, 0.58) 62%,
+      rgba(255, 255, 255, 0.12) 100%
+    ),
+    url("/hero_bg.jpg");
+  background-size: cover, cover;
+  background-position: center, center right;
+  background-repeat: no-repeat, no-repeat;
   border-bottom: 1px solid var(--l-line);
 }
 
@@ -784,8 +802,8 @@ input:disabled, textarea:disabled, select:disabled {
   display: inline-block;
   padding: 5px 12px;
   border-radius: 999px;
-  background: #e7f4ec;
-  color: #0b7a45;
+  background: var(--l-accent-soft);
+  color: var(--l-accent);
   font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -1006,7 +1024,7 @@ input:disabled, textarea:disabled, select:disabled {
 
 .landing-card-art {
   height: 150px;
-  background: linear-gradient(135deg, #0f2a1c 0%, #14432c 55%, #0b7a45 100%);
+  background: linear-gradient(135deg, #06231a 0%, #0a3b2c 55%, #086c50 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1048,7 +1066,7 @@ input:disabled, textarea:disabled, select:disabled {
 /* The band the design fills with photographs. It carries the counts instead,
    which is why it is a solid colour with nothing behind it. */
 .landing-stats {
-  background: #0c1a12;
+  background: #062019;
   color: #eaf3ee;
   padding: 56px 0;
 }
@@ -1108,6 +1126,14 @@ input:disabled, textarea:disabled, select:disabled {
 }
 
 @media (max-width: 940px) {
+  /* One column, so the words no longer have a clear side of their own -- the
+     scrim becomes a flat wash instead of a gradient across the text. */
+  .landing-hero {
+    background-image:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%,
+                              rgba(255, 255, 255, 0.9) 100%),
+      url("/hero_bg.jpg");
+  }
   .landing-hero-inner { grid-template-columns: minmax(0, 1fr); gap: 40px; padding-top: 48px; }
   .landing-features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .landing-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
