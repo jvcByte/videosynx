@@ -43,7 +43,7 @@ from .render import render_plan
 from .sandbox import assert_sandbox_available
 from .script import MODES, build_tutorial
 from .srt import write_srt
-from .timeline import FPS, Intro, Phrase, Snippet, Span, build_plan, without_captions
+from .timeline import FPS, Card, Phrase, Snippet, Span, build_plan, without_captions
 
 _console = Console()
 
@@ -344,7 +344,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.demo:
         speaker = choose_speaker(args, allow_paid=False)
         snippets = _demo_snippets(speaker, execute=args.execute)
-        intro = None if args.no_intro else Intro(TOPIC, narrate(speaker, INTRO_TEXT))
+        intro = None if args.no_intro else Card(TOPIC, narrate(speaker, INTRO_TEXT))
         plan = build_plan(snippets, narration_type=args.narration_type,
                           pace=args.pace, intro=intro)
     elif args.lesson:

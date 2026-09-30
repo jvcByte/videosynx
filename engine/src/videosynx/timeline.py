@@ -32,7 +32,7 @@ WEIGHT_LINE_END = 4.0   # the pause at the end of a line
 FRAMES_PER_WEIGHT = 3.0       # ~100 ms per character at a normal pace
 MIN_FRAMES_PER_WEIGHT = 2.2   # ~13 chars/sec: fastest that still reads as typing
 MAX_FRAMES_PER_WEIGHT = 8.0   # ~4 chars/sec: slowest we will stretch to
-INTRO_TAIL_FRAMES = 45        # 1.5 s on the title card after the voice stops
+CARD_TAIL_FRAMES = 45        # 1.5 s on the title card after the voice stops
 
 OUT_LINE_FRAMES = 4  # 133 ms per output line revealed
 POST_PAD_FRAMES = 30  # 1 s of breathing room after each snippet
@@ -245,15 +245,18 @@ class Narration:
 
 
 @dataclass(frozen=True)
-class Intro:
-    """The opening title card, and what is said over it."""
+class Card:
+    """A title card and what is said over it.
+
+    Used at both ends: the opening one says what the video is about, and the
+    closing one says what was covered. Without the second, a tutorial stops
+    the moment the last line of code has been read out, which is not an
+    ending -- it is where the file happened to run out.
+    """
 
     title: str
     phrases: tuple[Phrase, ...] = ()
-
-    @property
-    def subtitle(self) -> str:
-        return "a videosynx tutorial"
+    subtitle: str = "a videosynx tutorial"
 
 
 @dataclass(frozen=True)
@@ -587,13 +590,13 @@ def lay_out_phrases(
     return np.concatenate(parts), starts, lengths
 
 
-def plan_intro(
-    intro: Intro, tail_frames: int = INTRO_TAIL_FRAMES
+def plan_card(
+    intro: Card, tail_frames: int = CARD_TAIL_FRAMES
 ) -> tuple[list[Span], Narration | None, list[Caption], int]:
-    """Build the title card that opens the video.
+    """Build a title card and the narration that runs over it.
 
-    The card holds for the length of its narration plus a beat, so the first
-    snippet does not start the instant the narrator stops.
+    The card holds for the length of its narration plus a beat, so what
+    follows does not start the instant the narrator stops.
     """
     if not intro.phrases:
         return [], None, [], 0
@@ -761,7 +764,8 @@ def build_plan(
     sections: list[Snippet | Explanation],
     narration_type: str = "after",
     pace: str = "narration",
-    intro: Intro | None = None,
+    intro: Card | None = None,
+    outro: Card | None = None,
 ) -> FramePlan:
     """Build the complete frame plan for a tutorial.
 
@@ -777,7 +781,7 @@ def build_plan(
     captions: list[Caption] = []
 
     if intro is not None and intro.phrases:
-        intro_spans, intro_narration, intro_captions, intro_frames = plan_intro(intro)
+        intro_spans, intro_narration, intro_captions, intro_frames = plan_card(intro)
         all_spans.extend(intro_spans)
         if intro_narration is not None:
             narrations.append(intro_narration)
@@ -802,6 +806,17 @@ def build_plan(
         )
         all_spans.extend(spans)
         cursor += n_frames
+
+    if outro is not None and outro.phrases:
+        end_spans, end_narration, end_captions, end_frames = plan_card(outro)
+        if end_narration is not None:
+            narrations.append(Narration(end_narration.samples, cursor))
+        captions.extend(
+            Caption(c.text, c.start_frame + cursor, c.end_frame + cursor)
+            for c in end_captions
+        )
+        all_spans.extend(end_spans)
+        cursor += end_frames
 
     return FramePlan(
         tuple(with_captions(all_spans, captions)),

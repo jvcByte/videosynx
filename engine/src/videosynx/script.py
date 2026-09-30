@@ -22,6 +22,7 @@ from .prompts import (
     code_prompt,
     concept_prompt,
     intro_prompt,
+    outro_prompt,
     narration_prompt,
     parse_anchored,
     parse_code,
@@ -30,7 +31,7 @@ from .prompts import (
 )
 from .providers import ProviderError, Speaker, Writer
 from .sandbox import DEFAULT_TIMEOUT_S, assert_sandbox_available
-from .timeline import Explanation, FramePlan, Intro, Phrase, Slide, Snippet, build_plan
+from .timeline import Explanation, FramePlan, Card, Phrase, Slide, Snippet, build_plan
 
 _console = Console()
 
@@ -245,6 +246,7 @@ def build_tutorial(
     context: str = "",
     execute: bool = True,
     intro: bool = True,
+    outro: bool = True,
     mode: str = "both",
     max_snippets: int | None = None,
     timeout_s: int = DEFAULT_TIMEOUT_S,
@@ -292,10 +294,25 @@ def build_tutorial(
             # throws all of that away, and --no-intro proves it is optional.
             _console.log(f"[yellow]No title card: {exc}[/yellow]")
         else:
-            card = Intro(topic, speak_plain(speaker, opening))
+            card = Card(topic, speak_plain(speaker, opening))
+
+    end_card = None
+    if intro and outro:
+        _console.log("[blue]Writing the closing[/blue]")
+        # The slide headings, so the summary is of this video rather than of
+        # the topic in general. A code-only run has none, and says so.
+        covered = [e.slide.heading for e in concepts if e.slide.heading]
+        try:
+            closing = writer.write(outro_prompt(topic, covered))
+        except ProviderError as exc:
+            # Same reasoning as the opening: framing, written last, and the
+            # video is finished without it.
+            _console.log(f"[yellow]No closing card: {exc}[/yellow]")
+        else:
+            end_card = Card(topic, speak_plain(speaker, closing))
 
     sections: list[Snippet | Explanation] = [*concepts, *built]
-    plan = build_plan(sections, intro=card)
+    plan = build_plan(sections, intro=card, outro=end_card)
     _console.log(
         f"[green]Plan:[/green] {plan.total_frames} frames, {plan.duration_s:.1f}s, "
         f"{len(plan.captions)} captions"

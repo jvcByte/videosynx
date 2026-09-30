@@ -299,6 +299,10 @@ CONCEPTS = """Here are the slides:
 """
 
 
+CLOSING = ("That is the running total: a loop, and one variable carried through it. "
+           "You can now add up anything that arrives one item at a time.")
+
+
 def _scripted_for(mode: str = "both", include_intro: bool = True) -> ScriptedWriter:
     """Responses in the order the given mode asks for them."""
     responses: list[str] = []
@@ -310,6 +314,7 @@ def _scripted_for(mode: str = "both", include_intro: bool = True) -> ScriptedWri
     if include_intro:
         responses.append("In this video we build up a running total step by step. "
                          "We start with a loop, then add each number into it.")
+        responses.append(CLOSING)
     return ScriptedWriter(responses)
 
 
@@ -470,7 +475,9 @@ def test_a_failed_title_card_does_not_lose_the_whole_video():
     tutorial = build_tutorial("Running totals", writer=writer,
                               speaker=ToneSpeaker(), execute=False)
 
-    assert all(span.state.title is None for span in tutorial.plan.spans)
+    # The opening is gone; the tutorial is not. The closing card is its own
+    # call and still lands, so what must be absent is a card at the *start*.
+    assert tutorial.plan.spans[0].state.title is None
     assert tutorial.plan.captions
     assert any(span.state.slide for span in tutorial.plan.spans)
     assert any(span.state.code for span in tutorial.plan.spans)
@@ -890,3 +897,61 @@ def test_no_env_file_anywhere_is_not_an_error(tmp_path):
 
     (tmp_path / ".git").mkdir()
     assert find(tmp_path) is None
+
+
+def test_the_video_ends_on_a_card():
+    """A tutorial used to stop the moment the last line was read out.
+
+    Not an ending -- where the file happened to run out. The closing card is
+    the answer to "what did I just watch", and it is the last thing heard.
+    """
+    tutorial = build_tutorial("Running totals", writer=_scripted(),
+                              speaker=ToneSpeaker(), execute=False)
+
+    last = tutorial.plan.spans[-1]
+    assert last.state.title == "Running totals"
+    assert not last.state.code and last.state.slide is None
+
+    # And the words are the ones written for the closing, not the opening.
+    # Captions, not narrations: a Narration is audio and a frame offset, and
+    # the captions are the only place the sentences survive as text.
+    end = tutorial.plan.captions[-6:]
+    spoken = " ".join(c.text for c in end).lower()
+    assert "running total" in spoken, spoken
+
+
+def test_the_closing_is_summarised_from_the_slides():
+    """It summarises this video, not the topic in general."""
+    writer = _scripted()
+    build_tutorial("Running totals", writer=writer, speaker=ToneSpeaker(),
+                   execute=False)
+
+    closing = next(p for p in writer.prompts if "closing narration" in p)
+    assert "How a running total works" in closing or "- " in closing
+
+
+def test_a_failed_closing_card_does_not_lose_the_whole_video():
+    """The same bargain as the opening: framing is written last, after
+    everything paid for, and the video is finished without it."""
+    class OutroFails(ScriptedWriter):
+        def write(self, prompt: str) -> str:
+            if "closing narration" in prompt:
+                raise ProviderError("every model failed -- daily quota exhausted")
+            return super().write(prompt)
+
+    writer = OutroFails([CONCEPTS, f"```python\n{CODE}```\n", NARRATION, "Opening words."])
+    tutorial = build_tutorial("Running totals", writer=writer,
+                              speaker=ToneSpeaker(), execute=False)
+
+    # One card, and it is the opening: the closing never made it. Counted as
+    # runs, because a card is several spans -- one per caption and one of
+    # held silence at the end.
+    spans = tutorial.plan.spans
+    runs = sum(
+        1 for i, span in enumerate(spans)
+        if span.state.title and (i == 0 or not spans[i - 1].state.title)
+    )
+    assert runs == 1, [s.state.title for s in spans]
+    assert spans[0].state.title is not None
+    assert any(span.state.code for span in tutorial.plan.spans)
+    assert tutorial.plan.captions

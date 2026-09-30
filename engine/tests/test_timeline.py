@@ -19,7 +19,7 @@ from videosynx.timeline import (
     FPS,
     SPF,
     SR,
-    Intro,
+    Card,
     Phrase,
     Snippet,
     build_plan,
@@ -474,8 +474,8 @@ def test_srt_timestamps_and_layout():
 
 # ------------------------------------------------------------------ intro
 
-def _intro() -> Intro:
-    return Intro("Python List Comprehensions",
+def _intro() -> Card:
+    return Card("Python List Comprehensions",
                  (phrase("In this video we build lists.", 2.0),
                   phrase("Then we count some names.", 2.0)))
 
@@ -493,13 +493,13 @@ def test_intro_opens_with_a_title_card():
 
 
 def test_intro_duration_follows_its_narration():
-    from videosynx.timeline import INTRO_TAIL_FRAMES
+    from videosynx.timeline import CARD_TAIL_FRAMES
 
     intro = _intro()
     plan = build_plan([_captioned_snippet()], intro=intro)
     card_frames = sum(s.n_frames for s in plan.spans if s.state.title is not None)
     spoken = sum(p.n_frames for p in intro.phrases)
-    assert card_frames == spoken + INTRO_TAIL_FRAMES
+    assert card_frames == spoken + CARD_TAIL_FRAMES
 
 
 def test_intro_captions_are_shown_on_the_card():
@@ -533,7 +533,7 @@ def test_no_intro_means_no_title_card():
 
 
 def test_intro_without_narration_is_ignored():
-    plan = build_plan([_captioned_snippet()], intro=Intro("Empty", ()))
+    plan = build_plan([_captioned_snippet()], intro=Card("Empty", ()))
     assert all(s.state.title is None for s in plan.spans)
 
 

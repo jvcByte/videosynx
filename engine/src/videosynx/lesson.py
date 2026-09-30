@@ -40,7 +40,7 @@ from .sandbox import DEFAULT_TIMEOUT_S, assert_sandbox_available
 from .script import Tutorial, speak_anchored, speak_plain
 from .timeline import (
     Explanation,
-    Intro,
+    Card,
     Phrase,
     Slide,
     Snippet,
@@ -258,7 +258,7 @@ def build_lesson(
         )
         snippets[-1] = replace(last, phrases=last.phrases + closing)
 
-    card = Intro(lesson.title, speak_plain(speaker, lesson.intro)) if lesson.intro else None
+    card = Card(lesson.title, speak_plain(speaker, lesson.intro)) if lesson.intro else None
     plan = build_plan(snippets, intro=card)
     _console.log(
         f"[green]Plan:[/green] {plan.total_frames} frames, {plan.duration_s:.1f}s, "

@@ -107,6 +107,29 @@ narrator says what the video is about and what the viewer will do.
    sentence someone could follow having never seen the card.
 """
 
+OUTRO_PROMPT = """Write the closing narration for a short coding tutorial video.
+
+**Topic:** {topic}
+
+The video is over. It ends on a card showing the topic again, and the narrator
+says what the viewer has just been through.
+
+What the video covered:
+{covered}
+
+**Instructions:**
+1. Two or three sentences, under twenty words each.
+2. Say what the viewer can now do, or what the pieces add up to. It is the
+   answer to "what did I just watch", and it is the last thing they will hear.
+3. Name the thing in the topic's own words. A closing that reaches for a
+   different vocabulary ends the video in a language the video never taught.
+4. Raise nothing new. No new terms, no "next time", no "in the next video".
+5. Do not thank the viewer and do not say goodbye. It is a summary, not a
+   sign-off.
+6. Do not use markdown or quotation marks.
+"""
+
+
 CONCEPT_PROMPT = """Write the concept slides that open a tutorial video on the topic below.
 
 **Topic:** {topic}
@@ -296,6 +319,15 @@ def narration_prompt(code: str) -> str:
 
 def intro_prompt(topic: str) -> str:
     return INTRO_PROMPT.format(topic=topic)
+
+
+def outro_prompt(topic: str, covered: list[str] | None = None) -> str:
+    """The closing card. *covered* is what the slides actually said."""
+    listed = "\n".join(f"- {line}" for line in (covered or []))
+    return OUTRO_PROMPT.format(
+        topic=topic,
+        covered=listed or "- (no slides: this one was code throughout)",
+    )
 
 
 def concept_prompt(topic: str, context: str = "",
