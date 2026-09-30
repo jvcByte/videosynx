@@ -93,12 +93,18 @@ narrator says what the video is about and what the viewer will do.
 
 **Instructions:**
 1. Two or three sentences, under twenty words each.
-2. Name the real-world scenario the video works in -- which kind of system
-   this code belongs to and what it is used for. The viewer should know where
-   this applies before any code appears.
-3. Say what the viewer will build or learn, and the order they will do it in.
-4. Do not use markdown, quotation marks, or any greeting like "welcome".
-5. Do not repeat the topic as a bare title -- make it a spoken sentence.
+2. **The first sentence says what the topic is.** The viewer chose this
+   subject by name and has been told nothing else yet, so name it in plain
+   language before anything else happens: what it is, or what it is for.
+   Asked for variables, open on variables -- not on the store, the system or
+   the scenario the later examples happen to live in.
+3. Then say where it applies, if there is somewhere worth naming. The
+   scenario comes after the subject, never instead of it, and a topic that is
+   its own setting does not need one invented for it.
+4. Say what the viewer will build or learn, and the order they will do it in.
+5. Do not use markdown, quotation marks, or any greeting like "welcome".
+6. Do not read the title back as a bare fragment. Say what the thing is, in a
+   sentence someone could follow having never seen the card.
 """
 
 CONCEPT_PROMPT = """Write the concept slides that open a tutorial video on the topic below.

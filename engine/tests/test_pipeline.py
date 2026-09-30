@@ -132,10 +132,21 @@ def test_the_code_prompt_bans_placeholder_names():
     assert "Never" in prompt
 
 
-def test_the_intro_prompt_asks_where_it_applies():
-    prompt = intro_prompt("Decorators")
-    assert "real-world scenario" in prompt
-    assert "which kind of system" in prompt
+def test_the_intro_prompt_puts_the_subject_before_the_scenario():
+    """Asked for Python basics, the video opened on "In an online store
+    inventory system..." -- the scenario, which the viewer had not asked for
+    and could not place, before the thing they did ask for had been named
+    once. The subject goes first."""
+    prompt = flat(intro_prompt("Decorators"))
+    assert "first sentence says what the topic is" in prompt
+    assert "after the subject, never instead of it" in prompt
+
+
+def test_the_intro_prompt_still_asks_where_it_applies():
+    """Real-world grounding is the point of the product; this is only about
+    the order it arrives in."""
+    prompt = flat(intro_prompt("Decorators"))
+    assert "where it applies" in prompt
 
 
 def flat(text: str) -> str:
