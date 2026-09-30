@@ -98,8 +98,17 @@ export function Achievements({ progress }: { progress: Progress | null }) {
       <ul className="awards-row">
         {progress.achievements.map((badge) => (
           <li key={badge.id} className={badge.earned ? "is-earned" : ""}>
-            <span className="award-medal" aria-hidden>{badge.earned ? "★" : "🔒"}</span>
-            <span className="award-name">{badge.name}</span>
+            {/* The same medal either way, so the row is a set you are
+                collecting rather than a legend of two icons. What tells them
+                apart is the metal, which a screen reader cannot see -- hence
+                the state in words beside the name. */}
+            <span className="award-medal" aria-hidden>★</span>
+            <span className="award-name">
+              {badge.name}
+              <span className="visually-hidden">
+                {badge.earned ? " — earned" : " — not earned yet"}
+              </span>
+            </span>
             {/* What it takes, on every one. A greyed-out badge with no
                 explanation is a puzzle, not encouragement. */}
             <span className="award-requires">{badge.requires}</span>

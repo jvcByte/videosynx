@@ -62,7 +62,7 @@ export function SettingsPanel({
             <legend>Content</legend>
 
             <label className="field">
-              <span>Generation</span>
+              <span className="field-label">Generation</span>
               <select
                 aria-label="Generation"
                 value={settings.generation}
@@ -82,7 +82,7 @@ export function SettingsPanel({
             </p>
 
             <label className="field">
-              <span>Default mode</span>
+              <span className="field-label">Default mode</span>
               <select
                 aria-label="Default mode"
                 value={settings.mode}
@@ -97,7 +97,7 @@ export function SettingsPanel({
             </label>
 
             <label className="field">
-              <span>Audience</span>
+              <span className="field-label">Audience</span>
               <select
                 aria-label="Audience"
                 value={settings.audience}
@@ -112,7 +112,7 @@ export function SettingsPanel({
             </label>
 
             <label className="field">
-              <span>Length</span>
+              <span className="field-label">Length</span>
               <select
                 aria-label="Length"
                 value={settings.length}
@@ -127,7 +127,7 @@ export function SettingsPanel({
             </label>
 
             <label className="field">
-              <span>Focus</span>
+              <span className="field-label">Focus</span>
               <input
                 aria-label="Focus"
                 value={settings.focus}
@@ -142,7 +142,7 @@ export function SettingsPanel({
             <legend>Presentation</legend>
 
             <label className="field">
-              <span>Illustration style</span>
+              <span className="field-label">Illustration style</span>
               <select
                 aria-label="Illustration style"
                 value={settings.style}
@@ -169,7 +169,7 @@ export function SettingsPanel({
           <fieldset className="group">
             <legend>Narration</legend>
             <label className="field">
-              <span>Voice</span>
+              <span className="field-label">Voice</span>
               <select
                 aria-label="Voice"
                 value={settings.voice}
