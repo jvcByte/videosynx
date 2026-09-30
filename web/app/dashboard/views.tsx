@@ -8,10 +8,12 @@ import { Achievements, LevelCard, StreakCard } from "../components/Progress";
 import { Player } from "../components/Player";
 import { Status } from "../components/Status";
 import {
-  ApiError, Feature, Job, Mode, Progress, Quota, Settings, SubmitBody,
+  ApiError, Feature, Job, Mode, Plans, Progress, Quota, Settings, SubmitBody,
   Subscription, Voice, absolute, api, isPending,
 } from "../lib/api";
-import { byLanguage, duration, labelFor, videoFilename } from "../lib/format";
+import {
+  byLanguage, duration, labelFor, relativeTime, videoFilename,
+} from "../lib/format";
 
 const POLL_MS = 2000;
 
@@ -564,6 +566,104 @@ export function SpeechView() {
 
       {playing && (
         <Player url={playing} title="Your audio" onClose={() => setPlaying(null)} />
+      )}
+    </div>
+  );
+}
+
+
+/**
+ * The wallet: what is in it, what it buys, and where it went.
+ *
+ * A balance is only money if something spends it. Credits are what a job
+ * costs once the day's allowance is gone, and the ledger below is the
+ * record -- every grant and every charge, append-only, added up rather than
+ * stored as a running total that could disagree with its own history.
+ */
+export function WalletView() {
+  const [plan, setPlan] = useState<Subscription | null>(null);
+  const [packs, setPacks] = useState<Plans | null>(null);
+  const [busy, setBusy] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.subscription().then(setPlan).catch(() => setPlan(null));
+    api.plans().then(setPacks).catch(() => setPacks(null));
+  }, []);
+
+  async function buy(credits: number) {
+    setBusy(credits);
+    setError(null);
+    try {
+      const { url } = await api.buyCredits(credits);
+      window.location.assign(url);
+    } catch (err) {
+      // Billing not being configured is the ordinary state of a deployment
+      // that has not set it up, and the server says so in its own words.
+      setError(err instanceof ApiError ? err.message : "Could not start the purchase");
+      setBusy(null);
+    }
+  }
+
+  // No separate failure branch: a balance that did not load is an em dash and
+  // a history that did not load is a skeleton, which is what the rest of the
+  // app does and what the states above already render.
+  const balance = plan?.credits;
+
+  return (
+    <div className="view-narrow">
+      <section className="card wallet-card">
+        <span className="wallet-label">Balance</span>
+        {/* An em dash, not a zero: "none" and "not asked yet" are different
+            answers, and only one of them is about your money. */}
+        <p className="wallet-balance figure">
+          {balance ?? "—"}
+          <span>{balance === 1 ? "credit" : "credits"}</span>
+        </p>
+        <p className="field-note">
+          {packs
+            ? `One credit is one tutorial, once the day's ${plan?.jobs_per_day ?? ""} ` +
+              "are used up. Nothing else spends them."
+            : "One credit is one tutorial, past the day's allowance."}
+        </p>
+      </section>
+
+      <h3 className="clips-head">Buy more</h3>
+      <ul className="packs-row wallet-packs">
+        {(packs?.credit_packs ?? []).map((pack) => (
+          <li className="pack" key={pack.credits}>
+            <span className="pack-credits figure">{pack.credits}</span>
+            <span className="pack-unit">credits</span>
+            <span className="pack-price figure">${pack.usd}</span>
+            <span className="pack-note">{pack.note}</span>
+            <button className="ghost" disabled={busy !== null} onClick={() => buy(pack.credits)}>
+              {busy === pack.credits ? "Opening…" : "Buy"}
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {error && <p className="notice notice-bad" role="alert">{error}</p>}
+
+      <h3 className="clips-head">History</h3>
+      {!plan ? (
+        <div className="card"><span className="skeleton skeleton-line" /></div>
+      ) : plan.recent.length === 0 ? (
+        <p className="clips-empty">
+          Nothing yet. Buying credits, and spending them, both appear here.
+        </p>
+      ) : (
+        <ul className="ledger">
+          {plan.recent.map((entry, index) => (
+            <li className="ledger-row" key={`${entry.at}-${index}`}>
+              <span className={`ledger-delta figure ${entry.delta > 0 ? "is-in" : ""}`}>
+                {entry.delta > 0 ? `+${entry.delta}` : entry.delta}
+              </span>
+              <span className="ledger-reason">{entry.reason}</span>
+              <span className="ledger-at">{relativeTime(entry.at)}</span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

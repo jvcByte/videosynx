@@ -237,6 +237,34 @@ export interface Feature {
   joined: boolean;
 }
 
+/** One plan, as the landing page advertises it and the API enforces it. */
+export interface Plan {
+  id: string;
+  name: string;
+  price_usd: number;
+  tagline: string;
+  features: string[];
+  jobs_per_day: number;
+  resolution: number[];
+  watermark: boolean;
+  tts: string;
+}
+
+/** A pack of credits, sold on top of a plan. */
+export interface CreditPack {
+  credits: number;
+  usd: number;
+  note: string;
+}
+
+export interface Plans {
+  currency: string;
+  plans: Plan[];
+  credit_packs: CreditPack[];
+  /** What one job costs once the day's allowance is spent. */
+  credits_per_job: number;
+}
+
 /** What the service has actually done. Public — no account needed. */
 export interface Stats {
   tutorials_rendered: number;
@@ -278,6 +306,37 @@ export interface PublishedExample {
   video_url: string;
 }
 
+/**
+ * The API, from the server.
+ *
+ * A relative URL cannot be fetched from a server component -- there is no
+ * origin to resolve it against -- so this reaches the API where the rewrite
+ * would have. Public endpoints only: nothing here carries a token, and the
+ * landing page is the only thing that uses it.
+ */
+export async function serverGet<T>(
+  path: string,
+  { cache = "revalidate" }: { cache?: "revalidate" | "fresh" } = {}
+): Promise<T | null> {
+  const base = process.env.VIDEOSYNX_API_URL ?? "http://localhost:8000";
+  try {
+    const response = await fetch(`${base}${path}`, {
+      // A response carrying signed URLs must never be cached. The signature
+      // is time-limited, so a cached one is a dead link waiting to be served
+      // -- and it is minted with a per-process secret, so an API restart
+      // invalidates every one of them at once. That is a 403 on a still, for
+      // as long as the cache lives, which is exactly what it looked like.
+      ...(cache === "fresh"
+        ? { cache: "no-store" as const }
+        : { next: { revalidate: 60 } }),
+    });
+    return response.ok ? ((await response.json()) as T) : null;
+  } catch {
+    // A landing page that cannot reach its own API still shows the product.
+    return null;
+  }
+}
+
 export const api = {
   stats: () => request<Stats>("/stats"),
   examples: () => request<PublishedExample[]>("/examples"),
@@ -312,6 +371,14 @@ export const api = {
   /** Join the waitlist for one. Joining twice is still one person. */
   joinFeature: (id: string) =>
     request<Feature>(`/features/${id}/interest`, { method: "POST" }),
+  /** What it costs. Public — the landing page renders it. */
+  plans: () => request<Plans>("/plans"),
+  /** Buy a pack of credits. Returns a Stripe URL to open. */
+  buyCredits: (credits: number) =>
+    request<{ url: string; id: string }>("/billing/credits", {
+      method: "POST",
+      body: JSON.stringify({ credits }),
+    }),
   /** Queue text to be read aloud. Comes back as a job, like a video. */
   speak: (text: string, voice?: string) =>
     request<{ id: string }>("/speech", {

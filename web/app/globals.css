@@ -2077,3 +2077,153 @@ input:disabled, textarea:disabled, select:disabled {
    where you would choose, and it is disabled because the choice is the plan's
    -- so it keeps the shape of the setting it will become. */
 .settings-view select:disabled { opacity: 0.75; cursor: not-allowed; }
+
+/* ================================================================= pricing
+ *
+ * Three plans and a row of credit packs. No bordered cards: the plans are
+ * separated by a rule and an alignment, because six boxes with shadows is
+ * the look this page has avoided everywhere else.
+ */
+
+.landing-pricing { padding-top: 88px; padding-bottom: 88px; }
+
+.plans {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  border-top: 1px solid var(--line);
+}
+
+.plan {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 30px 26px 30px 0;
+  border-right: 1px solid var(--line);
+}
+
+.plan:last-child { border-right: none; padding-right: 0; }
+.plan:not(:first-child) { padding-left: 26px; }
+
+.plan h3 { font-size: 15px; font-weight: 650; letter-spacing: 0.02em; text-transform: uppercase; color: var(--fg-muted); }
+.plan-tagline { font-size: 14px; color: var(--fg-faint); min-height: 2.6em; }
+
+/* The price is the one thing on the row that should be read from across the
+   room, so it is the only thing at display size. */
+.plan-price { font-size: 40px; font-weight: 700; letter-spacing: -0.03em; margin-top: 6px; }
+.plan-price span {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--fg-faint);
+}
+
+.plan-features { list-style: none; margin: 8px 0 22px; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.plan-features li { font-size: 14px; color: var(--fg-muted); padding-left: 18px; position: relative; }
+.plan-features li::before { content: "✓"; position: absolute; left: 0; color: var(--accent); }
+
+/* The cheapest plan gets no fill: the point of the column is that it is the
+   one you can have now, not that it is the one being sold. */
+.plan .landing-cta, .plan .landing-ghost { margin-top: auto; text-align: center; }
+
+.packs {
+  margin-top: 46px;
+  padding-top: 30px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  gap: 30px;
+  align-items: start;
+}
+
+.packs-head h3 { font-size: 15px; font-weight: 650; letter-spacing: 0.02em; text-transform: uppercase; color: var(--fg-muted); }
+.packs-head p { margin-top: 8px; font-size: 14px; color: var(--fg-faint); line-height: 1.55; }
+
+.packs-row { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+
+.pack {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: 6px 8px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+
+.pack-credits { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+.pack-unit { font-size: 13px; color: var(--fg-faint); }
+.pack-price { grid-column: 3; justify-self: end; font-size: 17px; font-weight: 600; }
+.pack-note { grid-column: 1 / -1; font-size: 13px; color: var(--fg-faint); }
+.pack .landing-ghost { grid-column: 1 / -1; margin-top: 6px; text-align: center; }
+
+@media (max-width: 940px) {
+  .plans { grid-template-columns: minmax(0, 1fr); }
+  .plan { border-right: none; border-bottom: 1px solid var(--line); padding: 26px 0; }
+  .plan:not(:first-child) { padding-left: 0; }
+  .plan-tagline { min-height: 0; }
+  .packs { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 560px) {
+  .packs-row { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* -------------------------------------------------------------- the wallet
+ *
+ * The balance is the number you came for, so it is the only thing at display
+ * size. Everything under it is explanation and record.
+ */
+
+.wallet-card { padding: 24px; }
+.wallet-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+.wallet-balance {
+  margin-top: 6px;
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.wallet-balance span {
+  margin-left: 8px;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--fg-faint);
+}
+
+.wallet-card .field-note { margin-top: 10px; }
+.wallet-packs { margin: 0 0 4px; }
+.wallet-packs .pack button { grid-column: 1 / -1; margin-top: 6px; padding: 9px 12px; font-size: 13.5px; }
+
+.ledger { list-style: none; margin: 0; padding: 0; }
+
+.ledger-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+}
+
+.ledger-row:last-child { border-bottom: none; }
+
+/* Money in is the only thing on this page worth a colour. */
+.ledger-delta { min-width: 44px; color: var(--fg-muted); font-weight: 600; }
+.ledger-delta.is-in { color: var(--ok); }
+.ledger-reason { flex: 1; min-width: 0; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ledger-at { color: var(--fg-faint); }

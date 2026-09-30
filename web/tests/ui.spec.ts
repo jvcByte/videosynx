@@ -654,3 +654,31 @@ test("the voice engine is shown, and is the plan's to give", async ({ page }) =>
   // And the reason is on the page rather than left as a greyed-out box.
   await expect(page.getByText(/ElevenLabs narration is included in Paid/)).toBeVisible();
 });
+
+test("the wallet says what is in it and what a credit buys", async ({ page }) => {
+  await page.goto(at("wallet"));
+
+  // A balance, not a zero: this account has none, and "none" and "not asked
+  // yet" are different answers about somebody's money.
+  await expect(page.getByText("Balance")).toBeVisible();
+  await expect(page.locator(".wallet-balance")).toContainText("0");
+
+  // What it is for, in as many words.
+  await expect(page.getByText(/one credit is one tutorial/i)).toBeVisible();
+
+  // The packs, priced by the server rather than by the page.
+  await expect(page.locator(".wallet-packs .pack")).toHaveCount(2);
+
+  // Nothing bought yet, and it says so rather than showing an empty table.
+  await expect(page.getByText(/Nothing yet. Buying credits/)).toBeVisible();
+});
+
+test("buying credits explains itself when billing is not configured", async ({ page }) => {
+  // The ordinary state of a deployment that has not set Stripe up. Pressing
+  // it must say so rather than look like it worked.
+  await page.goto(at("wallet"));
+  await page.locator(".wallet-packs .pack").first().getByRole("button").click();
+  // Scoped to the wallet's own notice: the page has other regions, and a
+  // bare alert locator finds whichever of them happens to be a role=alert.
+  await expect(page.locator(".notice-bad")).toContainText(/not configured/i);
+});

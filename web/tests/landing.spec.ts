@@ -20,7 +20,7 @@ test("the landing page introduces the product", async ({ page }) => {
 });
 
 /** The only API routes a signed-out visitor is allowed to cause. */
-const PUBLIC_ROUTES = ["/api/stats", "/api/examples"];
+const PUBLIC_ROUTES = ["/api/stats", "/api/examples", "/api/artifacts"];
 
 test("the landing page makes no authenticated requests", async ({ page }) => {
   // It is public. Anything it asks the API for has to work without a login,
@@ -36,8 +36,10 @@ test("the landing page makes no authenticated requests", async ({ page }) => {
   await page.waitForTimeout(1200);
 
   for (const path of calls) {
-    expect(PUBLIC_ROUTES, `unexpected call from a public page: ${path}`)
-      .toContain(path);
+    // Prefix rather than equality: a still's path is /api/artifacts/<key>,
+    // and the key is the job's.
+    const allowed = PUBLIC_ROUTES.some((route) => path.startsWith(route));
+    expect(allowed, `unexpected call from a public page: ${path}`).toBe(true);
   }
 });
 
@@ -52,41 +54,36 @@ test("the landing page leads to the composer", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Generate" })).toBeVisible();
 });
 
-test("the examples section stands on its own with nothing published", async ({ page }) => {
-  // What it looks like before an operator publishes anything, which is the
-  // state this build is in. The cards carry topics the service can make --
-  // and no running times, because a duration for a video nobody rendered is
-  // the same kind of claim as a user count nobody earned.
+// The two states this section has -- published cards, and the topic
+// placeholders it falls back to -- cannot both be reached in one run, because
+// which is published is the server's business now. This stack publishes one,
+// so that is what is asserted; the fallback is covered in api/tests, where
+// the list of published ids can be set per test.
+test("the examples section shows what is published", async ({ page }) => {
   await page.goto("/");
   const section = page.locator("#examples");
 
   await expect(section.getByRole("heading", { name: "See it in action" })).toBeVisible();
   await expect(section.getByRole("link", { name: /View more examples/ })).toBeVisible();
-  await expect(section.getByRole("article")).toHaveCount(3);
-  await expect(section.locator(".landing-card-time")).toHaveCount(0);
+  // One card, and it is the published one rather than a topic placeholder --
+  // the difference being that this one has a running time and a still.
+  await expect(section.getByRole("article")).toHaveCount(1);
+  await expect(section.locator(".landing-card-time")).toHaveCount(1);
 });
 
 test("a published video shows its still and its running time", async ({ page }) => {
-  // Intercepted rather than published for real: this is about what the page
-  // does with an example, not about which ones this instance has.
-  await page.route("**/api/examples", (route) =>
-    route.fulfill({
-      json: [{
-        id: "e1", title: "A published tutorial", duration_s: 272,
-        // What the API actually returns: the prefix is added by the page.
-        mode: "both", poster_url: null, video_url: "/artifacts/x.mp4",
-      }],
-    })
-  );
-
+  // Published for real rather than intercepted. The page renders its examples
+  // on the server -- which is the point of that, and the reason a browser
+  // route cannot stand in for one any more. global-setup puts a real job and
+  // a real mp4 in the database this stack runs against.
   await page.goto("/");
   const section = page.locator("#examples");
 
-  await expect(section.getByText("A published tutorial")).toBeVisible();
-  await expect(section.locator(".landing-card-time")).toHaveText("4:32");
-  // It has somewhere to go, and it is not one of the topic placeholders.
-  await expect(section.getByRole("link", { name: /Play A published tutorial/ }))
-    .toHaveAttribute("href", "/api/artifacts/x.mp4");
+  const card = section.getByRole("article").filter({ hasText: "A published tutorial" });
+  await expect(card).toBeVisible();
+  // 272 seconds, which is also what the row says.
+  await expect(card.locator(".landing-card-time")).toHaveText("4:32");
+  // And it is not one of the topic placeholders.
   await expect(section.getByRole("article")).toHaveCount(1);
 });
 
@@ -95,32 +92,53 @@ test("a published still is fetched from the API, not from the page's own origin"
   // it through the /api rewrite -- so a path used raw is a request to the Next
   // server, which has never served one. Every example card showed a broken
   // image, and nothing noticed because no example had ever been published.
-  await page.route("**/api/examples", (route) =>
-    route.fulfill({
-      json: [{
-        id: "e1", title: "A published tutorial", duration_s: 272, mode: "both",
-        poster_url: "/artifacts/artifacts/free/e1.poster.jpg?expires=1&sig=x",
-        video_url: "/artifacts/artifacts/free/e1.mp4?expires=1&sig=x",
-      }],
-    })
-  );
-
   await page.goto("/");
   const section = page.locator("#examples");
 
-  await expect(section.locator(".landing-card-poster"))
+  // The URL shape, and then the thing itself: a src that is right and an
+  // image that never loads is the bug this was written for.
+  await expect(section.locator(".landing-card-poster").first())
     .toHaveAttribute("src", /^\/api\/artifacts\//);
   await expect(section.getByRole("link", { name: /Play A published tutorial/ }))
     .toHaveAttribute("href", /^\/api\/artifacts\//);
+
+  // Polled, because a src that is right and an image still in flight look
+  // identical for a moment -- and the moment is what an evaluate lands on.
+  await expect
+    .poll(
+      () => section.locator(".landing-card-poster").first()
+        .evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0),
+      { message: "the still was fetched but is not an image" }
+    )
+    .toBe(true);
 });
 
-test("an empty service shows no numbers rather than zeroes", async ({ page }) => {
-  // Three zeroes is a true measurement and a bad sentence. Nothing to report
-  // and reporting nothing are different, and this is the difference.
+test("the figures shown are the ones the API reports", async ({ page, request }) => {
+  // It used to assert the empty case, which this stack can no longer reach:
+  // it publishes a tutorial, so the service is never empty. Three zeroes is a
+  // true measurement and a bad sentence -- that half lives in api/tests,
+  // against a database that can be emptied per test. What is checked here is
+  // that the number on the page is the number the API counted.
+  const stats = await (await request.get("http://127.0.0.1:8021/stats")).json();
+
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-  await expect(page.getByText("Tutorials created")).toHaveCount(0);
-  await expect(page.getByText("Platform activity")).toHaveCount(0);
+  const section = page.locator(".landing-stats");
+  await expect(section).toBeVisible();
+  await expect(section.getByText("Platform activity")).toBeVisible();
+
+  // By its label rather than by the number, because with one tutorial
+  // rendered the same "1" is also the topic count.
+  const figures = section.locator("dl > div");
+  await expect(figures.nth(0).locator("dt")).toHaveText("Tutorials created");
+  await expect(figures.nth(1).locator("dt")).toHaveText("Video minutes");
+
+  // A real count rather than an em dash or a zero -- which is the property
+  // this band exists for. The exact figure is not compared: /stats is cached
+  // for a minute server-side, so it is allowed to lag the API by one, and an
+  // assertion that forbade that would fail on a page that is working.
+  expect(stats.tutorials_rendered).toBeGreaterThan(0);
+  await expect(figures.nth(0).locator("dd")).not.toHaveText("—");
+  await expect(figures.nth(0).locator("dd")).toHaveText(/^\d+$/);
 });
 
 test("the features section says what the service does", async ({ page }) => {
@@ -131,4 +149,32 @@ test("the features section says what the service does", async ({ page }) => {
   const section = page.locator("#features");
   await expect(section.getByRole("heading", { level: 2 })).toBeVisible();
   await expect(section.getByRole("article")).toHaveCount(6);
+});
+
+test("the prices are in the page, not fetched after it", async ({ page, request }) => {
+  // Rendered on the server, which is the point: a price that only exists
+  // after JavaScript has run is a price a crawler does not see, and price is
+  // the one fact on a marketing page somebody came for.
+  // Comments stripped, because React separates adjacent text nodes with one:
+  // the markup for a price is `$<!-- -->7`, and a substring check for "$7"
+  // fails on a page that is perfectly correct.
+  const html = (await (await request.get("/")).text()).replace(/<!--.*?-->/g, "");
+  expect(html).toContain("landing-pricing");
+  expect(html).toContain("Start free. Pay when it earns it.");
+
+  const plans = await (await request.get("http://127.0.0.1:8021/plans")).json();
+  for (const plan of plans.plans) {
+    expect(html, `${plan.name} is missing from the HTML`).toContain(plan.name);
+    // The number a visitor reads is the number the API enforces.
+    expect(html).toContain(`$${plan.price_usd}`);
+  }
+  for (const pack of plans.credit_packs) {
+    expect(html).toContain(String(pack.credits));
+  }
+
+  // And on screen, in the same shape.
+  await page.goto("/");
+  const section = page.locator("#pricing");
+  await expect(section).toBeVisible();
+  await expect(section.getByRole("listitem").filter({ hasText: "Free" })).toBeVisible();
 });

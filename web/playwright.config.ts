@@ -43,6 +43,10 @@ export default defineConfig({
         // wins: loading a .env file never overwrites a variable that is
         // already set, which is what makes this work.
         `SUPABASE_URL= SUPABASE_JWKS_URL= SUPABASE_JWT_SECRET= ` +
+        // The landing page renders its examples on the server now, so which
+        // ones are published is this process's business rather than the
+        // browser's. global-setup puts a real job and a real mp4 behind it.
+        `VIDEOSYNX_EXAMPLES=11111111-1111-4111-8111-111111111111 ` +
         `${PYTHON} -m videosynx_api --port ${API_PORT}`,
       url: `http://127.0.0.1:${API_PORT}/health`,
       reuseExistingServer: false,

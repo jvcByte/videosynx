@@ -10,7 +10,7 @@ import { Sidebar } from "../components/Sidebar";
 import { SignIn } from "../components/SignIn";
 import {
   AchievementsView, ComingSoonView, CreateView, OverviewView, SpeechView,
-  VideoList, VideosView,
+  VideoList, VideosView, WalletView,
 } from "./views";
 import {
   ApiError, Job, Mode, Progress, Quota, Settings, Subscription, Voice,
@@ -28,6 +28,7 @@ const TITLES: Record<View, string> = {
   videos: "Your Videos",
   create: "Create Video",
   speech: "Text to speech",
+  wallet: "Wallet",
   achievements: "Achievements",
   "coming-soon": "Coming soon",
   settings: "Settings",
@@ -395,6 +396,7 @@ export default function Home() {
             />
           )}
           {view === "speech" && <SpeechView />}
+          {view === "wallet" && <WalletView />}
           {view === "achievements" && <AchievementsView progress={progress} />}
           {view === "coming-soon" && <ComingSoonView />}
           {view === "settings" && (

@@ -1,10 +1,37 @@
-"use client";
-
+import type { Metadata } from "next";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+
 import { ThemeToggle } from "./components/ThemeToggle";
-import { PublishedExample, Stats, absolute, api } from "./lib/api";
+import {
+  CreditPack, Plan, Plans, PublishedExample, Stats, absolute, serverGet,
+} from "./lib/api";
 import { duration, modeLabel } from "./lib/format";
+
+/**
+ * The public page, rendered on the server.
+ *
+ * It was a client component that fetched its numbers, its examples and its
+ * prices after loading, which meant the HTML a crawler received had the
+ * headings and none of the substance -- and Google renders JavaScript on a
+ * second pass while most AI crawlers do not render it at all. The facts
+ * worth quoting, including what this costs, are now in the document. The
+ * only interactive thing on the page is the theme toggle, and that was
+ * already its own client component.
+ */
+export const metadata: Metadata = {
+  title: "videosynx — turn any topic into a coding video tutorial",
+  description:
+    "Give it a subject and it writes the code, runs it, explains each line " +
+    "while the code types itself out, narrates it, and produces a finished " +
+    "MP4 with captions. Free to start.",
+  openGraph: {
+    title: "videosynx — coding video tutorials from a topic",
+    description:
+      "Code, execution, narration, captions and a finished MP4, from one " +
+      "sentence of subject.",
+    type: "website",
+  },
+};
 
 /**
  * The public page.
@@ -120,17 +147,56 @@ function ExampleCard({ example }: { example: Example }) {
   );
 }
 
-export default function Landing() {
-  // Null until it arrives. Not zero: see the note above.
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [examples, setExamples] = useState<PublishedExample[]>([]);
+/** One plan. The price and the limits both come from the API's tiers. */
+function PlanCard({ plan }: { plan: Plan }) {
+  return (
+    <li className={`plan${plan.price_usd > 0 ? "" : " plan-free"}`}>
+      <h3>{plan.name}</h3>
+      <p className="plan-tagline">{plan.tagline}</p>
+      <p className="plan-price figure">
+        ${plan.price_usd}
+        <span>{plan.price_usd === 0 ? "forever" : "a month"}</span>
+      </p>
+      <ul className="plan-features">
+        {plan.features.map((feature) => (
+          <li key={feature}>{feature}</li>
+        ))}
+      </ul>
+      <Link
+        className={plan.price_usd > 0 ? "landing-ghost" : "landing-cta"}
+        href="/dashboard#create"
+      >
+        {plan.price_usd > 0 ? `Choose ${plan.name}` : "Start free"}
+      </Link>
+    </li>
+  );
+}
 
-  useEffect(() => {
-    api.stats().then(setStats).catch(() => setStats(null));
+/** One pack of credits. */
+function PackCard({ pack }: { pack: CreditPack }) {
+  return (
+    <li className="pack">
+      <span className="pack-credits figure">{pack.credits}</span>
+      <span className="pack-unit">credits</span>
+      <span className="pack-price figure">${pack.usd}</span>
+      <span className="pack-note">{pack.note}</span>
+      {/* To the wallet rather than straight to Stripe: buying is a signed-in
+          act, and the price ids live on the server. */}
+      <Link className="landing-ghost" href="/dashboard#wallet">Buy credits</Link>
+    </li>
+  );
+}
+
+export default async function Landing() {
+  // Fetched on the server, so every one of these is in the HTML. Null on a
+  // failure rather than zero: see the note above the figure band.
+  const [stats, examples, plans] = await Promise.all([
+    serverGet<Stats>("/stats"),
     // A failure leaves the section on the topics it can make, which is the
     // same thing it shows before anything has been published.
-    api.examples().then(setExamples).catch(() => setExamples([]));
-  }, []);
+    serverGet<PublishedExample[]>("/examples", { cache: "fresh" }),
+    serverGet<Plans>("/plans"),
+  ]);
 
   const hasNumbers = stats !== null && stats.tutorials_rendered > 0;
 
@@ -261,7 +327,7 @@ export default function Landing() {
             {/* Real renders when the operator has published any, and the
                 topics the service can make when they have not. Both are
                 true; only one of them has a video behind it. */}
-            {(examples.length > 0 ? examples : EXAMPLES).map((example) => (
+            {(examples && examples.length > 0 ? examples : EXAMPLES).map((example) => (
               <ExampleCard key={example.title} example={example} />
             ))}
           </div>
@@ -298,6 +364,44 @@ export default function Landing() {
           </dl>
         </div>
       </section>
+      )}
+
+      {plans && plans.plans.length > 0 && (
+        <section className="landing-wrap landing-pricing" id="pricing">
+          <header className="landing-section-head">
+            <span className="landing-eyebrow landing-eyebrow-center">Pricing</span>
+            <h2 className="landing-h2">Start free. Pay when it earns it.</h2>
+            <p className="landing-sub">
+              Every plan makes real videos. The paid ones make more of them,
+              bigger, and without a watermark.
+            </p>
+          </header>
+
+          <ul className="plans">
+            {plans.plans.map((plan) => (
+              <PlanCard key={plan.id} plan={plan} />
+            ))}
+          </ul>
+
+          {/* Credits, under the plans rather than beside them: they are not a
+              fourth plan, they are what you buy when a busy week runs past
+              the one you are on. */}
+          <div className="packs">
+            <div className="packs-head">
+              <h3>Credits</h3>
+              <p>
+                {plans.credits_per_job === 1
+                  ? "One credit is one tutorial, whenever you have used up the day's."
+                  : `${plans.credits_per_job} credits are one tutorial, past the day's.`}
+              </p>
+            </div>
+            <ul className="packs-row">
+              {plans.credit_packs.map((pack) => (
+                <PackCard key={pack.credits} pack={pack} />
+              ))}
+            </ul>
+          </div>
+        </section>
       )}
 
       <section className="landing-wrap landing-final">

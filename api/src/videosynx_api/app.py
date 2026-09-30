@@ -39,6 +39,9 @@ from .features import BY_ID, FEATURES, UNKNOWN
 from .billing import SignatureError, balance, handle_webhook, ledger, tier_for_user
 from .progress import progress_for, streak_from
 from .quota import (
+    CREDIT_PACKS,
+    CREDITS_PER_JOB,
+    TIERS,
     QuotaExceeded,
     Tier,
     limit_for,
@@ -72,6 +75,12 @@ DEFAULT_DSN = os.environ.get("VIDEOSYNX_DSN", "postgresql:///videosynx")
 # A script is sent as text, so this is the only bound on request size: there is
 # no body limit anywhere else.
 MAX_SCRIPT_CHARS = 60_000
+
+
+class CreditRequest(BaseModel):
+    """Which pack to buy. The price is the server's, never the client's."""
+
+    credits: int = Field(gt=0, description="Pack size, as listed by /plans.")
 
 
 class SpeakRequest(BaseModel):
@@ -282,6 +291,26 @@ def label_for_speech(text: str, limit: int = 120) -> str:
             first = re.split(r"(?<=[.!?])\s+", cleaned)[0]
             return first[:limit]
     return "untitled"
+
+
+def _credit_prices() -> dict[int, str]:
+    """Credit count -> Stripe price id, from configuration.
+
+    STRIPE_CREDIT_PRICES as JSON, {"100": "price_...", "500": "price_..."}.
+    A pack with no price id is not for sale rather than mispriced, which is
+    why the route refuses a size that is absent rather than guessing one.
+    """
+    try:
+        raw = json.loads(os.environ.get("STRIPE_CREDIT_PRICES", "{}"))
+    except json.JSONDecodeError:
+        return {}
+    out: dict[int, str] = {}
+    for size, price in raw.items():
+        try:
+            out[int(size)] = str(price)
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def _media_type(key: str) -> str:
@@ -569,6 +598,65 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
             used = used_today(conn, user.id)
         return SubmitResponse(id=job_id, status="queued", tier=tier.name,
                               jobs_per_day=tier.jobs_per_day, used_today=used)
+
+    @app.post("/billing/credits")
+    def buy_credits(body: CreditRequest, user: User = Depends(current_user)) -> dict:
+        """Start a one-off purchase of credits. Returns a URL to open.
+
+        The receiving half of this has existed since billing was written --
+        the webhook applies `checkout.session.completed` as a grant -- and
+        nothing ever sold any. A wallet with a Buy button that does not buy
+        is the same kind of lie as a count that cannot go down.
+        """
+        secret = os.environ.get("STRIPE_SECRET_KEY", "")
+        prices = _credit_prices()
+        if not secret or body.credits not in prices:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "buying credits is not configured on this server "
+                "(STRIPE_SECRET_KEY and a price per pack)",
+            )
+        import stripe
+
+        session = stripe.checkout.Session.create(
+            api_key=secret,
+            mode="payment",
+            line_items=[{"price": prices[body.credits], "quantity": 1}],
+            client_reference_id=user.id,
+            metadata={"user_id": user.id, "credits": str(body.credits)},
+            success_url=os.environ.get("STRIPE_SUCCESS_URL", "https://example.com/ok"),
+            cancel_url=os.environ.get("STRIPE_CANCEL_URL", "https://example.com/cancel"),
+        )
+        return {"url": session.url, "id": session.id}
+
+    @app.get("/plans")
+    def plans() -> dict:
+        """What it costs, for the landing page.
+
+        Public and unauthenticated, the same as /stats: a price is not about
+        anybody. The numbers come from the tiers themselves rather than from
+        a pricing table somewhere else, so the figure a visitor reads and the
+        figure their jobs are allowed against cannot drift apart.
+        """
+        return {
+            "currency": "usd",
+            "plans": [
+                {
+                    "id": tier.name,
+                    "name": tier.name.capitalize(),
+                    "price_usd": tier.price_usd,
+                    "tagline": tier.tagline,
+                    "features": list(tier.features),
+                    "jobs_per_day": tier.jobs_per_day,
+                    "resolution": list(tier.resolution),
+                    "watermark": tier.watermark,
+                    "tts": tier.tts,
+                }
+                for tier in TIERS.values()
+            ],
+            "credit_packs": [dict(pack) for pack in CREDIT_PACKS],
+            "credits_per_job": CREDITS_PER_JOB,
+        }
 
     @app.get("/features")
     def features(user: User = Depends(current_user)) -> list[dict]:
