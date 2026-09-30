@@ -11,7 +11,10 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
     "psycopg[binary]>=3.1",
-    "pyjwt>=2.8",
+    # [crypto] is not optional: verifying the ES256 tokens a current Supabase
+    # project issues needs it, and it was only present before because
+    # google-auth happens to depend on cryptography.
+    "pyjwt[crypto]>=2.8",
     # The job table and its access layer live with the worker; both sides
     # share one schema rather than keeping two copies of it in step.
     "pycoding-worker",

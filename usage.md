@@ -102,8 +102,38 @@ curl -s -X POST localhost:8000/jobs \
      -d '{"topic":"Python decorators"}'
 ```
 
-`X-Dev-User` is a development bypass. It is honoured **only** while
-`SUPABASE_JWT_SECRET` is unset, so it cannot survive into a deployment.
+`X-Dev-User` is a development bypass. It is honoured **only** while nothing is
+configured to check a token with, so it cannot survive into a deployment.
+
+### Signing in
+
+The API is user-scoped throughout — jobs, settings, allowance, retries, video
+URLs — and the browser identifies itself with a Supabase session token once a
+project is configured.
+
+**Both halves have to be configured, or neither.** A server with a credential
+set ignores `X-Dev-User`, so a client still sending one is simply
+unauthenticated and every request comes back 401.
+
+| on the API | on the web app |
+|---|---|
+| `SUPABASE_URL` (the key set is found under it), or `SUPABASE_JWKS_URL` for a self-hosted one | `NEXT_PUBLIC_SUPABASE_URL` |
+| `SUPABASE_JWT_SECRET` — only for a project created before Supabase moved to asymmetric keys | `NEXT_PUBLIC_SUPABASE_ANON_KEY` |
+| `SUPABASE_JWT_AUDIENCE`, default `authenticated` | |
+
+With **neither** set on both sides, the app behaves exactly as it always has:
+no sign-in screen, the development header, everything runnable with no Supabase
+account. That is what local development and the browser tests use.
+
+Supabase now issues **ES256** tokens verified against a published key set, and
+the API verifies those by default. The shared secret is the older scheme and
+still works, but a project created today will not use it. A key set that cannot
+be reached answers **503, not 401**, deliberately: the token may be perfectly
+good and a 401 would sign someone out of a working session over a blip.
+
+**Every account is on the free tier.** Nothing sets a `tier` claim yet, so
+billing and sign-in are not connected — upgrading is a separate piece of work,
+not something a token currently carries.
 
 ### Sending a script instead of a topic
 
@@ -348,7 +378,7 @@ offer a voice that dies at synthesis.
 ## 3. Tests
 
 ```bash
-$PYCODING/.venv/bin/pytest                  # 332 tests
+$PYCODING/.venv/bin/pytest                  # 345 tests
 cd $PYCODING/web && npx playwright test     # 3 browser tests
 ```
 
@@ -436,7 +466,9 @@ override it rather than waiting for a release.
 | `PYCODING_DSN` | Postgres, default `postgresql:///pycoding` |
 | `R2_BUCKET`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | object storage instead of local disk |
 | `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, `STRIPE_WEBHOOK_SECRET` | billing |
-| `SUPABASE_JWT_SECRET` | real auth; setting it disables the `X-Dev-User` bypass |
+| `SUPABASE_URL` or `SUPABASE_JWKS_URL` | real auth; either disables the `X-Dev-User` bypass |
+| `SUPABASE_JWT_SECRET` | the same, for a project older than asymmetric keys |
+| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | sign-in in the web app |
 | `CORS_ORIGINS` | allowed browser origins, default `localhost:3000` |
 
 ---
@@ -522,6 +554,12 @@ no cost; `--tts elevenlabs` is the best and the only one that bills.
 
 Honest list, so a failure here is expected rather than a surprise:
 
+- **Supabase sign-in** — no project. The token path is tested against real
+  ES256 tokens signed by a key generated in the test and published at a real
+  JWKS endpoint, so signature, expiry and audience are all exercised; what is
+  unproven is the shape of a token *Supabase* issues, and where it puts the
+  claims this reads. A project that names them differently would need
+  `auth.py` adjusted.
 - **Cloudflare R2** — no credentials. The S3 path is unit-tested against a
   stubbed client for key layout and presign shape; the real store is unproven.
 - **Stripe Checkout** — needs a live key. Everything *after* checkout is tested

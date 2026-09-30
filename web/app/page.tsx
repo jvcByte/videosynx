@@ -6,14 +6,33 @@ import { Library } from "./components/Library";
 import { Player } from "./components/Player";
 import { QuotaMeter } from "./components/QuotaMeter";
 import { SettingsSheet } from "./components/SettingsSheet";
+import { SignIn } from "./components/SignIn";
 import {
   ApiError, Job, Mode, Quota, Settings, SubmitBody, Voice, absolute, api, isPending,
+  setAccessToken,
 } from "./lib/api";
 import { videoFilename } from "./lib/format";
+import { authEnabled, supabase } from "./lib/supabase";
 
 const POLL_MS = 2000;
 
 export default function Home() {
+  // Who is signed in. Null with auth configured means signed out, and the
+  // page renders the sign-in form instead of itself -- the gate has to come
+  // before the first fetch, because the API answers 401 and a 401 arriving as
+  // "your videos could not be loaded" is not a sign-in prompt.
+  //
+  // With no Supabase project this is "ready" from the start and nothing below
+  // changes: same dev header, no sign-in screen, same code the browser tests
+  // have always run against.
+  //
+  // Two flags, not one. They were one to begin with, and resolving the lookup
+  // with nobody signed in still counted as ready -- so every visitor got the
+  // workspace and the sign-in form was unreachable.
+  const [resolved, setResolved] = useState(!authEnabled);
+  const [signedIn, setSignedIn] = useState(!authEnabled);
+  const [email, setEmail] = useState<string | null>(null);
+
   const [topic, setTopic] = useState("");
   const [script, setScript] = useState("");
   const [mode, setMode] = useState<Mode>("both");
@@ -64,9 +83,36 @@ export default function Home() {
     return jobsResult.status === "fulfilled" ? jobsResult.value : [];
   }, []);
 
+  // Resolve the session before anything is fetched. `onAuthStateChange` fires
+  // on sign-in, sign-out and every token refresh, so the module-level token the
+  // API client sends is never stale.
+  useEffect(() => {
+    if (!supabase) return;
+    let cancelled = false;
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (cancelled) return;
+      setAccessToken(data.session?.access_token ?? null);
+      setEmail(data.session?.user.email ?? null);
+      setSignedIn(Boolean(data.session));
+      setResolved(true);
+    });
+
+    const { data } = supabase.auth.onAuthStateChange((_event, next) => {
+      setAccessToken(next?.access_token ?? null);
+      setEmail(next?.user.email ?? null);
+      setSignedIn(Boolean(next));
+    });
+    return () => {
+      cancelled = true;
+      data.subscription.unsubscribe();
+    };
+  }, []);
+
   // Fetched once, not per submission. A failure leaves the defaults working --
   // losing a saved preference is not a reason to stop someone submitting.
   useEffect(() => {
+    if (!signedIn) return;
     api
       .settings()
       .then((loadedSettings) => {
@@ -78,11 +124,12 @@ export default function Home() {
     // The catalogue of voices. A failure leaves the saved one selectable on
     // its own, which is enough to save the rest of the form.
     api.voices().then(setVoices).catch(() => setVoices([]));
-  }, []);
+  }, [signedIn]);
 
   // Poll only while something is actually running: a list that is all finished
   // has nothing to wait for.
   useEffect(() => {
+    if (!signedIn) return;
     let cancelled = false;
 
     const tick = async () => {
@@ -98,7 +145,7 @@ export default function Home() {
       cancelled = true;
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [refresh]);
+  }, [refresh, signedIn]);
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -210,6 +257,24 @@ export default function Home() {
     }
   }
 
+  // Signed out, with a project configured: the sign-in form is the whole page.
+  // Everything below fetches on mount, so rendering it first would fire
+  // requests with no token and show their 401s as load failures.
+  if (!resolved) {
+    return (
+      <main className="layout layout-single">
+        <div className="card"><span className="skeleton skeleton-line" /></div>
+      </main>
+    );
+  }
+  if (!signedIn) {
+    return (
+      <main className="layout layout-single">
+        <SignIn />
+      </main>
+    );
+  }
+
   return (
     <>
       <header className="topbar">
@@ -220,6 +285,15 @@ export default function Home() {
             <button className="ghost" onClick={() => setSettingsOpen(true)}>
               Settings
             </button>
+            {email && (
+              <button
+                className="ghost"
+                title={email}
+                onClick={() => { setAccessToken(null); supabase?.auth.signOut(); }}
+              >
+                Sign out
+              </button>
+            )}
           </div>
         </div>
       </header>

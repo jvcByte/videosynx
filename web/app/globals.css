@@ -122,6 +122,19 @@ h1, h2, h3, p { margin: 0; }
 
 .column { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 
+/* One thing in the middle, for the sign-in screen: the two-column layout has
+   nothing to put in its second column. */
+.layout-single {
+  grid-template-columns: minmax(0, 420px);
+  justify-content: center;
+  align-items: center;
+  min-height: 72vh;
+}
+
+.signin h2 { margin-bottom: 2px; }
+.signin .field:first-of-type { margin-top: 18px; }
+.signin .compose-actions { margin-top: 22px; }
+
 /* -------------------------------------------------------------------- card */
 
 .card {
@@ -199,7 +212,10 @@ h1, h2, h3, p { margin: 0; }
   line-height: 1.5;
 }
 
-input[type="text"], input:not([type]), textarea, select {
+/* Every text-ish input, not just type="text". An email or password field
+   matched none of this and rendered as a native box inside the dark card. */
+input[type="text"], input[type="email"], input[type="password"],
+input:not([type]), textarea, select {
   width: 100%;
   padding: 10px 12px;
   background: var(--surface-2);
@@ -211,7 +227,8 @@ input[type="text"], input:not([type]), textarea, select {
   transition: border-color 120ms ease, background 120ms ease;
 }
 
-input[type="text"]:hover, input:not([type]):hover,
+input[type="text"]:hover, input[type="email"]:hover, input[type="password"]:hover,
+input:not([type]):hover,
 textarea:hover, select:hover { border-color: var(--line-strong); }
 
 input::placeholder, textarea::placeholder { color: var(--fg-faint); }

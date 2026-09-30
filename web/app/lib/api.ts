@@ -1,9 +1,16 @@
 // The API client.
 //
-// In development the API accepts an X-Dev-User header, but only while no JWT
-// secret is configured on the server. A deployment verifies Supabase tokens
-// instead, at which point this header is ignored and `authHeader` should
-// return a real bearer token.
+// Two ways to say who is calling. With Supabase configured the real session
+// token is sent as a bearer token, and the API verifies it. Without it -- local
+// development, and the browser tests -- an X-Dev-User header is sent instead,
+// which the API honours only while no credential is configured on it either.
+// The two must be configured consistently: a server with a credential set
+// ignores the dev header, so a client sending one is simply unauthenticated.
+//
+// The token is held in a module variable rather than read from Supabase on
+// each call. `authHeader` is spread into every request and has to stay
+// synchronous; keeping a variable current is what `onAuthStateChange` in
+// page.tsx is for.
 
 // Same origin, forwarded to the API by a rewrite in next.config.ts.
 //
@@ -101,7 +108,15 @@ export class ApiError extends Error {
   }
 }
 
+let accessToken: string | null = null;
+
+/** Called by the page whenever the session changes. */
+export function setAccessToken(token: string | null): void {
+  accessToken = token;
+}
+
 function authHeader(): Record<string, string> {
+  if (accessToken) return { Authorization: `Bearer ${accessToken}` };
   const devUser = process.env.NEXT_PUBLIC_DEV_USER ?? "web-user:free";
   return { "X-Dev-User": devUser };
 }

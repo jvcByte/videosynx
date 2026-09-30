@@ -7,9 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "playwright test"
+    "test": "playwright test && playwright test -c playwright.auth.config.ts"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.117.2",
     "next": "^15.5.4",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
