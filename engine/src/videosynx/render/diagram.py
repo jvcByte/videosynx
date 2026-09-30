@@ -315,25 +315,115 @@ def _draw_edge(pen: Pen, ends, ink: str) -> None:
     _arrowhead(pen, start, tip, ink)
 
 
+def _text_rect(text: str, font, x: float, y: float, pad: float = 0.0):
+    """The box a centred run of text occupies, with optional air around it."""
+    half_w = font.getlength(text) / 2 + pad
+    half_h = font.size / 2 + pad
+    return (x - half_w, y - half_h, x + half_w, y + half_h)
+
+
+def _overlaps(rect, others) -> bool:
+    return any(
+        rect[0] < other[2] and rect[2] > other[0]
+        and rect[1] < other[3] and rect[3] > other[1]
+        for other in others
+    )
+
+
+def _node_label_anchor(node: Node, front, font):
+    """Where a node's own label is drawn -- the same rule as _draw_node."""
+    if node.shape in ICON_SHAPES:
+        return ((front[0] + front[2]) / 2, front[3] + font.size * 0.8)
+    return _centre(front)
+
+
 def _draw_edge_label(pen: Pen, ends, edge: Edge, font, style: Style,
-                     limit: float) -> None:
+                     limit: float, boxes: dict, occupied: list,
+                     height: float) -> None:
     """The label goes on the last pass, so no shape can be drawn over it.
 
     It is sized to *limit*, not to the length of its own arrow: an arrow
     between two close shapes is a few dozen pixels long, and fitting the label
     to that turns "enqueue" into "enqu…". Letting it run wider than the gap and
     drawing it last is what keeps the word readable.
+
+    Drawing last cuts both ways, though: whatever the label lands on it hides
+    rather than is hidden. Three arrows leaving one shape in a row put two of
+    their labels squarely on the shapes between them, and the result is two
+    pieces of text printed over each other. So a label that would land on
+    another line of text is lifted clear of the row -- above it, which is
+    where the room usually is, and below if there is none.
+    """
+    text = _fit(edge.label, font, limit)
+    mx, my, rect = place_edge_label(text, font, ends, boxes, occupied, height)
+    pen.draw.text((mx, my), text, font=font, fill=style.dim, anchor="mm")
+    occupied.append(rect)
+
+
+def place_edge_label(text: str, font, ends, boxes: dict, occupied: list,
+                     height: float | None = None) -> tuple[float, float, tuple]:
+    """Where an edge label goes, and the room it takes.
+
+    Separate from the drawing so the rule can be checked without reading
+    pixels back out of a picture: the shapes are outlines, and an outline and
+    a line of text look the same to anything counting ink.
     """
     start, tip = ends
-    mx, my = (start[0] + tip[0]) / 2, (start[1] + tip[1]) / 2
-    text = _fit(edge.label, font, limit)
+    cx, cy = (start[0] + tip[0]) / 2, (start[1] + tip[1]) / 2
     # Sit beside the line rather than on it. Breaking the line to make room
     # leaves the arrow looking like it was never drawn.
-    if abs(tip[0] - start[0]) >= abs(tip[1] - start[1]):
-        my -= font.size * 0.85
-    else:
-        mx += font.size * 0.85
-    pen.draw.text((mx, my), text, font=font, fill=style.dim, anchor="mm")
+    horizontal = abs(tip[0] - start[0]) >= abs(tip[1] - start[1])
+    pad = font.size * 0.15
+
+    mx, my = (cx, cy - font.size * 0.85) if horizontal else (cx + font.size * 0.85, cy)
+    rect = _text_rect(text, font, mx, my, pad)
+
+    if _overlaps(rect, occupied):
+        top = min(b[1] for b in boxes.values())
+        bottom = max(b[3] for b in boxes.values())
+        # Above the group, unless that runs off the layer, in which case below.
+        my = top - font.size * 0.9
+        if height is not None and my - font.size / 2 < 0:
+            my = bottom + font.size * 0.9
+        rect = _text_rect(text, font, mx, my, pad)
+        # Stacked labels are still labels on top of each other.
+        while _overlaps(rect, occupied) and my - font.size * 1.2 > 0:
+            my -= font.size * 1.2
+            rect = _text_rect(text, font, mx, my, pad)
+
+    return mx, my, rect
+
+
+def _arrowhead(pen: Pen, start, tip, ink: str) -> None:
+    angle = math.atan2(tip[1] - start[1], tip[0] - start[0])
+    size = pen.width * 5.5
+    for spread in (math.radians(150), math.radians(-150)):
+        pen.stroke(
+            [tip, (tip[0] + size * math.cos(angle + spread),
+                   tip[1] + size * math.sin(angle + spread))],
+            ink=ink, passes=1,
+        )
+
+
+def _edge_ends(a, b) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Where an arrow leaves *a* and lands on *b*.
+
+    It attaches to whichever pair of facing sides the two shapes actually
+    share, so the arrow meets an edge rather than a centre.
+    """
+    ax, ay = _centre(a)
+    bx, by = _centre(b)
+    dx, dy = bx - ax, by - ay
+    if abs(dx) >= abs(dy):
+        return (a[2] if dx > 0 else a[0], ay), (b[0] if dx > 0 else b[2], by)
+    return (ax, a[3] if dy > 0 else a[1]), (bx, b[1] if dy > 0 else b[3])
+
+
+def _draw_edge(pen: Pen, ends, ink: str) -> None:
+    start, tip = ends
+    pen.stroke([start, tip], ink=ink)
+    _arrowhead(pen, start, tip, ink)
+
 
 
 # -------------------------------------------------------------------- public
@@ -402,7 +492,19 @@ def render_diagram(
         else:
             _draw_node(pen, node, box, font, style, style.paper, style.ghost)
 
+    # Every line of text already on the layer: the labels of the shapes that
+    # are showing. An edge label may sit over a shape, but not over its name.
+    occupied = []
+    for i, node in enumerate(diagram.nodes):
+        box = boxes.get(node.id)
+        if box is None or i >= revealed or not node.label:
+            continue
+        text = _fit(node.label, font, (box[2] - box[0]) * 0.88)
+        occupied.append(_text_rect(text, font, *_node_label_anchor(node, box, font),
+                                   pad=font.size * 0.15))
+
     for pen, ends, edge in labelled:
-        _draw_edge_label(pen, ends, edge, font, style, width * SCALE * 0.5)
+        _draw_edge_label(pen, ends, edge, font, style, width * SCALE * 0.5,
+                         boxes, occupied, height * SCALE)
 
     return layer.resize((width, height), Image.LANCZOS)

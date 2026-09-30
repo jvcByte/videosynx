@@ -14,6 +14,10 @@ from . import theme
 from .diagram import render_diagram
 from .style import DEFAULT_STYLE, STYLES, Style
 
+# One row of the code pane: what to draw, and which source line it belongs to.
+# The number is None on the tail of a wrapped line.
+Row = tuple[list[tuple[str, str]], int | None]
+
 TITLE_H = 36
 TAB_H = 36
 CODE_TOP = 96
@@ -21,6 +25,11 @@ STATUS_H = 24
 PANEL_H = 300
 GUTTER_W = 80
 LINE_H = 34
+# A line wider than the canvas is soft-wrapped, as an editor does. The tail is
+# indented and marked in the gutter, because in Python the indentation of a
+# line is a fact about the code and a wrapped tail must not read as a block.
+WRAP_INDENT = 4
+WRAP_MARGIN = 16
 CODE_SIZE = 22
 TERM_SIZE = 20
 # A column too long for its box is set smaller rather than cut off. The floor
@@ -72,7 +81,7 @@ class Editor:
 
         self._code = ""
         self._spans: list[list[tuple[str, str]]] = []
-        self._drawn: list[list[tuple[str, str]]] = []
+        self._drawn: list[Row] = []
         self._drawn_output: tuple[str, ...] = ()
         self._drawn_caption: str | None = None
         self._drawn_title: str | None = None
@@ -122,6 +131,10 @@ class Editor:
         if line_no is not None:
             d.text((GUTTER_W - 20, y), str(line_no), font=self.f_code,
                    fill=theme.GUTTER_FG, anchor="ra")
+        else:
+            # Nothing in a real line's gutter but air, so this is unmistakable.
+            d.text((GUTTER_W - 20, y), "↪", font=self.f_code,
+                   fill=theme.GUTTER_FG, anchor="ra")
         x = GUTTER_W
         for text, colour in spans:
             if text:
@@ -137,7 +150,57 @@ class Editor:
         for row in range(self.rows):
             idx = self._scroll + row
             if idx < len(self._drawn):
-                self._paint_row(row, self._drawn[idx], idx + 1, idx == self._cursor_line)
+                spans, line_no = self._drawn[idx]
+                self._paint_row(row, spans, line_no, idx == self._cursor_line)
+
+    def _wrap_rows(self, lines: list[list[tuple[str, str]]]) -> list[Row]:
+        """Rows to draw, one per source line or several if it is too wide.
+
+        Soft wrap, because the alternative is what this used to do: draw past
+        the right edge and let the canvas clip it. At 720p ninety-two
+        characters fit, so a hundred-and-fourteen-character line lost twenty-two
+        of them, with nothing on screen to say a line had been cut.
+
+        Continuation rows carry no line number and are indented, so a wrapped
+        tail cannot be mistaken for the nested block it is not.
+        """
+        per_row = max(8, int((self.width - GUTTER_W - WRAP_MARGIN) / self.char_w))
+        rows: list[Row] = []
+        for number, spans in enumerate(lines, start=1):
+            chunks = self._wrap_spans(spans, per_row, per_row - WRAP_INDENT)
+            rows.append((chunks[0], number))
+            for chunk in chunks[1:]:
+                rows.append(([(" " * WRAP_INDENT, theme.FG), *chunk], None))
+        return rows
+
+    def _wrap_spans(self, spans: list[tuple[str, str]], first: int,
+                    rest: int) -> list[list[tuple[str, str]]]:
+        """Break one line's coloured spans into chunks that fit the width.
+
+        In characters, not pixels: the code font is monospaced by
+        construction, so the count is the whole calculation.
+
+        Breaks at the last space that fits, so a tail starts at something
+        readable rather than mid-identifier -- `{ty` over `pe(quantity)` is
+        what a blunt cut gives, and it is worse than the overflow it replaces
+        for anyone trying to follow the code.
+        """
+        text = "".join(part for part, _ in spans)
+        if len(text) <= first:
+            return [list(spans)]
+
+        rows: list[list[tuple[str, str]]] = []
+        start, room = 0, first
+        while start < len(text):
+            end = min(start + room, len(text))
+            if end < len(text):
+                space = text.rfind(" ", start, end)
+                # Only worth taking if it leaves the row substantially used.
+                if space > start + room // 2:
+                    end = space + 1
+            rows.append(_slice_spans(spans, start, end))
+            start, room = end, rest
+        return rows
 
     # ------------------------------------------------------------------ state
     @staticmethod
@@ -183,8 +246,9 @@ class Editor:
                 self._code = state.code
                 self._spans = theme.highlight(state.code)
                 visible = theme.visible_lines(self._spans, state.code, len(state.code))
-                self._update_scroll(len(visible) - 1)
-                self._redraw_lines(visible)
+                rows = self._wrap_rows(visible)
+                self._update_scroll(len(rows) - 1)
+                self._redraw_lines(rows)
             if state.output != self._drawn_output:
                 self._redraw_output(state.output)
 
@@ -424,32 +488,32 @@ class Editor:
         elif cursor_line < self._scroll:
             self._scroll = cursor_line
 
-    def _redraw_lines(self, visible: list[list[tuple[str, str]]]) -> None:
+    def _redraw_lines(self, rows: list[Row]) -> None:
         # The viewport moved, so every row shows different content — repaint all.
         if self._scroll != self._drawn_scroll:
-            self._drawn = visible
-            self._cursor_line = len(visible) - 1
+            self._drawn = rows
+            self._cursor_line = len(rows) - 1
             self._drawn_scroll = self._scroll
             self._repaint_code_area()
             return
 
         # Repaint only rows whose content changed, plus the old/new cursor rows.
         changed = set()
-        for i in range(max(len(visible), len(self._drawn))):
-            new = visible[i] if i < len(visible) else []
-            old = self._drawn[i] if i < len(self._drawn) else []
+        for i in range(max(len(rows), len(self._drawn))):
+            new = rows[i] if i < len(rows) else None
+            old = self._drawn[i] if i < len(self._drawn) else None
             if new != old:
                 changed.add(i)
-        changed.add(len(visible) - 1)  # new cursor row
+        changed.add(len(rows) - 1)  # new cursor row
         changed.add(self._cursor_line)  # clear the old cursor
 
-        self._drawn = visible
-        self._cursor_line = len(visible) - 1
+        self._drawn = rows
+        self._cursor_line = len(rows) - 1
         for idx in sorted(changed):
             row = idx - self._scroll
             if 0 <= row < self.rows:
-                spans = visible[idx] if idx < len(visible) else []
-                self._paint_row(row, spans, idx + 1, idx == self._cursor_line)
+                spans, line_no = rows[idx] if idx < len(rows) else ([], None)
+                self._paint_row(row, spans, line_no, idx == self._cursor_line)
 
     def _redraw_output(self, output: tuple[str, ...]) -> None:
         d = ImageDraw.Draw(self.canvas)
@@ -487,6 +551,20 @@ class Editor:
     # ------------------------------------------------------------------ output
     def tobytes(self) -> bytes:
         return self.canvas.tobytes()
+
+
+def _slice_spans(spans: list[tuple[str, str]], start: int,
+                 end: int) -> list[tuple[str, str]]:
+    """The part of *spans* covering characters [start, end), colours intact."""
+    out: list[tuple[str, str]] = []
+    at = 0
+    for text, colour in spans:
+        piece_start, piece_end = at, at + len(text)
+        at = piece_end
+        if piece_end <= start or piece_start >= end:
+            continue
+        out.append((text[max(0, start - piece_start):end - piece_start], colour))
+    return out
 
 
 def _wrap_to_pixels(text: str, font, max_width: int) -> list[str]:

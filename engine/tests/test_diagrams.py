@@ -18,7 +18,15 @@ import pytest
 from PIL import Image, ImageColor
 
 from videosynx.render import find_font
-from videosynx.render.diagram import render_diagram
+from PIL import ImageFont
+
+from videosynx.render.diagram import (
+    _fit,
+    _node_label_anchor,
+    _text_rect,
+    place_edge_label,
+    render_diagram,
+)
 from videosynx.render.style import CLEAN, SKETCH, style_for
 from videosynx.timeline import LAYOUTS, SHAPES, Diagram, Edge, Node, parse_diagram
 
@@ -289,7 +297,15 @@ DETERMINISM_SCRIPT = f"""
 import hashlib, sys
 sys.path.insert(0, {DETERMINISM_SRC!r})
 from videosynx.render import find_font
-from videosynx.render.diagram import render_diagram
+from PIL import ImageFont
+
+from videosynx.render.diagram import (
+    _fit,
+    _node_label_anchor,
+    _text_rect,
+    place_edge_label,
+    render_diagram,
+)
 from videosynx.render.style import SKETCH
 from videosynx.timeline import Diagram, Edge, Node
 
@@ -324,3 +340,121 @@ def test_a_diagram_is_identical_across_processes():
 
 def test_rendering_twice_in_one_process_gives_the_same_bytes():
     assert draw().tobytes() == draw().tobytes()
+
+
+# ---------------------------------------------------------------- collisions
+# A label is drawn on the last pass so no shape can cover it. The other half
+# of that bargain is that it covers whatever it lands on -- and when what it
+# lands on is another line of text, the video shows two sentences printed over
+# each other with neither of them readable.
+
+def _text_of(diagram, boxes, font) -> list[tuple]:
+    """Where each node's own name lands -- the same rule _draw_node uses."""
+    rects = []
+    for node in diagram.nodes:
+        box = boxes.get(node.id)
+        if box is None or not node.label:
+            continue
+        text = _fit(node.label, font, (box[2] - box[0]) * 0.88)
+        rects.append(_text_rect(text, font, *_node_label_anchor(node, box, font),
+                                pad=font.size * 0.15))
+    return rects
+
+
+def _place_all(diagram, size, font, *, lift: bool):
+    """Every label's rect, in the order the renderer places them."""
+    from PIL import ImageFont
+
+    from videosynx.render.diagram import _cells, _edge_ends, SCALE, _shape_box
+
+    width, height = size
+    layer_font = ImageFont.truetype(FONT, SKETCH.label_size * SCALE)
+    box = (0.0, 0.0, width * SCALE, height * SCALE)
+    cells = _cells(diagram, box)
+    boxes = {n.id: _shape_box(c, n, layer_font)
+             for n, c in zip(diagram.nodes, cells)}
+
+    occupied = _text_of(diagram, boxes, layer_font)
+    for edge in diagram.edges:
+        if edge.source not in boxes or edge.target not in boxes:
+            continue
+        ends = _edge_ends(boxes[edge.source], boxes[edge.target])
+        text = _fit(edge.label, layer_font, width * SCALE * 0.5)
+        if lift:
+            _, _, rect = place_edge_label(text, layer_font, ends, boxes,
+                                          occupied, height * SCALE)
+        else:
+            mx = (ends[0][0] + ends[1][0]) / 2
+            my = (ends[0][1] + ends[1][1]) / 2 - layer_font.size * 0.85
+            rect = _text_rect(text, layer_font, mx, my, layer_font.size * 0.15)
+        occupied.append(rect)
+    return occupied
+
+
+def _collisions(rects) -> list[tuple]:
+    return [
+        (a, b)
+        for i, a in enumerate(rects)
+        for b in rects[i + 1:]
+        if a[0] < b[2] and a[2] > b[0] and a[1] < b[3] and a[3] > b[1]
+    ]
+
+
+def fanned() -> Diagram:
+    """Three arrows leaving one shape, which the row layout draws straight
+    over the shapes between them. Their midpoints -- where the labels go --
+    land inside a shape, on the name already written there."""
+    return Diagram(
+        layout="row",
+        nodes=(
+            Node(id="list", label="List Container", shape="box", repeat=1),
+            Node(id="a", label="First Item", shape="round", repeat=1),
+            Node(id="b", label="Second Item", shape="round", repeat=1),
+            Node(id="c", label="Third Item", shape="round", repeat=1),
+        ),
+        edges=(
+            Edge(source="list", target="a", label="index 0"),
+            Edge(source="list", target="b", label="index 1"),
+            Edge(source="list", target="c", label="index 2"),
+        ),
+    )
+
+
+# The size a 720p render actually gives a diagram: 88% of the width and 46% of
+# the height. The proportions are the point -- a narrower, taller box leaves
+# room in the gaps and hides the fault completely.
+SLIDE = (int(1280 * 0.88), int(720 * 0.46))
+
+
+def test_the_old_placement_really_did_print_on_itself():
+    """Without this the test below proves nothing: it has to fail on the
+    arrangement it was written for."""
+    font = ImageFont.truetype(FONT, SKETCH.label_size * 2)
+    assert _collisions(_place_all(fanned(), SLIDE, font, lift=False))
+
+
+def test_labels_are_moved_clear_rather_than_printed_over():
+    font = ImageFont.truetype(FONT, SKETCH.label_size * 2)
+    assert not _collisions(_place_all(fanned(), SLIDE, font, lift=True))
+
+
+def test_a_chain_of_two_shapes_is_left_alone():
+    """The other half: a diagram that was already readable must not have its
+    labels thrown out of the row for no reason."""
+    diagram = Diagram(
+        layout="row",
+        nodes=(
+            Node(id="a", label="Variable Name", shape="box", repeat=1),
+            Node(id="b", label="Value in Memory", shape="round", repeat=1),
+            Node(id="c", label="Data Type", shape="document", repeat=1),
+        ),
+        edges=(
+            Edge(source="a", target="b", label="points to"),
+            Edge(source="b", target="c", label="classified as"),
+        ),
+    )
+    font = ImageFont.truetype(FONT, SKETCH.label_size * 2)
+    occupied = _place_all(diagram, SLIDE, font, lift=True)
+    # Every label still inside the layer, and none on another.
+    assert not _collisions(occupied)
+    assert all(0 <= r[1] and r[3] <= SLIDE[1] * 2 for r in occupied)

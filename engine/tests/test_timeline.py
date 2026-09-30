@@ -626,3 +626,56 @@ def test_plan_rejects_bad_options():
         build_plan([snippet], narration_type="sometimes")
     with pytest.raises(ValueError):
         build_plan([snippet], pace="warp")
+
+
+# --------------------------------------------------------------- long lines
+# The editor drew a line by advancing x once per character and never looked at
+# where the right edge was. At 720p ninety-two characters fit, so a
+# hundred-and-fourteen-character line went off the side and the canvas clipped
+# it -- twenty-two characters that are simply not in the video, with nothing
+# on screen to say a line had been cut.
+
+LONG = 'print(\n    f"Types -> SKU: {type(item_sku).__name__}, Price: {type(unit_price).__name__}, Qty: {type(quantity).__name__}"\n)\n'
+
+
+def _rows_at(width: int, code: str):
+    from videosynx.render import Editor, find_font
+    from videosynx.render.editor import GUTTER_W
+    from videosynx.timeline import VisualState
+
+    editor = Editor(width, 720, find_font())
+    editor.apply(VisualState(code=code))
+    out = []
+    for spans, number in editor._drawn:
+        text = "".join(part for part, _ in spans)
+        out.append((text, number, GUTTER_W + editor.char_w * len(text), editor.char_w))
+    return out
+
+
+def test_a_line_too_wide_for_the_frame_is_wrapped_not_clipped():
+    rows = _rows_at(1280, LONG)
+    for text, _, right, _ in rows:
+        assert right <= 1280, f"drawn past the edge: {text!r}"
+    # Every character is still on screen, which is the whole point.
+    shown = "".join(text for text, _, _, _ in rows)
+    for token in ("item_sku", "unit_price", "quantity", "Qty:", "Types ->"):
+        assert token in shown, f"{token!r} went missing"
+
+
+def test_a_wrapped_tail_is_marked_and_unnumbered():
+    """In Python the indentation of a line is part of the code, so a tail
+    must not read as the nested block it is not."""
+    rows = _rows_at(1280, LONG)
+    tails = [(text, number) for text, number, _, _ in rows if number is None]
+    assert tails, "the long line was not wrapped at all"
+    for text, _ in tails:
+        assert text.startswith(" " * 4), f"tail is not indented: {text!r}"
+
+
+def test_a_short_line_is_left_alone():
+    """Wrapping must not touch code that already fits."""
+    rows = _rows_at(1280, "x = 1\ny = 2\n")
+    # No tails: one row per source line, as before. The trailing empty line is
+    # where the cursor sits, which is what visible_lines has always returned.
+    assert all(number is not None for _, number, _, _ in rows)
+    assert [text for text, _, _, _ in rows][:2] == ["x = 1", "y = 2"]
