@@ -301,9 +301,12 @@ class EngineRenderer:
 
         The same queue, the same lease, the same signed artifact as a video --
         what is different is only how long it takes and what comes out.
-        Synthesis runs at about 0.8x realtime, so the stopping check goes in
-        the sentence loop: a five-minute clip is four minutes of CPU, and a
-        cancel that only lands at the end is not a cancel.
+
+        Synthesis runs somewhere between half and one times realtime depending
+        on what else is on the machine, so a five-minute clip is minutes of
+        CPU. The stop check and the progress report both go into the sentence
+        loop inside `synthesise`: a cancel that only lands at the end is not a
+        cancel, and a bar that only moves at the end is not a bar.
         """
         from videosynx.providers import KokoroSpeaker
         from videosynx.speech import synthesise
@@ -316,13 +319,18 @@ class EngineRenderer:
         beat("speaking", 0.1)
         speaker = self._speaker(job.options.get("tts") or self.tts,
                                 job.options.get("voice"))
-        # The loop below is inside synthesise, so the only place a stop can be
-        # noticed without threading a callback through it is here, before the
-        # work starts. Anything finer belongs in the engine.
-        if should_stop:
-            should_stop()
         try:
-            seconds = synthesise(text, speaker, out)
+            # Both of these go into the synthesis loop, sentence by sentence.
+            # Checking only before it starts means a cancel waits out the whole
+            # clip -- minutes of CPU for something nobody wants -- and
+            # reporting only before it starts means the bar sits at ten per
+            # cent for the same minutes, which is a progress bar that has
+            # stopped.
+            seconds = synthesise(
+                text, speaker, out,
+                should_stop=should_stop,
+                on_progress=lambda done: beat("speaking", 0.1 + 0.8 * done),
+            )
         except BaseException:
             # A half-written mp3 is not something anything should play.
             out.unlink(missing_ok=True)

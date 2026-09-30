@@ -14,11 +14,12 @@ CPU, so a caller queues this rather than waiting on a request.
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 from .providers import Speaker
+from .narration import trim_silence
 from .prompts import sentences
-from .script import speak_plain
 from .timeline import SR
 
 # Mono 48 kHz in, mono mp3 out. The rate is the timeline's own, so a clip made
@@ -27,19 +28,44 @@ from .timeline import SR
 BITRATE = "96k"
 
 
-def synthesise(text: str, speaker: Speaker, out: Path) -> float:
+def synthesise(
+    text: str,
+    speaker: Speaker,
+    out: Path,
+    *,
+    should_stop: Callable[[], None] | None = None,
+    on_progress: Callable[[float], None] | None = None,
+) -> float:
     """Write *text* to *out* as speech, and return its length in seconds.
 
-    Sentence at a time, through the same `speak_plain` the narration uses --
-    which is not only for consistency. Kokoro's quality falls off on long
-    input, and a paragraph read as one block is audibly worse than the same
-    paragraph read as sentences.
+    Sentence at a time, the same way the narration does it -- which is not
+    only for consistency. Kokoro's quality falls off on long input, and a
+    paragraph read as one block is audibly worse than the same paragraph read
+    as sentences.
+
+    Sentence at a time for the other two reasons as well: it is the only
+    place either of these can go. Synthesis is roughly half realtime, so a
+    long clip is minutes of CPU in one call, and a stop that is only noticed
+    when the call returns is not a stop. Progress has the same problem from
+    the other side -- one call means the job sits at its opening percentage
+    for the whole of it, which on a four-minute clip is a progress bar that
+    has stopped.
     """
-    phrases = speak_plain(speaker, text)
-    if not phrases:
+    parts = sentences(text)
+    if not parts:
         raise ValueError("nothing to say")
 
-    pcm = b"".join(p.samples.tobytes() for p in phrases)
+    chunks: list[bytes] = []
+    for index, sentence in enumerate(parts):
+        if should_stop is not None:
+            should_stop()
+        if on_progress is not None:
+            on_progress(index / len(parts))
+        chunks.append(trim_silence(speaker.say(sentence)).tobytes())
+    if on_progress is not None:
+        on_progress(1.0)
+
+    pcm = b"".join(chunks)
     out.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [
