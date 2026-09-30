@@ -525,6 +525,39 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
                                 detail={"error": "not_failed"})
         return JobResponse(**fresh)
 
+    @app.post("/jobs/{job_id}/cancel", response_model=JobResponse,
+              status_code=status.HTTP_202_ACCEPTED)
+    def cancel_job(job_id: str, user: User = Depends(current_user)) -> JobResponse:
+        """Stop a job that has not finished.
+
+        Clearing the lease is what makes this work: the worker holding it sees
+        the next heartbeat come back empty and stops. A job that is only
+        queued has no worker to tell, and is simply taken out of the queue.
+
+        Latency, honestly two different numbers. While frames are being
+        written the render asks roughly once a second, so the encode stops
+        within about that. While the model is being called or the voice
+        synthesised there is no loop to ask from -- those calls take no
+        callback -- so the only check is the heartbeat thread, and it wakes
+        every twenty seconds. A cancel during that phase lands within twenty
+        seconds and then stops before the render starts.
+        """
+        row = _job_or_404(job_id)
+        if row["user_id"] != user.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "no such job")
+
+        stopped = Queue(dsn).cancel(job_id)
+        if not stopped:
+            # Already finished, already canceled, or a second request got
+            # there first -- and the row itself was conditional on none of
+            # those being true, so this cannot race past a completion.
+            fresh = _job_or_404(job_id)
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={"error": "not_cancelable", "status": fresh["status"]},
+            )
+        return JobResponse(**_job_or_404(job_id))
+
     @app.get("/jobs/{job_id}/video")
     def get_video(job_id: str, user: User = Depends(current_user)) -> dict:
         """A time-limited download URL.

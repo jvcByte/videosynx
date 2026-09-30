@@ -236,12 +236,19 @@ class Queue:
     # --------------------------------------------------------------- heartbeat
 
     def heartbeat(self, job_id: str, owner: str, *, status: str | None = None,
-                  stage: str | None = None, progress: float | None = None) -> bool:
-        """Extend the lease. Returns False if it is no longer ours.
+                  stage: str | None = None, progress: float | None = None) -> str | None:
+        """Extend the lease. Returns the job's status, or None if it is gone.
 
-        The return value is the point: if this comes back False the lease was
-        reaped and another worker may be running the same job, so the caller
-        must stop immediately rather than finish and spend a second time.
+        The return value is the point, and it is the status rather than a bare
+        bool because there are two different reasons to stop. None means the
+        lease was reaped and another worker may be running the same job, so
+        the caller must stop rather than finish and spend a second time.
+        ``"canceled"`` means whoever submitted it changed their mind, which is
+        not a failure and must not be recorded as one.
+
+        This is also the only channel a running job has for learning anything
+        the world decided after it was claimed: nothing else reads the row
+        between claiming it and finishing it.
         """
         with self._connect() as conn:
             row = conn.execute(
@@ -253,9 +260,41 @@ class Queue:
                        stage            = coalesce(%s, stage),
                        progress         = coalesce(%s, progress)
                  where id = %s and lease_owner = %s
-                returning id
+                returning status
                 """,
                 (LEASE_SECONDS, status, stage, progress, job_id, owner),
+            ).fetchone()
+        return str(row["status"]) if row is not None else None
+
+    def cancel(self, job_id: str) -> bool:
+        """Stop a job that has not finished, whoever is running it.
+
+        The lease is deliberately **left alone**. Clearing it looks tidier and
+        is wrong: the worker holding it matches on ``lease_owner`` to read its
+        own heartbeat back, so a nulled lease comes back empty and the worker
+        concludes it was reaped -- which is the one thing a cancel is not. It
+        would log an abandoned job and leave the row saying canceled with
+        nobody having meant it.
+
+        ``canceled`` is not in ``ACTIVE_STATUSES``, so a canceled row is
+        invisible to both ``claim`` and ``reap`` -- it cannot be picked up
+        again and it cannot be resurrected as an abandoned lease. ``finish``
+        and ``fail`` refuse it separately, because they gate on the lease and
+        the lease is still there.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                update jobs
+                   set status = 'canceled'::job_status,
+                       finished_at = now()
+                 where id = %s
+                   and status <> 'succeeded'
+                   and status <> 'failed'
+                   and status <> 'canceled'
+                returning id
+                """,
+                (job_id,),
             ).fetchone()
         return row is not None
 
@@ -271,6 +310,9 @@ class Queue:
                        finished_at = now(), lease_owner = null,
                        lease_expires_at = null, progress = 1
                  where id = %s and lease_owner = %s
+                   -- A worker that finished anyway must not un-cancel a job
+                   -- and hand back a video nobody asked for.
+                   and status <> 'canceled'
                 returning id
                 """,
                 (artifact_key, duration_s, job_id, owner),
@@ -310,6 +352,9 @@ class Queue:
                        finished_at = case when %(retrying)s and attempt < max_attempts
                                           then null else now() end
                  where id = %(job_id)s and lease_owner = %(owner)s
+                   -- Nor must a failure, on either path: a canceled job is
+                   -- not a job that went wrong, and it must not be requeued.
+                   and status <> 'canceled'
                 returning status
                 """,
                 {"retrying": retrying, "delay": float(delay_seconds or 0.0),

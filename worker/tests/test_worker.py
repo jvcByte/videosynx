@@ -100,7 +100,7 @@ def test_a_first_attempt_gets_the_first_gap():
 def test_the_worker_hands_the_queue_the_delay():
     """The policy is only real if it reaches the row."""
     queue = FakeQueue(jobs=1)
-    worker = Worker(queue, lambda job, beat: (_ for _ in ()).throw(
+    worker = Worker(queue, lambda job, beat, should_stop=None: (_ for _ in ()).throw(
         RuntimeError("boom")), owner="w0")
     worker.run_once()
 
@@ -190,7 +190,7 @@ def test_a_job_that_needs_writing_goes_through_the_chain(tmp_path, monkeypatch):
     assert seen and "decorators" in seen[0]
 
 
-def render_ok(job, beat):
+def render_ok(job, beat, should_stop=None):
     beat("rendering", 0.5)
     return "key", 1.0
 
@@ -228,7 +228,7 @@ def test_the_worker_survives_a_job_that_fails():
     """One bad job must not take the worker down with it."""
     queue = FakeQueue(jobs=3)
 
-    def renderer(job, beat):
+    def renderer(job, beat, should_stop=None):
         if job.id == "job-1":
             raise RuntimeError("boom")
         return "key", 1.0

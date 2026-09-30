@@ -479,6 +479,61 @@ def test_retrying_does_not_cost_an_allowance(client):
 
 
 @requires_db
+def test_a_running_job_can_be_canceled(client):
+    job_id = client.post("/jobs", json={"topic": "a topic"},
+                         headers=auth()).json()["id"]
+
+    r = client.post(f"/jobs/{job_id}/cancel", headers=auth())
+    assert r.status_code == 202, r.text
+    assert r.json()["status"] == "canceled"
+
+    # The lease is left alone on purpose: the running worker matches on it to
+    # read its own heartbeat, so a nulled lease would come back empty and read
+    # as "reaped" rather than "canceled".
+    with psycopg.connect(DSN, row_factory=dict_row) as conn:
+        row = conn.execute("select * from jobs where id = %s", (job_id,)).fetchone()
+    assert row["status"] == "canceled"
+    assert row["finished_at"] is not None
+
+    # And it does not come back: canceled is not in ACTIVE_STATUSES and is not
+    # queued, so neither the claim query nor the reaper will pick it up.
+    assert Queue(DSN).claim("w0") is None
+
+
+@requires_db
+def test_a_finished_job_cannot_be_canceled(client):
+    """It has already produced a video; there is nothing left to stop."""
+    job_id = client.post("/jobs", json={"topic": "a topic"},
+                         headers=auth()).json()["id"]
+    with psycopg.connect(DSN, autocommit=True) as conn:
+        conn.execute("update jobs set status='succeeded' where id=%s", (job_id,))
+
+    r = client.post(f"/jobs/{job_id}/cancel", headers=auth())
+    assert r.status_code == 409
+    assert r.json()["detail"]["error"] == "not_cancelable"
+    # Which state it is in, not just that it refused.
+    assert r.json()["detail"]["status"] == "succeeded"
+
+
+@requires_db
+def test_canceling_twice_is_refused_the_second_time(client):
+    job_id = client.post("/jobs", json={"topic": "a topic"},
+                         headers=auth()).json()["id"]
+    assert client.post(f"/jobs/{job_id}/cancel", headers=auth()).status_code == 202
+    second = client.post(f"/jobs/{job_id}/cancel", headers=auth())
+    assert second.status_code == 409
+    assert second.json()["detail"]["status"] == "canceled"
+
+
+@requires_db
+def test_a_job_that_is_not_yours_cannot_be_canceled(client):
+    job_id = client.post("/jobs", json={"topic": "mine"},
+                         headers=auth("user-a")).json()["id"]
+    r = client.post(f"/jobs/{job_id}/cancel", headers=auth("user-b"))
+    assert r.status_code == 404
+
+
+@requires_db
 def test_only_a_failed_job_can_be_retried(client):
     job_id = client.post("/jobs", json={"topic": "a topic"},
                          headers=auth()).json()["id"]

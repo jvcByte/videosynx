@@ -15,6 +15,13 @@ from typing import Callable, Protocol
 
 from .db import HEARTBEAT_SECONDS, Job, Queue, new_owner
 
+# How often a running render asks whether it should still be running. Much
+# shorter than HEARTBEAT_SECONDS, because that thread is keeping the lease
+# alive and this is answering the user who just pressed Cancel -- a twenty
+# second wait for that reads as a broken button. One query a second is nothing
+# next to writing thirty frames in the same second.
+STOP_CHECK_SECONDS = 1.0
+
 log = logging.getLogger("pycoding.worker")
 
 # Called by the renderer at stage boundaries: (stage name, progress 0..1).
@@ -23,6 +30,15 @@ Beat = Callable[[str, float], None]
 
 class LeaseLost(RuntimeError):
     """The lease is no longer ours. Stop immediately; do not finish the job."""
+
+
+class Canceled(RuntimeError):
+    """Whoever submitted the job changed their mind.
+
+    Not a failure, and deliberately distinguishable from a lost lease: one is
+    nobody's fault and the other is the user's own decision, and a job that
+    was canceled must not be recorded as having gone wrong.
+    """
 
 
 class Refused(RuntimeError):
@@ -86,8 +102,16 @@ def failure_code(exc: Exception) -> str:
 
 
 class Renderer(Protocol):
-    def __call__(self, job: Job, beat: Beat) -> tuple[str, float]:
-        """Render *job*; return (artifact_key, duration_seconds)."""
+    def __call__(self, job: Job, beat: Beat,
+                 should_stop: Callable[[], None] | None = None) -> tuple[str, float]:
+        """Render *job*; return (artifact_key, duration_seconds).
+
+        *beat* marks a stage boundary. *should_stop* raises if the run should
+        be abandoned, and is meant to be handed to whatever long loop the
+        renderer owns -- a renderer that never calls it can still be stopped,
+        but only at the next stage boundary, which for this pipeline is
+        minutes away.
+        """
 
 
 class Worker:
@@ -107,17 +131,57 @@ class Worker:
         self._beat_stop = threading.Event()
         self._beat_thread: threading.Thread | None = None
         self._current: str | None = None
+        # Its own event rather than reusing _lease_lost: a canceled job is not
+        # an abandoned one, and the two get different log lines and different
+        # outcomes on the row.
+        self._canceled = threading.Event()
+        self._checked_at = 0.0
 
     # ------------------------------------------------------------- heartbeats
 
-    def beat(self, stage: str | None = None, progress: float | None = None) -> None:
-        """Extend the lease, or raise if it is gone."""
-        if self._lease_lost.is_set() or self._current is None:
+    def stopping(self) -> None:
+        """Raise if this run should stop. Safe to call per frame.
+
+        Two event reads, and at most one query a second. The heartbeat thread
+        alone would not do: it wakes every HEARTBEAT_SECONDS, so a cancel
+        pressed a moment after it last ran would go unnoticed for twenty
+        seconds. The render loop is the only thing that knows a frame is
+        actually being worked on, so it asks for itself -- rate-limited so a
+        caller looping thirty times a second costs thirty times less.
+        """
+        if self._canceled.is_set():
+            raise Canceled(f"{self._current} was canceled")
+        if self._lease_lost.is_set():
             raise LeaseLost("lease lost")
-        if not self.queue.heartbeat(self._current, self.owner,
-                                    stage=stage, progress=progress):
+        if self._current is None:
+            return
+
+        now = time.monotonic()
+        if now - self._checked_at < STOP_CHECK_SECONDS:
+            return
+        self._checked_at = now
+
+        status = self.queue.heartbeat(self._current, self.owner)
+        if status is None:
             self._lease_lost.set()
             raise LeaseLost(f"lease on {self._current} is no longer ours")
+        if status == "canceled":
+            self._canceled.set()
+            raise Canceled(f"{self._current} was canceled")
+
+    def beat(self, stage: str | None = None, progress: float | None = None) -> None:
+        """Extend the lease, or raise if the job should stop."""
+        self.stopping()
+        if self._current is None:
+            raise LeaseLost("lease lost")
+        status = self.queue.heartbeat(self._current, self.owner,
+                                      stage=stage, progress=progress)
+        if status is None:
+            self._lease_lost.set()
+            raise LeaseLost(f"lease on {self._current} is no longer ours")
+        if status == "canceled":
+            self._canceled.set()
+            raise Canceled(f"{self._current} was canceled")
 
     def _beat_loop(self) -> None:
         """Keep the lease alive between stage boundaries.
@@ -130,10 +194,16 @@ class Worker:
             if self._current is None:
                 continue
             try:
-                if not self.queue.heartbeat(self._current, self.owner):
+                status = self.queue.heartbeat(self._current, self.owner)
+                if status is None:
                     log.warning("lease on %s lost; signalling the run to stop",
                                 self._current)
                     self._lease_lost.set()
+                    return
+                if status == "canceled":
+                    log.info("%s was canceled; signalling the run to stop",
+                             self._current)
+                    self._canceled.set()
                     return
             except Exception:  # a blip must not kill the loop
                 log.exception("heartbeat failed; will retry")
@@ -150,6 +220,7 @@ class Worker:
                  job.id, job.topic, job.attempt, job.max_attempts)
         self._current = job.id
         self._lease_lost.clear()
+        self._canceled.clear()
         # Clear before starting: a beat thread that sees this already set
         # returns immediately and the job renders with no heartbeat at all.
         self._beat_stop.clear()
@@ -158,17 +229,25 @@ class Worker:
 
         try:
             self.beat("starting", 0.0)
-            artifact, duration = self.renderer(job, lambda s, p: self.beat(s, p))
-            if self._lease_lost.is_set():
-                # Rendered, but we no longer own the job. Someone else is
-                # responsible for it now; finishing here would double-charge.
-                log.warning("dropping %s: lease lost during the render", job.id)
+            artifact, duration = self.renderer(job, lambda s, p: self.beat(s, p),
+                                               self.stopping)
+            if self._lease_lost.is_set() or self._canceled.is_set():
+                # Rendered, but the job is not ours to finish any more: either
+                # someone else has it, or nobody wants it. Finishing would
+                # double-charge in the first case and resurrect a canceled job
+                # in the second.
+                log.warning("dropping %s: %s during the render", job.id,
+                            "canceled" if self._canceled.is_set() else "lease lost")
                 return True
             if self.queue.finish(job.id, self.owner, artifact_key=artifact,
                                  duration_s=duration):
                 log.info("finished %s -> %s", job.id, artifact)
             else:
                 log.warning("could not finish %s: lease is gone", job.id)
+        except Canceled:
+            # Not a failure, and not recorded as one: the row already says
+            # canceled, and fail() would overwrite that with "failed".
+            log.info("stopped %s: canceled", job.id)
         except LeaseLost:
             log.warning("abandoning %s: lease lost", job.id)
         except Exception as exc:  # noqa: BLE001 - recorded against the job
@@ -246,7 +325,8 @@ class EngineRenderer:
                 return ESpeakSpeaker()
         return ESpeakSpeaker()
 
-    def __call__(self, job: Job, beat: Beat) -> tuple[str, float]:
+    def __call__(self, job: Job, beat: Beat,
+                 should_stop: Callable[[], None] | None = None) -> tuple[str, float]:
         import os
 
         from pycoding.lesson import (
@@ -319,8 +399,15 @@ class EngineRenderer:
 
         plan = without_captions(tutorial.plan) if not captions else tutorial.plan
         beat("rendering", 0.7)
-        render_plan(plan, out, width=width, height=height, style=style,
-                    watermark=watermark)
+        try:
+            render_plan(plan, out, width=width, height=height, style=style,
+                        watermark=watermark, should_stop=should_stop)
+        except BaseException:
+            # A stopped encode leaves a half-written file. The sink kills
+            # ffmpeg on the way out, so what is left on disk is a truncated
+            # mp4 that nothing should ever pick up.
+            out.unlink(missing_ok=True)
+            raise
 
         # The plan the renderer actually produced, saved beside the video.
         #

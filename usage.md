@@ -378,7 +378,7 @@ offer a voice that dies at synthesis.
 ## 3. Tests
 
 ```bash
-$PYCODING/.venv/bin/pytest                  # 345 tests
+$PYCODING/.venv/bin/pytest                  # 352 tests
 cd $PYCODING/web && npx playwright test     # 3 browser tests
 ```
 

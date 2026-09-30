@@ -77,7 +77,7 @@ class FakeRenderer:
         self.seen: list[str] = []
         self.calls = 0
 
-    def __call__(self, job, beat):
+    def __call__(self, job, beat, should_stop=None):
         self.calls += 1
         self.seen.append(job.id)
         if self.beat:
@@ -229,6 +229,89 @@ def test_a_declined_job_is_not_retried(queue):
 
 
 @requires_db
+def test_a_canceled_job_stops_the_render(queue):
+    """The point of the whole feature: minutes of CPU that stop.
+
+    Not merely "the row says canceled" -- a worker that kept encoding and
+    quietly dropped the result would pass that and still burn the time. So
+    this cancels from another thread while the renderer is working, and the
+    renderer has to notice through the same callback the real one uses.
+    """
+    from pycoding_worker.worker import Canceled
+
+    job_id = queue.submit("a long one")
+    reached, told = threading.Event(), threading.Event()
+
+    def render(job, beat, should_stop=None):
+        beat("rendering", 0.7)
+        reached.set()
+        # Stand in for the frame loop. The stopper *raises* -- that is how a
+        # render abandons itself -- so this records the raise and re-raises,
+        # exactly as render_plan's loop does.
+        for _ in range(1000):
+            try:
+                should_stop()
+            except Canceled:
+                told.set()
+                raise
+            time.sleep(0.01)
+        raise AssertionError("the render was never stopped")
+
+    worker = Worker(queue, render, owner="w0", poll_seconds=0.01)
+    thread = threading.Thread(target=worker.run_once, daemon=True)
+    thread.start()
+    assert reached.wait(timeout=5), "the render never started"
+
+    assert queue.cancel(job_id) is True
+    thread.join(timeout=15)
+    assert told.is_set(), "the renderer was never told to stop"
+
+    row = queue.get(job_id)
+    assert row["status"] == "canceled", "a canceled job was recorded as failed"
+    assert row["error_code"] is None, "a cancel was written up as a failure"
+
+
+@requires_db
+def test_a_worker_that_ignores_the_cancel_cannot_undo_it(queue):
+    """The signal is cooperative, so the writes have to be defended too.
+
+    A renderer that never polls -- or one mid-way through a model call when
+    the cancel lands -- will run to the end and try to finish. The lease is
+    deliberately left in place by `cancel`, so `finish`'s lease check is not
+    what stops it; this is.
+    """
+    job_id = queue.submit("a long one")
+    job = queue.claim("w0")
+    assert queue.cancel(job_id) is True
+
+    assert queue.finish(job_id, "w0", artifact_key="k", duration_s=1.0) is False, \
+        "a canceled job was completed anyway"
+    assert queue.get(job_id)["status"] == "canceled"
+
+    assert queue.fail(job_id, "w0", code="RuntimeError", message="boom") is False, \
+        "a cancel was written up as a failure"
+    assert queue.get(job_id)["status"] == "canceled"
+    # The failure path would have requeued it; canceled is terminal.
+    assert queue.get(job_id)["error_code"] is None
+
+
+@requires_db
+def test_a_canceled_job_is_not_claimed_or_reaped(queue):
+    """Terminal, without any code saying so.
+
+    `canceled` is not in ACTIVE_STATUSES and is not `queued`, so the claim
+    query and the reaper both skip it as written -- this pins that, because it
+    is the sort of thing a future status list could quietly change.
+    """
+    job_id = queue.submit("never run")
+    assert queue.cancel(job_id) is True
+
+    assert queue.claim("w0") is None, "a canceled job was handed out again"
+    assert queue.reap() == [], "a canceled job was reaped"
+    assert queue.get(job_id)["status"] == "canceled"
+
+
+@requires_db
 def test_retry_reuses_the_cached_work(queue):
     """The coupling that makes lease-and-reap safe: a retry must not re-spend.
 
@@ -256,7 +339,7 @@ def test_heartbeat_extends_the_lease(queue):
     job = queue.claim("w0")
     before = queue.get(job.id)["lease_expires_at"]
     time.sleep(0.05)
-    assert queue.heartbeat(job.id, "w0", stage="rendering", progress=0.5) is True
+    assert queue.heartbeat(job.id, "w0", stage="rendering", progress=0.5) == "leased"
     row = queue.get(job.id)
     assert row["lease_expires_at"] > before
     assert row["stage"] == "rendering"
@@ -267,7 +350,7 @@ def test_heartbeat_extends_the_lease(queue):
 def test_heartbeat_from_another_worker_is_refused(queue):
     queue.submit("t")
     job = queue.claim("w0")
-    assert queue.heartbeat(job.id, "someone-else") is False
+    assert queue.heartbeat(job.id, "someone-else") is None
 
 
 # ---------------------------------------------------------------- the big one
