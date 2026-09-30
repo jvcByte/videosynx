@@ -94,5 +94,16 @@ test("an empty service shows no numbers rather than zeroes", async ({ page }) =>
   // and reporting nothing are different, and this is the difference.
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-  await expect(page.getByText("Tutorials generated")).toHaveCount(0);
+  await expect(page.getByText("Tutorials created")).toHaveCount(0);
+  await expect(page.getByText("Platform activity")).toHaveCount(0);
+});
+
+test("the features section says what the service does", async ({ page }) => {
+  // It had no heading at all -- six columns of loose paragraphs with nothing
+  // saying what they were a list of. The nav links to it, so it needs
+  // something to land on.
+  await page.goto("/");
+  const section = page.locator("#features");
+  await expect(section.getByRole("heading", { level: 2 })).toBeVisible();
+  await expect(section.getByRole("article")).toHaveCount(6);
 });

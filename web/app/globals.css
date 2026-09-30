@@ -979,16 +979,31 @@ input:disabled, textarea:disabled, select:disabled {
 
 /* --------------------------------------------------------------- sections */
 
+.landing-features-wrap { padding-top: 88px; padding-bottom: 88px; }
+
+/* Centred, like the eyebrow and the sub above it. `.landing-h2` is left by
+   default because the examples section puts it in a column of its own. */
+.landing-section-head { text-align: center; margin-bottom: 56px; }
+
 .landing-features {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 34px 40px;
-  padding-top: 76px;
-  padding-bottom: 76px;
+  gap: 52px 44px;
 }
 
-.landing-feature h3 { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
-.landing-feature p { margin-top: 8px; font-size: 14.5px; color: var(--fg-muted); }
+/* No boxes. Six bordered cards would make this look like every other
+   marketing page, and the page is a dark, restrained, technical one --
+   the structure comes from the heading, the marks and the whitespace. */
+.landing-feature-mark {
+  display: block;
+  margin-bottom: 16px;
+  font-size: 19px;
+  line-height: 1;
+  color: var(--accent);
+}
+
+.landing-feature h3 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+.landing-feature p { margin-top: 9px; font-size: 14.5px; color: var(--fg-muted); }
 
 .landing-band {
   background: var(--surface-1);
@@ -1148,40 +1163,64 @@ input:disabled, textarea:disabled, select:disabled {
   color: #eaf3ee;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
-  padding: 56px 0;
+  padding: 44px 0;
 }
 
+/* A heading, so the figures sit inside something rather than floating in a
+   band of their own. */
+.landing-stats-head { text-align: center; }
+
+.landing-stats-eyebrow {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #9fb8aa;
+}
+
+.landing-stats-sub { margin-top: 9px; font-size: 14.5px; color: #cfe0d6; }
+
+/* Three figures spread across the full width read as lost. Held closer
+   together, they read as one sentence. */
 .landing-stats dl {
+  max-width: 760px;
+  margin: 34px auto 0;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px;
   text-align: center;
 }
 
+.landing-stats dl > div { position: relative; display: flex; flex-direction: column; }
+
+/* A hairline, and a short one -- a full-height rule would divide the band,
+   and this is meant to group the three. */
+.landing-stats dl > div + div::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 52px;
+  background: rgba(159, 184, 170, 0.22);
+}
+
 .landing-stats dt {
-  font-size: 12.5px;
-  letter-spacing: 0.08em;
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: #9fb8aa;
   order: 2;
-  margin-top: 8px;
+  margin-top: 10px;
 }
 
 .landing-stats dd {
-  font-size: clamp(30px, 4vw, 42px);
+  font-size: clamp(28px, 3.4vw, 38px);
   font-weight: 700;
   letter-spacing: -0.02em;
   order: 1;
   font-variant-numeric: tabular-nums;
-}
-
-.landing-stats dl > div { display: flex; flex-direction: column; }
-
-.landing-stats-note {
-  margin-top: 26px;
-  text-align: center;
-  font-size: 13px;
-  color: #7f9a8b;
 }
 
 .landing-final {
@@ -1235,7 +1274,16 @@ input:disabled, textarea:disabled, select:disabled {
 
 @media (max-width: 560px) {
   .landing-features, .landing-steps, .landing-cards { grid-template-columns: minmax(0, 1fr); }
-  .landing-stats dl { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .landing-stats dl { grid-template-columns: minmax(0, 1fr); gap: 30px; }
+  /* The divider turns with the layout rather than vanishing: the three are
+     still one group, and the rule is the thing that says so. */
+  .landing-stats dl > div + div::before {
+    left: 50%;
+    top: -15px;
+    transform: translateX(-50%);
+    width: 44px;
+    height: 1px;
+  }
   .landing-nav-inner { height: 60px; padding: 0 16px; gap: 8px; }
   .landing-wrap { padding: 0 16px; }
   .landing-logo { font-size: 16px; gap: 8px; }

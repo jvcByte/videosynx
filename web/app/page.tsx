@@ -19,28 +19,37 @@ import { duration, modeLabel } from "./lib/format";
  * only one of them is true.
  */
 
+// One mark each, and they are punctuation rather than signal: six small
+// glyphs in the same muted colour, because six coloured icons for six
+// equally-weighted claims is the decoration this page is meant to avoid.
 const FEATURES = [
   {
+    mark: "✦",
     title: "AI-powered generation",
     body: "Give it a topic and it writes the code, the narration and the slides — a complete tutorial, not a snippet.",
   },
   {
+    mark: "⌘",
     title: "Real code execution",
     body: "Every snippet runs in a sandbox with no network, and its actual output appears in the video.",
   },
   {
+    mark: "CC",
     title: "Captions and subtitles",
     body: "Burned in and exactly timed to the voice, with a matching .srt written alongside.",
   },
   {
+    mark: "◇",
     title: "Illustrated explanations",
     body: "Concepts get drawn slides before any code — shapes, arrows and the words for the idea.",
   },
   {
+    mark: "◈",
     title: "Sandboxed by default",
     body: "Generated code is treated as hostile: no network, no home directory, no inherited environment.",
   },
   {
+    mark: "→",
     title: "Bring your own script",
     body: "Paste a script instead of a topic and it renders what you wrote, on this machine, with no model call at all.",
   },
@@ -194,13 +203,22 @@ export default function Landing() {
         </div>
       </header>
 
-      <section className="landing-wrap landing-features" id="features">
-        {FEATURES.map((feature) => (
-          <article className="landing-feature" key={feature.title}>
-            <h3>{feature.title}</h3>
-            <p>{feature.body}</p>
-          </article>
-        ))}
+      <section className="landing-wrap landing-features-wrap" id="features">
+        <header className="landing-section-head">
+          <span className="landing-eyebrow landing-eyebrow-center">What it does</span>
+          <h2 className="landing-h2">Everything you need to create technical tutorials</h2>
+          <p className="landing-sub">From prompt to polished video.</p>
+        </header>
+
+        <div className="landing-features">
+          {FEATURES.map((feature) => (
+            <article className="landing-feature" key={feature.title}>
+              <span className="landing-feature-mark" aria-hidden>{feature.mark}</span>
+              <h3>{feature.title}</h3>
+              <p>{feature.body}</p>
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="landing-band" id="how">
@@ -251,23 +269,28 @@ export default function Landing() {
       {hasNumbers && (
       <section className="landing-stats">
         <div className="landing-wrap">
+          <header className="landing-stats-head">
+            <span className="landing-stats-eyebrow">Platform activity</span>
+            {/* One statement of what these numbers are, not two. It said
+                "real usage from completed renders" and then, three lines
+                later, "based on completed renders". */}
+            <p className="landing-stats-sub">Real usage, counted from completed renders.</p>
+          </header>
+
           <dl>
             <div>
-              <dt>Tutorials generated</dt>
               <dd>{stats ? stats.tutorials_rendered : "—"}</dd>
+              <dt>Tutorials created</dt>
             </div>
             <div>
-              <dt>Minutes of video</dt>
               <dd>{stats ? Math.round(stats.minutes_of_video) : "—"}</dd>
+              <dt>Video minutes</dt>
             </div>
             <div>
-              <dt>Topics covered</dt>
               <dd>{stats ? stats.topics_covered : "—"}</dd>
+              <dt>Topics covered</dt>
             </div>
           </dl>
-          <p className="landing-stats-note">
-            Counted from the renders this service has actually completed.
-          </p>
         </div>
       </section>
       )}
