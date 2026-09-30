@@ -53,3 +53,31 @@ test("the account form can be switched to", async ({ page }) => {
   await page.getByRole("button", { name: "I already have one" }).click();
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
 });
+
+test("the confirmation link is sent to the dashboard, not the site root", async ({ page }) => {
+  // Supabase falls back to the project's Site URL when the sign-up names no
+  // redirect, and the Site URL is one value -- so with it left at the root,
+  // every confirmation link lands on the landing page. That page never builds
+  // the Supabase client, so the token in the URL is read by nobody and the
+  // visitor arrives signed out, wondering what the email was for.
+  //
+  // The redirect travels as a query parameter on the sign-up request, which
+  // is what makes this checkable without a live project.
+  let signupUrl = "";
+  await page.route("**/auth/v1/signup*", (route) => {
+    signupUrl = route.request().url();
+    return route.fulfill({
+      json: { id: "u1", email: "someone@example.com" },
+    });
+  });
+
+  await page.goto(WORKSPACE);
+  await page.getByRole("button", { name: "Create an account" }).click();
+  await page.getByLabel("Email").fill("someone@example.com");
+  await page.getByLabel("Password").fill("a-long-enough-password");
+  await page.getByRole("button", { name: /Create account|Sign up|Sign in/ }).last().click();
+
+  await expect.poll(() => signupUrl, { timeout: 10_000 }).toContain("/auth/v1/signup");
+  const redirect = new URL(signupUrl).searchParams.get("redirect_to");
+  expect(redirect).toBe("http://127.0.0.1:3022/dashboard");
+});

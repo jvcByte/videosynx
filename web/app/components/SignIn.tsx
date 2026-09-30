@@ -29,7 +29,20 @@ export function SignIn() {
     setError(null);
 
     const { data, error: failure } = creating
-      ? await supabase.auth.signUp({ email, password })
+      ? await supabase.auth.signUp({
+          email,
+          password,
+          // Where the confirmation link lands. Without it Supabase sends people
+          // to the project's Site URL, which is a single value -- so dev and a
+          // deployment cannot both be right, and whichever is set the other
+          // gets a link to the wrong host. Naming the origin here means both
+          // work, as long as both are in the project's Redirect URLs.
+          //
+          // `/dashboard` rather than `/`: it is the only page that builds the
+          // Supabase client, and reading the token out of the URL is something
+          // the client has to be there to do.
+          options: { emailRedirectTo: `${window.location.origin}/dashboard` },
+        })
       : await supabase.auth.signInWithPassword({ email, password });
 
     if (failure) {
