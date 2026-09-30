@@ -1,12 +1,13 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Composer } from "../components/Composer";
 import { Library } from "../components/Library";
 import { PlanPanel } from "../components/PlanPanel";
 import { Achievements, LevelCard, StreakCard } from "../components/Progress";
 import {
-  ApiError, Job, Mode, Progress, Quota, Settings, SubmitBody, Subscription, api,
+  ApiError, Feature, Job, Mode, Progress, Quota, Settings, SubmitBody,
+  Subscription, api,
 } from "../lib/api";
 import { labelFor } from "../lib/format";
 
@@ -275,5 +276,107 @@ export function AchievementsView({ progress }: { progress: Progress | null }) {
         </aside>
       </div>
     </>
+  );
+}
+
+
+/**
+ * What is not built yet, and who is waiting for it.
+ *
+ * A page of promises is a page that can lie, so this one is built to be
+ * checkable: every entry names what stands in the way of it, and the only
+ * number on it is one the visitor can change by their own click.
+ */
+export function ComingSoonView() {
+  const [features, setFeatures] = useState<Feature[] | null>(null);
+  const [joined, setJoined] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    // No polling: nothing here changes except by this page's own button.
+    api.features().then(setFeatures).catch(() => setFailed(true));
+  }, []);
+
+  async function join(id: string) {
+    setBusy(id);
+    try {
+      const updated = await api.joinFeature(id);
+      setFeatures((current) =>
+        current?.map((f) => (f.id === id ? updated : f)) ?? current
+      );
+      setJoined((current) => new Set(current).add(id));
+    } catch {
+      // Local, and beside the row it belongs to rather than over the page.
+      setJoined((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+      setFailed(true);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (failed && !features) {
+    return (
+      <div className="card rail-card">
+        <p className="empty-title">This list could not be loaded</p>
+        <p className="empty-body">Nothing else on the page is affected.</p>
+      </div>
+    );
+  }
+
+  if (!features) {
+    return (
+      <div className="card rail-card">
+        <span className="skeleton skeleton-line" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="coming-soon">
+      <header className="landing-section-head coming-head">
+        <h2>Coming soon</h2>
+        <p className="rail-sub">
+          Not built yet. Join the list and it counts you once — the numbers
+          here are people, not votes.
+        </p>
+      </header>
+
+      <ul className="wants">
+        {features.map((feature) => (
+          <li className="card want" key={feature.id}>
+            <div className="want-body">
+              <h3>{feature.title}</h3>
+              <p className="want-blurb">{feature.blurb}</p>
+              {/* What is in the way, said plainly. A promise with no obstacle
+                  named is a promise nobody has costed. */}
+              <p className="want-blocker">
+                <span className="want-blocker-label">What is in the way</span>
+                {feature.blocker}
+              </p>
+            </div>
+
+            <div className="want-foot">
+              {feature.waiting !== null && (
+                <span className="want-count figure">
+                  {feature.waiting} waiting
+                </span>
+              )}
+              <button
+                className="ghost"
+                disabled={feature.joined || busy === feature.id}
+                onClick={() => join(feature.id)}
+              >
+                {feature.joined ? "You're on the list" : "Join the waitlist"}
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

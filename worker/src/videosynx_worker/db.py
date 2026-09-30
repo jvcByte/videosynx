@@ -126,6 +126,18 @@ create table if not exists credit_ledger (
 );
 
 create index if not exists ledger_user_idx on credit_ledger (user_id, created_at desc);
+
+-- Which of the things not built yet someone wants built. The primary key does
+-- the work: a person who joins twice is one person, which is the only reason a
+-- count next to a feature is worth reading.
+create table if not exists feature_interest (
+  user_id    text not null,
+  feature    text not null,
+  created_at timestamptz not null default now(),
+  primary key (user_id, feature)
+);
+
+create index if not exists interest_feature_idx on feature_interest (feature);
 """
 
 

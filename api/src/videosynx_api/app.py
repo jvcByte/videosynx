@@ -34,6 +34,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from videosynx_worker.db import Queue
 
 from .auth import User, current_user
+from .features import BY_ID, FEATURES, UNKNOWN
 from .billing import SignatureError, balance, handle_webhook, ledger, tier_for_user
 from .progress import progress_for, streak_from
 from .quota import (
@@ -464,6 +465,74 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
                 "video_url": store.url(video_key(row["tier"], str(row["id"]))),
             })
         return published
+
+    @app.get("/features")
+    def features(user: User = Depends(current_user)) -> list[dict]:
+        """What is not built yet, and how many people are waiting for it.
+
+        Behind the sign-in like everything else, because `mine` is the point
+        of half of it -- a page that cannot tell you you have already joined
+        is a page that lets you join twice.
+        """
+        with _connect(dsn) as conn:
+            counts = {
+                str(row["feature"]): int(row["n"])
+                for row in conn.execute(
+                    "select feature, count(*) as n from feature_interest group by feature"
+                ).fetchall()
+            }
+            mine = {
+                str(row["feature"])
+                for row in conn.execute(
+                    "select feature from feature_interest where user_id = %s",
+                    (user.id,),
+                ).fetchall()
+            }
+        return [
+            {
+                "id": feature.id,
+                "title": feature.title,
+                "blurb": feature.blurb,
+                "blocker": feature.blocker,
+                # Zero is not shown as zero: "0 waiting" is a true measurement
+                # and a reason to wait for somebody else to go first.
+                "waiting": counts.get(feature.id, 0) or None,
+                "joined": feature.id in mine,
+            }
+            for feature in FEATURES
+        ]
+
+    @app.post("/features/{feature_id}/interest")
+    def join_feature(feature_id: str, user: User = Depends(current_user)) -> dict:
+        """Join the waitlist for one of them.
+
+        Idempotent, and the table's primary key is what makes it so: joining
+        twice is one person, and saying so is better than counting them once
+        and telling them twice.
+        """
+        feature = BY_ID.get(feature_id)
+        if feature is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, UNKNOWN)
+        with _connect(dsn) as conn:
+            conn.execute(
+                """
+                insert into feature_interest (user_id, feature) values (%s, %s)
+                on conflict (user_id, feature) do nothing
+                """,
+                (user.id, feature_id),
+            )
+            count = conn.execute(
+                "select count(*) as n from feature_interest where feature = %s",
+                (feature_id,),
+            ).fetchone()
+        return {
+            "id": feature.id,
+            "title": feature.title,
+            "blurb": feature.blurb,
+            "blocker": feature.blocker,
+            "waiting": int(count["n"]) or None,
+            "joined": True,
+        }
 
     @app.get("/stats")
     def stats() -> dict:

@@ -1975,3 +1975,57 @@ input:disabled, textarea:disabled, select:disabled {
   padding-top: 18px;
   border-top: 1px solid var(--line);
 }
+
+/* --------------------------------------------------------------- coming soon
+ *
+ * A page of promises. The structure is doing the work the rules ask for: the
+ * title is what it would let you do, the blocker is what stands in the way,
+ * and the only figure on the row is one a person can change by clicking.
+ */
+
+.coming-soon { max-width: 760px; }
+.coming-head { text-align: left; margin-bottom: 24px; }
+.coming-head h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+.coming-head .rail-sub { margin-top: 8px; max-width: 60ch; line-height: 1.5; }
+
+.wants { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+
+.want { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.want-body { min-width: 0; }
+.want h3 { font-size: 16.5px; font-weight: 650; letter-spacing: -0.01em; }
+.want-blurb { margin-top: 7px; font-size: 14.5px; color: var(--fg-muted); line-height: 1.55; }
+
+/* The obstacle, under its own label. Quieter than the promise above it, and
+   not hidden in a tooltip: this is the part that makes the promise credible. */
+.want-blocker {
+  margin-top: 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--line-strong);
+  font-size: 13px;
+  color: var(--fg-faint);
+  line-height: 1.55;
+}
+
+.want-blocker-label {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.want-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* Only rendered once somebody is waiting, so it is never a lonely zero. */
+.want-count { font-size: 13.5px; color: var(--ok); font-weight: 550; }
+
+/* Joined is a fact, not an action -- so the button stops looking pressable
+   without vanishing, which would leave the row looking unfinished. */
+.want-foot button:disabled { opacity: 1; color: var(--ok); }

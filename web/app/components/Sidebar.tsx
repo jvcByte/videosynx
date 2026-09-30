@@ -35,6 +35,9 @@ export function Sidebar({
     { label: "Your Videos", view: "videos" },
     { label: "Create Video", view: "create" },
     { label: "Achievements", view: "achievements" },
+    // One entry for everything not built yet rather than one each. Four more
+    // rows would push this bar off the side of a phone, and the list grows.
+    { label: "Coming soon", view: "coming-soon" },
     // Leaderboard is deliberately absent: it ranks accounts against each
     // other, and this instance has one. A table of one is not a leaderboard.
     { label: "Settings", view: "settings" },

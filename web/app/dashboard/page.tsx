@@ -9,7 +9,8 @@ import { PlanViewer } from "../components/PlanViewer";
 import { Sidebar } from "../components/Sidebar";
 import { SignIn } from "../components/SignIn";
 import {
-  AchievementsView, CreateView, OverviewView, VideoList, VideosView,
+  AchievementsView, ComingSoonView, CreateView, OverviewView, VideoList,
+  VideosView,
 } from "./views";
 import {
   ApiError, Job, Mode, Progress, Quota, Settings, Subscription, Voice,
@@ -27,6 +28,7 @@ const TITLES: Record<View, string> = {
   videos: "Your Videos",
   create: "Create Video",
   achievements: "Achievements",
+  "coming-soon": "Coming soon",
   settings: "Settings",
 };
 
@@ -392,6 +394,7 @@ export default function Home() {
             />
           )}
           {view === "achievements" && <AchievementsView progress={progress} />}
+          {view === "coming-soon" && <ComingSoonView />}
           {view === "settings" && (
             <div className="view-narrow">
               <SettingsPanel

@@ -13,7 +13,8 @@ export default function globalSetup(): void {
   // the same failure as a leaked job: run order deciding the result.
   execFileSync(
     "psql",
-    [DSN, "-q", "-c", "truncate jobs, subscriptions, credit_ledger, user_settings"],
+    [DSN, "-q", "-c",
+     "truncate jobs, subscriptions, credit_ledger, user_settings, feature_interest"],
     { stdio: "inherit" },
   );
   execFileSync("rm", ["-rf", process.env.VIDEOSYNX_ARTIFACTS ?? "/tmp/videosynx/e2e-artifacts"]);

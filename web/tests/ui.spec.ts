@@ -596,3 +596,24 @@ test("a video that is still stored plays as it always did", async ({ page }) => 
   await row.getByRole("button", { name: "Watch" }).click();
   await expect(page.getByTestId("player")).toBeVisible();
 });
+
+test("a planned feature says what is in its way, and counts you once", async ({ page }) => {
+  await page.goto(at("coming-soon"));
+  const first = page.locator(".want").first();
+  await expect(first.getByRole("heading")).toBeVisible();
+  // A promise with no obstacle named is a promise nobody has costed.
+  await expect(first.getByText("What is in the way")).toBeVisible();
+
+  // Nobody waiting is no number at all, not a zero: "0 waiting" is a true
+  // measurement and a reason to let somebody else go first.
+  await expect(first.locator(".want-count")).toHaveCount(0);
+
+  await first.getByRole("button", { name: "Join the waitlist" }).click();
+  await expect(first.locator(".want-count")).toHaveText("1 waiting");
+  await expect(first.getByRole("button")).toBeDisabled();
+
+  // It is a list of people, so it survives a reload and it still counts one.
+  await page.reload();
+  await expect(first.locator(".want-count")).toHaveText("1 waiting");
+  await expect(first.getByRole("button", { name: /on the list/ })).toBeDisabled();
+});

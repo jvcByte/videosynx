@@ -15,6 +15,7 @@ export const VIEWS = [
   "videos",
   "create",
   "achievements",
+  "coming-soon",
   "settings",
 ] as const;
 

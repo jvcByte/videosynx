@@ -212,6 +212,23 @@ export function absolute(url: string): string {
   return `${API_BASE}${url}`;
 }
 
+/**
+ * Something not built yet, and who is waiting for it.
+ *
+ * `waiting` is null rather than 0 when nobody is: "0 waiting" is a true
+ * measurement and a reason to let someone else go first, which is not the
+ * sentence to put under a feature you want people to ask for.
+ */
+export interface Feature {
+  id: string;
+  title: string;
+  blurb: string;
+  /** What stands in the way. A promise with no obstacle named is uncosted. */
+  blocker: string;
+  waiting: number | null;
+  joined: boolean;
+}
+
 /** What the service has actually done. Public — no account needed. */
 export interface Stats {
   tutorials_rendered: number;
@@ -282,6 +299,11 @@ export const api = {
     request<Job>(`/jobs/${id}/cancel`, { method: "POST" }),
   /** The plan the renderer actually produced, or a note saying there isn't one. */
   plan: (id: string) => request<RenderPlan>(`/jobs/${id}/script`),
+  /** What is planned, what is in the way of each, and who is waiting. */
+  features: () => request<Feature[]>("/features"),
+  /** Join the waitlist for one. Joining twice is still one person. */
+  joinFeature: (id: string) =>
+    request<Feature>(`/features/${id}/interest`, { method: "POST" }),
   subscription: () => request<Subscription>("/me/subscription"),
   /** A Stripe Checkout URL to open. 503 when billing is not configured. */
   checkout: () => request<{ url: string; id: string }>("/billing/checkout",
