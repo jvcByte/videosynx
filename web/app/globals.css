@@ -1120,3 +1120,273 @@ input:disabled, textarea:disabled, select:disabled {
   .landing-stats dl { grid-template-columns: minmax(0, 1fr); gap: 32px; }
   .landing-nav-inner { height: auto; padding: 12px 16px; }
 }
+
+/* ================================================================= dashboard
+ *
+ * A sidebar beside the workspace. The entries are anchors into one page, so
+ * the grid is the whole of the layout: nothing here swaps a route.
+ */
+
+.shell {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.shell-main { min-width: 0; }
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  padding: 20px 14px;
+  background: var(--surface-1);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.sidebar-logo {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  text-decoration: none;
+  padding: 0 10px;
+}
+
+.sidebar-nav { display: flex; flex-direction: column; gap: 2px; }
+
+.sidebar-nav a,
+.sidebar-link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: var(--r-md);
+  color: var(--fg-muted);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  background: none;
+  border: none;
+}
+
+.sidebar-nav a:hover,
+.sidebar-link:hover { background: var(--surface-2); color: var(--fg); }
+
+/* Which one you are on. There is one page, so it is always the first. */
+.sidebar-nav a.is-current { background: var(--surface-2); color: var(--fg); }
+
+.sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+
+.sidebar-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  min-width: 0;
+}
+
+.sidebar-avatar {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sidebar-email {
+  font-size: 12.5px;
+  color: var(--fg-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-signout { width: 100%; }
+
+/* ---------------------------------------------------------------- the tiles */
+
+.dash { padding: 22px 24px 96px; }
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px;
+  margin-bottom: 26px;
+}
+
+.tile {
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tile-value { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; color: var(--fg); }
+.tile-label { font-size: 12.5px; color: var(--fg-faint); }
+
+/* The workspace inside the shell has no second column of its own to fill --
+   the sidebar is the second column now. */
+.layout-dash { max-width: none; margin: 0; padding: 0; }
+
+/* ------------------------------------------------------------ the plan view */
+
+.plan-body { overflow-y: auto; padding: 4px 24px 24px; }
+
+.plan-summary { margin: 14px 0 6px; font-size: 13px; color: var(--fg-faint); }
+
+.plan-section {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.plan-section h3 {
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.plan-kind {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+}
+
+.plan-column {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+}
+
+.plan-column-title {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.plan-column p { font-size: 13.5px; color: var(--fg-muted); }
+
+.plan-note {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--fg-faint);
+  font-style: italic;
+}
+
+.plan-code,
+.plan-output {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--fg);
+}
+
+.plan-output { color: var(--fg-muted); }
+
+.plan-narration { margin-top: 14px; list-style: none; display: flex; flex-direction: column; gap: 7px; }
+
+.plan-narration li {
+  display: flex;
+  gap: 10px;
+  font-size: 13.5px;
+  color: var(--fg-muted);
+}
+
+/* The reason this view exists: which slide was on screen while that was said. */
+.plan-frames {
+  flex-shrink: 0;
+  min-width: 46px;
+  font-size: 11.5px;
+  color: var(--fg-faint);
+  padding-top: 2px;
+}
+
+@media (max-width: 940px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .sidebar {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+  .sidebar-nav { flex-direction: row; }
+  .sidebar-foot { margin-top: 0; flex-direction: row; align-items: center; }
+  .sidebar-email { display: none; }
+  .dash { padding: 18px 16px 72px; }
+}
+
+/* --------------------------------------------------------------- plan panel */
+
+.panel {
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 20px;
+}
+
+.panel h2 { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+
+.panel-figure { display: flex; flex-direction: column; gap: 3px; }
+
+.panel-tier {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-transform: capitalize;
+}
+
+.panel-rows { margin-top: 14px; }
+.panel-rows > div { display: flex; align-items: baseline; justify-content: space-between; }
+.panel-rows dt { font-size: 12.5px; color: var(--fg-faint); }
+.panel-rows dd { font-size: 16px; font-weight: 600; color: var(--fg); }
+
+.panel-ledger {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.panel-ledger li { display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; }
+.panel-reason { color: var(--fg-muted); flex: 1; }
+.panel-when { color: var(--fg-faint); }
+
+.panel-upgrade { width: 100%; margin-top: 16px; }

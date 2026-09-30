@@ -350,6 +350,60 @@ test("a failed job can be retried from the page", async ({ page }) => {
   await expect(row.locator(".status")).toHaveText("Queued");
 });
 
+/** A job row, written directly: the allowance is spent by the time these run. */
+function insertJob(topic: string, status = "queued"): string {
+  // -q is load-bearing: without it psql prints "INSERT 0 1" after the id,
+  // and the id goes off with a second line stuck to it.
+  const out = execFileSync("psql", [
+    DSN, "-t", "-A", "-q", "-c",
+    `insert into jobs (user_id, topic, tier, status)
+     values ('e2e-user', '${topic}', 'free', '${status}') returning id`,
+  ], { encoding: "utf8" });
+  return out.trim();
+}
+
+test("the plan behind a video can be inspected", async ({ page }) => {
+  // The endpoint has served this since the beginning and had no way in from
+  // the page, so a video that came out wrong could only be diagnosed by
+  // pulling the plan out of the database by hand.
+  const id = insertJob("show me what went in");
+  seed(id);
+  await page.goto(WORKSPACE);
+
+  const row = page.locator('[data-testid="job"]:has-text("show me what went in")');
+  await row.getByRole("button", { name: "Inspect" }).click();
+
+  const plan = page.getByRole("dialog", { name: "Render plan" });
+  await expect(plan).toBeVisible();
+  // The slide, its panels, and what was said over each one -- with the frame
+  // count, which is what says which slide was on screen at the time.
+  await expect(plan.getByText("A seeded slide")).toBeVisible();
+  await expect(plan.getByText("the takeaway")).toBeVisible();
+  await expect(plan.getByText("One sentence.")).toBeVisible();
+  await expect(plan.getByText("90f")).toBeVisible();
+  // And the code half, with the output it actually produced.
+  await expect(plan.getByText("print('seeded')")).toBeVisible();
+
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect(plan).toHaveCount(0);
+});
+
+test("a running job can be stopped from the page", async ({ page }) => {
+  // Minutes of CPU for a video nobody wants is worth a button. The job is
+  // left queued, so this is the trivially cancelable case -- the hard one,
+  // mid-render, is a worker test.
+  insertJob("stop me");
+  await page.goto(WORKSPACE);
+
+  const row = page.locator('[data-testid="job"]:has-text("stop me")');
+  await row.getByRole("button", { name: "Cancel" }).click();
+
+  await expect(row).toHaveAttribute("data-status", "canceled", { timeout: 10_000 });
+  await expect(row.locator(".status")).toHaveText("Canceled");
+  // Nothing left to stop.
+  await expect(row.getByRole("button", { name: "Cancel" })).toHaveCount(0);
+});
+
 test("a rejected submission explains itself", async ({ page }) => {
   // Exhaust the free allowance so the next submit is refused.
   const headers = { "Content-Type": "application/json", ...DEV_USER };

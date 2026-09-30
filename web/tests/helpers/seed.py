@@ -12,6 +12,7 @@ Usage: seed.py <dsn> <artifacts-root> <job_id>
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -44,6 +45,36 @@ def main(argv: list[str]) -> int:
         key = video_key(tier, job_id)
         store.put(key, source)
 
+        # The plan the worker writes beside the video, in the same shape
+        # `Tutorial.export` produces. Written here so the inspector has
+        # something real to render rather than only its "no plan" fallback.
+        plan = {
+            "topic": "seeded",
+            "total_frames": 600,
+            "duration_s": 20.0,
+            "sections": [
+                {
+                    "kind": "explain",
+                    "heading": "A seeded slide",
+                    "columns": [["Left", ["one", "two"]], ["Right", ["three"]]],
+                    "diagram": None,
+                    "note": "the takeaway",
+                    "narration": [{"text": "One sentence.", "frames": 90},
+                                  {"text": "Another sentence.", "frames": 120}],
+                },
+                {
+                    "kind": "code",
+                    "code": "print('seeded')\n",
+                    "output": ["seeded"],
+                    "narration": [{"text": "It prints.", "anchor": 0,
+                                   "anchored": True, "frames": 60}],
+                },
+            ],
+        }
+        plan_key = video_key(tier, job_id, ".script.json")
+        plan_source = Path(root) / f"{job_id}.plan.json"
+        plan_source.write_text(json.dumps(plan))
+
         conn.execute(
             """
             update jobs
@@ -53,6 +84,10 @@ def main(argv: list[str]) -> int:
             """,
             (key, job_id),
         )
+        # After the row, so a failure here does not leave a job that claims a
+        # plan it does not have.
+        store.put(plan_key, plan_source)
+        plan_source.unlink(missing_ok=True)
     print(key)
     return 0
 

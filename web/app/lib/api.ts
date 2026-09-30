@@ -113,12 +113,16 @@ export interface RenderPlan {
   note?: string;
 }
 
-/** The plan, the limits it grants, and the credit ledger. */
+/** The plan, the limits it grants, what this account has made, and the ledger. */
 export interface Subscription {
   tier: string;
   jobs_per_day: number;
   tts: string;
   credits: number;
+  /** Counted server-side: the job list is capped, so counting it is wrong. */
+  tutorials_created: number;
+  tutorials_completed: number;
+  minutes_of_video: number;
   recent: { delta: number; reason: string; at: string | null }[];
 }
 

@@ -86,8 +86,15 @@ $PYCODING/.venv/bin/pycoding-worker
 cd $PYCODING/web && npm run dev
 ```
 
-Open **http://localhost:3000**, type a topic, and watch it go
-`queued → writing code → rendering → ready`. Click **Watch** to play it.
+Open **http://localhost:3000** for the public page, and
+**http://localhost:3000/dashboard** for the app. Type a topic there and watch
+it go `queued → writing code → rendering → ready`. **Watch** plays it,
+**Download** saves it, and **Inspect** shows the plan the renderer produced —
+every slide, every sentence, and the frame count each was spoken over, which
+is how you find out why a video came out wrong.
+
+`/` is the landing page and is public. The workspace is at `/dashboard`,
+which is where sign-in lives.
 
 The API creates its own schema on startup and serves the UI on a different
 origin, so CORS is configured for `localhost:3000` by default.
@@ -334,6 +341,18 @@ daily jobs on the same video. Only a failed job can be retried — a job that is
 still running, or one that has already produced a video, is refused with a 409
 saying which state it is actually in.
 
+A job that has **not** finished offers **Cancel** instead:
+
+```bash
+curl -s -X POST localhost:8000/jobs/<id>/cancel -H 'X-Dev-User: me:free'
+```
+
+How long that takes depends on what the job is doing. While frames are being
+written the render asks roughly once a second, so it stops about that fast.
+While the model is being called there is no loop to ask from, so the only
+check is the heartbeat thread and a cancel waits up to twenty seconds — which
+is still worth having, because the render that follows has not started yet.
+
 Deleting the wait is not an option worth wanting: a retry that starts a second
 after the failure finds conditions exactly as they were, which is what the old
 two-attempts-one-second-apart behaviour amounted to.
@@ -352,6 +371,10 @@ It is the same JSON `--save-script` writes from the CLI: the diagram specs,
 the slide columns, and every sentence with the frame count it was spoken over.
 This is what to reach for when a video is not what you expected — you can see
 exactly which slide carried the wrong content, and edit it into a lesson.
+
+The same thing is the **Inspect** button on a finished video in the dashboard.
+Both have existed since the renderer started writing plans; the button is new,
+and until it was there this could only be read with `curl`.
 
 Jobs submitted before this existed return a short summary of what was *asked
 for* instead, marked `"no plan was saved for this job"`.

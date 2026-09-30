@@ -348,11 +348,27 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         with _connect(dsn) as conn:
             credits = balance(conn, user.id)
             recent = ledger(conn, user.id, limit=10)
+            # Counted here rather than by the client. The job list is capped
+            # at twenty, so a page counting its own rows would start quietly
+            # reporting "20 tutorials" to anyone with more.
+            totals = conn.execute(
+                """
+                select count(*) filter (where status = 'succeeded') as rendered,
+                       count(*) as created,
+                       coalesce(sum(duration_s)
+                                filter (where status = 'succeeded'), 0) as seconds
+                  from jobs where user_id = %s
+                """,
+                (user.id,),
+            ).fetchone()
         return {
             "tier": tier.name,
             "jobs_per_day": tier.jobs_per_day,
             "tts": tier.tts,
             "credits": credits,
+            "tutorials_created": int(totals["created"]),
+            "tutorials_completed": int(totals["rendered"]),
+            "minutes_of_video": round(float(totals["seconds"]) / 60, 1),
             "recent": [
                 {"delta": r["delta"], "reason": r["reason"],
                  "at": r["created_at"].isoformat() if r["created_at"] else None}

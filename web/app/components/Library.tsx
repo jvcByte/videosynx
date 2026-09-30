@@ -19,6 +19,8 @@ export function Library({
   onDownload,
   onRetry,
   onRerun,
+  onInspect,
+  onCancel,
 }: {
   jobs: Job[];
   loaded: boolean;
@@ -29,6 +31,10 @@ export function Library({
   onRetry: () => void;
   /** Put a job that has given up back in the queue. */
   onRerun: (job: Job) => void;
+  /** Show the plan the renderer produced, for when the video is not right. */
+  onInspect: (job: Job) => void;
+  /** Stop a job that has not finished. */
+  onCancel: (job: Job) => void;
 }) {
   return (
     <section className="library">
@@ -68,7 +74,8 @@ export function Library({
         <ul className="jobs">
           {jobs.map((job) => (
             <JobCard key={job.id} job={job} onPlay={onPlay}
-                     onDownload={onDownload} onRerun={onRerun} />
+                     onDownload={onDownload} onRerun={onRerun}
+                     onInspect={onInspect} onCancel={onCancel} />
           ))}
         </ul>
       )}
@@ -81,11 +88,15 @@ function JobCard({
   onPlay,
   onDownload,
   onRerun,
+  onInspect,
+  onCancel,
 }: {
   job: Job;
   onPlay: (job: Job) => void;
   onDownload: (job: Job) => void;
   onRerun: (job: Job) => void;
+  onInspect: (job: Job) => void;
+  onCancel: (job: Job) => void;
 }) {
   return (
     <li className="job" data-testid="job" data-status={job.status}>
@@ -167,6 +178,17 @@ function JobCard({
           {/* Downloading from the card, not only from the player: the row is
               where you look for a video you made earlier. */}
           <button className="ghost" onClick={() => onDownload(job)}>Download</button>
+          {/* The other two give you the video; this gives you what went into
+              it, which is the only way to find out why one came out wrong. */}
+          <button className="ghost" onClick={() => onInspect(job)}>Inspect</button>
+        </div>
+      )}
+
+      {/* A running job can still be stopped. Minutes of CPU for something
+          nobody wants is worth a button. */}
+      {isPending(job.status) && (
+        <div className="job-actions">
+          <button className="ghost" onClick={() => onCancel(job)}>Cancel</button>
         </div>
       )}
     </li>

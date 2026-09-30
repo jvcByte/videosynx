@@ -6,15 +6,40 @@ import { Library } from "../components/Library";
 import { Player } from "../components/Player";
 import { QuotaMeter } from "../components/QuotaMeter";
 import { SettingsSheet } from "../components/SettingsSheet";
+import { PlanPanel } from "../components/PlanPanel";
+import { PlanViewer } from "../components/PlanViewer";
+import { Sidebar } from "../components/Sidebar";
 import { SignIn } from "../components/SignIn";
 import {
-  ApiError, Job, Mode, Quota, Settings, SubmitBody, Voice, absolute, api, isPending,
-  setAccessToken,
+  ApiError, Job, Mode, Quota, Settings, SubmitBody, Subscription, Voice,
+  absolute, api, isPending, setAccessToken,
 } from "../lib/api";
 import { videoFilename } from "../lib/format";
 import { authEnabled, supabase } from "../lib/supabase";
 
 const POLL_MS = 2000;
+
+/**
+ * One figure, and what it is.
+ *
+ * Undefined renders as an em dash rather than a zero: the tiles are counts of
+ * what has been made, and "none" and "we have not asked yet" are different
+ * answers that must not look the same.
+ */
+function Tile({ label, value, text }: {
+  label: string;
+  value?: number;
+  text?: string;
+}) {
+  return (
+    <div className="tile">
+      <span className="tile-value figure">
+        {text ?? (value === undefined ? "—" : value)}
+      </span>
+      <span className="tile-label">{label}</span>
+    </div>
+  );
+}
 
 export default function Home() {
   // Who is signed in. Null with auth configured means signed out, and the
@@ -45,6 +70,12 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+
+  // The account's own totals and plan. Counted by the server, because the job
+  // list below is capped and counting its rows would quietly say "20" to
+  // anyone with more than twenty.
+  const [plan, setPlan] = useState<Subscription | null>(null);
+  const [inspecting, setInspecting] = useState<Job | null>(null);
 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -124,6 +155,9 @@ export default function Home() {
     // The catalogue of voices. A failure leaves the saved one selectable on
     // its own, which is enough to save the rest of the form.
     api.voices().then(setVoices).catch(() => setVoices([]));
+    // A failure leaves the tiles blank rather than showing zeroes, which
+    // would be a claim about how much has been made.
+    api.subscription().then(setPlan).catch(() => setPlan(null));
   }, [signedIn]);
 
   // Poll only while something is actually running: a list that is all finished
@@ -206,6 +240,18 @@ export default function Home() {
     }
   }
 
+  async function onCancel(job: Job) {
+    setPlayError(null);
+    try {
+      const stopped = await api.cancel(job.id);
+      setJobs((current) =>
+        current.map((row) => (row.id === stopped.id ? stopped : row))
+      );
+    } catch (err) {
+      setPlayError(err instanceof ApiError ? err.message : "Could not cancel the job");
+    }
+  }
+
   async function onDownload(job: Job) {
     setPlayError(null);
     try {
@@ -276,29 +322,33 @@ export default function Home() {
   }
 
   return (
-    <>
+    <div className="shell" id="top">
+      <Sidebar
+        email={email}
+        onSettings={() => setSettingsOpen(true)}
+        onSignOut={authEnabled ? () => { setAccessToken(null); supabase?.auth.signOut(); } : undefined}
+      />
+
+      <div className="shell-main">
       <header className="topbar">
         <div className="topbar-inner">
-          <h1>pycoding</h1>
+          <h1>Dashboard</h1>
           <div className="topbar-right">
             <QuotaMeter quota={quota} failed={quotaFailed} />
-            <button className="ghost" onClick={() => setSettingsOpen(true)}>
-              Settings
-            </button>
-            {email && (
-              <button
-                className="ghost"
-                title={email}
-                onClick={() => { setAccessToken(null); supabase?.auth.signOut(); }}
-              >
-                Sign out
-              </button>
-            )}
           </div>
         </div>
       </header>
 
-      <main className="layout">
+      <main className="dash">
+        <section className="tiles" aria-label="What you have made">
+          <Tile label="Tutorials created" value={plan?.tutorials_created} />
+          <Tile label="Completed" value={plan?.tutorials_completed} />
+          <Tile label="Minutes of video"
+                value={plan ? Math.round(plan.minutes_of_video) : undefined} />
+          <Tile label="Plan" text={plan?.tier} />
+        </section>
+
+        <div className="layout layout-dash">
         <Composer
           topic={topic}
           onTopic={setTopic}
@@ -329,9 +379,18 @@ export default function Home() {
             onDownload={onDownload}
             onRetry={refresh}
             onRerun={onRerun}
+            onInspect={setInspecting}
+            onCancel={onCancel}
           />
+          <PlanPanel plan={plan} />
+        </div>
         </div>
       </main>
+      </div>
+
+      {inspecting && (
+        <PlanViewer job={inspecting} onClose={() => setInspecting(null)} />
+      )}
 
       {playing && (
         <Player
@@ -353,7 +412,7 @@ export default function Home() {
         onSave={onSaveSettings}
         onClose={() => setSettingsOpen(false)}
       />
-    </>
+    </div>
   );
 }
 
