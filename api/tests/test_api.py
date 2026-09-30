@@ -478,6 +478,46 @@ def test_retrying_does_not_cost_an_allowance(client):
     assert client.get("/me/quota", headers=auth()).json()["used_today"] == before
 
 
+def test_stats_are_open_to_anyone(client):
+    """It is the landing page's numbers, so it cannot require a login."""
+    r = client.get("/stats")           # no auth header at all
+    assert r.status_code == 200, r.text
+    assert set(r.json()) == {"tutorials_rendered", "minutes_of_video",
+                             "topics_covered"}
+
+
+@requires_db
+def test_stats_count_what_actually_happened(client):
+    """The point of measuring rather than asserting: these have to agree with
+    the rows, and a landing page cannot inflate them."""
+    job_id = client.post("/jobs", json={"topic": "a measured topic"},
+                         headers=auth()).json()["id"]
+    with psycopg.connect(DSN, autocommit=True) as conn:
+        conn.execute(
+            "update jobs set status='succeeded', duration_s=90 where id=%s",
+            (job_id,))
+
+    body = client.get("/stats").json()
+    assert body["tutorials_rendered"] == 1
+    assert body["minutes_of_video"] == 1.5
+    assert body["topics_covered"] == 1
+
+
+@requires_db
+def test_stats_ignore_jobs_that_did_not_finish(client):
+    """A failed or canceled render is not a tutorial, and its duration is a
+    measurement of work nobody got."""
+    job_id = client.post("/jobs", json={"topic": "a topic"},
+                         headers=auth()).json()["id"]
+    with psycopg.connect(DSN, autocommit=True) as conn:
+        conn.execute(
+            "update jobs set status='failed', duration_s=90 where id=%s", (job_id,))
+
+    body = client.get("/stats").json()
+    assert body["tutorials_rendered"] == 0
+    assert body["minutes_of_video"] == 0
+
+
 @requires_db
 def test_a_running_job_can_be_canceled(client):
     job_id = client.post("/jobs", json={"topic": "a topic"},

@@ -687,3 +687,436 @@ input:disabled, textarea:disabled, select:disabled {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ================================================================== landing
+ *
+ * The marketing page, and the only light surface in the product. It carries
+ * its own palette rather than reusing the app's: the app is a dark tool and
+ * this is a page someone reads once, and they are allowed to look different.
+ * Everything here is namespaced `.landing-*` so it cannot leak upward.
+ */
+
+.landing {
+  --l-bg: #ffffff;
+  --l-soft: #f4f7f5;
+  --l-ink: #0c1a12;
+  --l-muted: #4a5a51;
+  --l-faint: #7d8c84;
+  --l-line: #dfe6e2;
+  --l-accent: #0f9d58;
+  --l-accent-ink: #ffffff;
+
+  background: var(--l-bg);
+  color: var(--l-ink);
+  font-family: var(--font);
+  line-height: 1.6;
+}
+
+.landing-wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ---------------------------------------------------------------- the nav */
+
+.landing-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--l-line);
+}
+
+.landing-nav-inner {
+  height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.landing-logo {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--l-ink);
+}
+
+.landing-links {
+  display: flex;
+  gap: 26px;
+}
+
+.landing-links a {
+  color: var(--l-muted);
+  text-decoration: none;
+  font-size: 14.5px;
+  font-weight: 500;
+}
+
+.landing-links a:hover { color: var(--l-ink); }
+
+.landing-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* -------------------------------------------------------------- the hero */
+
+.landing-hero {
+  background: linear-gradient(180deg, #ffffff 0%, #f7faf8 100%);
+  border-bottom: 1px solid var(--l-line);
+}
+
+.landing-hero-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  gap: 56px;
+  align-items: center;
+  padding-top: 72px;
+  padding-bottom: 72px;
+}
+
+.landing-eyebrow {
+  display: inline-block;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: #e7f4ec;
+  color: #0b7a45;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.landing-eyebrow-center { display: block; width: fit-content; margin: 0 auto 14px; }
+
+.landing h1 {
+  margin-top: 20px;
+  font-size: clamp(34px, 4.6vw, 54px);
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  font-weight: 700;
+}
+
+/* The one word the page wants you to read twice. */
+.landing h1 em { font-style: normal; color: var(--l-accent); }
+
+.landing-lede {
+  margin-top: 18px;
+  max-width: 46ch;
+  font-size: 17px;
+  color: var(--l-muted);
+}
+
+.landing-actions {
+  margin-top: 28px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.landing-cta,
+.landing-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 11px 20px;
+  border-radius: 10px;
+  font-size: 14.5px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: filter 120ms ease, background 120ms ease;
+}
+
+.landing-cta { background: var(--l-accent); color: var(--l-accent-ink); }
+.landing-cta:hover { filter: brightness(1.08); }
+
+.landing-ghost {
+  background: #ffffff;
+  border-color: var(--l-line);
+  color: var(--l-ink);
+}
+
+.landing-ghost:hover { background: var(--l-soft); }
+.landing-cta-lg { padding: 14px 26px; font-size: 15.5px; }
+
+.landing-checks {
+  margin-top: 30px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  list-style: none;
+  font-size: 13.5px;
+  color: var(--l-muted);
+}
+
+.landing-checks li::before {
+  content: "✓";
+  margin-right: 7px;
+  color: var(--l-accent);
+  font-weight: 700;
+}
+
+/* The product, drawn. Same chrome the renderer paints, so it stays honest. */
+.landing-mock {
+  border-radius: 14px;
+  overflow: hidden;
+  background: #1e1e1e;
+  box-shadow: 0 24px 60px rgba(12, 26, 18, 0.22);
+  border: 1px solid #2b2b2b;
+}
+
+.landing-mock-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  background: #3c3c3c;
+}
+
+.landing-dot { width: 11px; height: 11px; border-radius: 50%; }
+.landing-dot:nth-child(1) { background: #ff5f57; }
+.landing-dot:nth-child(2) { background: #febc2e; }
+.landing-dot:nth-child(3) { background: #28c840; }
+
+.landing-mock-title {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #cccccc;
+}
+
+.landing-mock-code {
+  margin: 0;
+  padding: 18px 20px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.7;
+  color: #d4d4d4;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.landing-mock-code .k { color: #569cd6; }
+.landing-mock-code .f { color: #dcdcaa; }
+.landing-mock-code .s { color: #ce9178; }
+.landing-mock-code .d { color: #c586c0; }
+
+.landing-mock-term {
+  padding: 12px 20px 18px;
+  border-top: 1px solid #2b2b2b;
+  background: #181818;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.landing-mock-label {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  color: #9d9d9d;
+  font-family: var(--mono);
+}
+
+.landing-mock-out { font-family: var(--mono); font-size: 12.5px; color: #d4d4d4; }
+
+/* --------------------------------------------------------------- sections */
+
+.landing-features {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 34px 40px;
+  padding-top: 76px;
+  padding-bottom: 76px;
+}
+
+.landing-feature h3 { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
+.landing-feature p { margin-top: 8px; font-size: 14.5px; color: var(--l-muted); }
+
+.landing-band {
+  background: var(--l-soft);
+  border-top: 1px solid var(--l-line);
+  border-bottom: 1px solid var(--l-line);
+  padding: 76px 0;
+  text-align: center;
+}
+
+.landing-h2 {
+  font-size: clamp(26px, 3.2vw, 36px);
+  letter-spacing: -0.025em;
+  font-weight: 700;
+}
+
+.landing-sub {
+  margin-top: 12px;
+  font-size: 15.5px;
+  color: var(--l-muted);
+  max-width: 56ch;
+  margin-inline: auto;
+}
+
+.landing-steps {
+  margin-top: 48px;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 28px;
+  text-align: left;
+  counter-reset: step;
+}
+
+.landing-step-n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--l-accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+
+.landing-steps h3 { font-size: 15.5px; font-weight: 650; }
+.landing-steps p { margin-top: 6px; font-size: 14px; color: var(--l-muted); }
+
+.landing-examples { padding-top: 76px; padding-bottom: 76px; text-align: center; }
+.landing-examples .landing-h2 { margin-top: 14px; }
+
+.landing-cards {
+  margin-top: 44px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  text-align: left;
+}
+
+.landing-card {
+  border: 1px solid var(--l-line);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.landing-card-art {
+  height: 150px;
+  background: linear-gradient(135deg, #0f2a1c 0%, #14432c 55%, #0b7a45 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.landing-card-play {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  position: relative;
+}
+
+.landing-card-play::after {
+  content: "";
+  position: absolute;
+  left: 17px;
+  top: 14px;
+  border-left: 12px solid #fff;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+}
+
+.landing-card h3 { padding: 18px 18px 0; font-size: 15.5px; font-weight: 650; }
+.landing-card p { padding: 6px 18px 0; font-size: 14px; color: var(--l-muted); }
+
+.landing-tag {
+  display: inline-block;
+  margin: 14px 18px 18px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--l-soft);
+  border: 1px solid var(--l-line);
+  font-size: 12px;
+  color: var(--l-muted);
+}
+
+/* The band the design fills with photographs. It carries the counts instead,
+   which is why it is a solid colour with nothing behind it. */
+.landing-stats {
+  background: #0c1a12;
+  color: #eaf3ee;
+  padding: 56px 0;
+}
+
+.landing-stats dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  text-align: center;
+}
+
+.landing-stats dt {
+  font-size: 12.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9fb8aa;
+  order: 2;
+  margin-top: 8px;
+}
+
+.landing-stats dd {
+  font-size: clamp(30px, 4vw, 42px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  order: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.landing-stats dl > div { display: flex; flex-direction: column; }
+
+.landing-stats-note {
+  margin-top: 26px;
+  text-align: center;
+  font-size: 13px;
+  color: #7f9a8b;
+}
+
+.landing-final {
+  padding-top: 84px;
+  padding-bottom: 84px;
+  text-align: center;
+}
+
+.landing-final .landing-cta { margin-top: 24px; }
+
+.landing-footer {
+  border-top: 1px solid var(--l-line);
+  padding: 26px 0;
+}
+
+.landing-footer-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 940px) {
+  .landing-hero-inner { grid-template-columns: minmax(0, 1fr); gap: 40px; padding-top: 48px; }
+  .landing-features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .landing-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .landing-cards { grid-template-columns: minmax(0, 1fr); }
+  .landing-links { display: none; }
+}
+
+@media (max-width: 560px) {
+  .landing-features, .landing-steps { grid-template-columns: minmax(0, 1fr); }
+  .landing-stats dl { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .landing-nav-inner { height: auto; padding: 12px 16px; }
+}

@@ -86,6 +86,42 @@ export interface Settings {
   length: "short" | "medium" | "long";
 }
 
+/**
+ * What the renderer produced, for when a video is not what you expected.
+ *
+ * The plan is made afresh each run and exists nowhere else, so this is the
+ * only way to see which slide carried the wrong words. Older jobs predate it
+ * and come back with a `note` instead of sections, which is a state to render
+ * rather than an error.
+ */
+export interface PlanSection {
+  kind: "explain" | "code";
+  heading?: string;
+  columns?: [string, string[]][];
+  diagram?: { layout: string; nodes: { id: string; label: string }[] } | null;
+  note?: string;
+  code?: string;
+  output?: string[];
+  narration: { text: string; frames: number }[];
+}
+
+export interface RenderPlan {
+  topic?: string;
+  duration_s?: number;
+  total_frames?: number;
+  sections?: PlanSection[];
+  note?: string;
+}
+
+/** The plan, the limits it grants, and the credit ledger. */
+export interface Subscription {
+  tier: string;
+  jobs_per_day: number;
+  tts: string;
+  credits: number;
+  recent: { delta: number; reason: string; at: string | null }[];
+}
+
 /** One narration voice the service offers. */
 export interface Voice {
   id: string;
@@ -158,7 +194,15 @@ export function absolute(url: string): string {
   return url.startsWith("http") ? url : `${API_BASE}${url}`;
 }
 
+/** What the service has actually done. Public — no account needed. */
+export interface Stats {
+  tutorials_rendered: number;
+  minutes_of_video: number;
+  topics_covered: number;
+}
+
 export const api = {
+  stats: () => request<Stats>("/stats"),
   quota: () => request<Quota>("/me/quota"),
   jobs: () => request<Job[]>("/jobs"),
   settings: () => request<Settings>("/me/settings"),
@@ -179,6 +223,15 @@ export const api = {
   /** Put a job that has given up back in the queue. Costs no allowance. */
   retry: (id: string) =>
     request<Job>(`/jobs/${id}/retry`, { method: "POST" }),
+  /** Stop a job that has not finished. */
+  cancel: (id: string) =>
+    request<Job>(`/jobs/${id}/cancel`, { method: "POST" }),
+  /** The plan the renderer actually produced, or a note saying there isn't one. */
+  plan: (id: string) => request<RenderPlan>(`/jobs/${id}/script`),
+  subscription: () => request<Subscription>("/me/subscription"),
+  /** A Stripe Checkout URL to open. 503 when billing is not configured. */
+  checkout: () => request<{ url: string; id: string }>("/billing/checkout",
+    { method: "POST" }),
 };
 
 export const PENDING: JobStatus[] = [

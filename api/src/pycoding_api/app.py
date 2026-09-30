@@ -274,6 +274,33 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
             conn.execute("select 1")
         return {"ok": True}
 
+    @app.get("/stats")
+    def stats() -> dict:
+        """What the service has actually done, for the landing page.
+
+        Public on purpose -- it is counts and nothing about anybody, the same
+        shape as /health carrying no user. Every number is measured, which is
+        the whole reason this is a query: a landing page claiming totals
+        nobody earned is a lie told on the way in, and this one cannot drift
+        into one because there is nothing here to edit.
+        """
+        with _connect(dsn) as conn:
+            row = conn.execute(
+                """
+                select count(*) filter (where status = 'succeeded') as rendered,
+                       coalesce(sum(duration_s)
+                                filter (where status = 'succeeded'), 0) as seconds,
+                       count(distinct topic) filter (where status = 'succeeded')
+                         as topics
+                  from jobs
+                """
+            ).fetchone()
+        return {
+            "tutorials_rendered": int(row["rendered"]),
+            "minutes_of_video": round(float(row["seconds"]) / 60, 1),
+            "topics_covered": int(row["topics"]),
+        }
+
     @app.get("/me/quota", response_model=QuotaResponse)
     def quota(user: User = Depends(current_user)) -> QuotaResponse:
         tier = tier_for(_effective_tier(user))

@@ -6,8 +6,13 @@ __pycache__/
 venv/
 
 # Secrets — never commit. The IDE session logs contain pasted API keys.
+#
+# `.env.example` is carved back out: it documents what a fresh clone needs and
+# holds no values. Without the exception the rule above swallows it too, so it
+# gets written and then silently never committed.
 .env
 .env.*
+!.env.example
 sess_*/
 
 # Build / media artifacts

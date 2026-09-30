@@ -10,6 +10,10 @@ const PYTHON = process.env.PYCODING_PYTHON ?? path.resolve(REPO, ".venv/bin/pyth
 
 const DEV_USER = { "X-Dev-User": "e2e-user:free" };
 
+// The app itself. "/" is the public landing page now, which is a different
+// thing to test and has no workspace on it.
+const WORKSPACE = "/dashboard";
+
 /** Stand in for the worker's last step: upload, then mark the row. */
 function seed(jobId: string): void {
   execFileSync(PYTHON, [path.resolve(REPO, "web/tests/helpers/seed.py"), DSN, ARTIFACTS, jobId], {
@@ -51,7 +55,7 @@ async function jobIdFor(topic: string): Promise<string> {
 
 test("a script can be pasted instead of a topic", async ({ page }) => {
   const heading = `Queues ${Date.now()}`;
-  await page.goto("/");
+  await page.goto(WORKSPACE);
 
   // Nothing typed in Topic: the script alone is enough to submit.
   await page.getByLabel("Script").fill(`# ${heading}\n\nScene 1. A request arrives.`);
@@ -70,7 +74,7 @@ test("a script can be pasted instead of a topic", async ({ page }) => {
 
 test("the mode chosen for one job is stored on it", async ({ page }) => {
   const topic = `modes ${Date.now()}`;
-  await page.goto("/");
+  await page.goto(WORKSPACE);
 
   await page.getByLabel("Topic").fill(topic);
   await page.getByRole("radio", { name: "Illustration" }).check();
@@ -84,7 +88,7 @@ test("the mode chosen for one job is stored on it", async ({ page }) => {
 });
 
 test("settings are saved and come back after a reload", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(WORKSPACE);
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByLabel("Audience")).toBeVisible();
 
@@ -98,7 +102,7 @@ test("settings are saved and come back after a reload", async ({ page }) => {
 });
 
 test("a script takes over from the topic and the mode", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(WORKSPACE);
   await page.getByLabel("Topic").fill("dictionary in python");
   await expect(page.getByLabel("Topic")).toBeEnabled();
   await expect(page.getByRole("radio", { name: "Illustration" })).toBeEnabled();
@@ -125,7 +129,7 @@ test("a script takes over from the topic and the mode", async ({ page }) => {
 });
 
 test("the voice is chosen from a list, not typed", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(WORKSPACE);
   await page.getByRole("button", { name: "Settings" }).click();
 
   const voice = page.getByLabel("Voice");
@@ -156,7 +160,7 @@ const LESSON_JSON = JSON.stringify({
 });
 
 test("the composer says what a submission will cost", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(WORKSPACE);
 
   // A topic has to be written, so it costs a call.
   await expect(page.locator(".compose-cost"))
@@ -173,7 +177,7 @@ test("the composer says what a submission will cost", async ({ page }) => {
 });
 
 test("local mode renders pasted prose with no model at all", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(WORKSPACE);
   await page.getByRole("button", { name: "Settings" }).click();
   await page.getByLabel("Generation").selectOption("local");
   await page.getByRole("button", { name: "Save settings" }).click();
@@ -195,7 +199,7 @@ test("local mode renders pasted prose with no model at all", async ({ page }) =>
 });
 
 test("local mode refuses a topic rather than spending", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(WORKSPACE);
   await page.getByRole("button", { name: "Settings" }).click();
   await page.getByLabel("Generation").selectOption("local");
   await page.getByRole("button", { name: "Save settings" }).click();
@@ -229,7 +233,7 @@ test("the library does not claim to be empty while it is loading", async ({ page
     await route.continue();
   });
 
-  await page.goto("/");
+  await page.goto(WORKSPACE);
   await expect(page.locator(".job-skeleton").first()).toBeVisible();
   await expect(page.getByText("No videos yet")).toHaveCount(0);
 });
@@ -239,7 +243,7 @@ test("submit, poll, and play a video", async ({ page }) => {
   const jobId = await submit(topic);
 
   // 1. The job reaches the page as soon as it exists, before it is rendered.
-  await page.goto("/");
+  await page.goto(WORKSPACE);
   const queued = page.locator(`[data-testid="job"]:has-text("${topic}")`);
   await expect(queued).toBeVisible();
 
@@ -283,7 +287,7 @@ test("submit, poll, and play a video", async ({ page }) => {
 });
 
 test("the quota is shown and a bad topic is refused", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(WORKSPACE);
 
   // The allowance is visible before spending anything.
   await expect(page.locator(".quota")).toContainText("left today");
@@ -312,7 +316,7 @@ test("a job that failed and is coming back reads as Retrying", async ({ page }) 
              now() + interval '5 minutes')`,
   ]);
 
-  await page.goto("/");
+  await page.goto(WORKSPACE);
   const row = page.locator('[data-testid="job"]:has-text("a job that will be retried")');
 
   // Not "Queued" -- that hides a failure the user would otherwise see -- and
@@ -333,7 +337,7 @@ test("a failed job can be retried from the page", async ({ page }) => {
              'provider_quota', 'every model failed: quota', now())`,
   ]);
 
-  await page.goto("/");
+  await page.goto(WORKSPACE);
   const row = page.locator('[data-testid="job"]:has-text("a job that has given up")');
   await expect(row.locator(".status")).toHaveText("Failed");
 
@@ -358,7 +362,7 @@ test("a rejected submission explains itself", async ({ page }) => {
     });
   }
 
-  await page.goto("/");
+  await page.goto(WORKSPACE);
   await page.getByLabel("Topic").fill("one too many topics");
   await page.getByRole("button", { name: "Generate" }).click();
 

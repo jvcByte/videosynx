@@ -1,5 +1,8 @@
 import { expect, test } from "@playwright/test";
 
+// The gate lives with the workspace, not on the public landing page.
+const WORKSPACE = "/dashboard";
+
 /**
  * The app with a Supabase project configured, which is what a deployment is.
  *
@@ -14,7 +17,7 @@ import { expect, test } from "@playwright/test";
  */
 
 test("a signed-out visitor is asked to sign in", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(WORKSPACE);
 
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await expect(page.getByLabel("Email")).toBeVisible();
@@ -34,7 +37,7 @@ test("a signed-out visitor causes no API requests at all", async ({ page }) => {
     if (url.pathname.startsWith("/api/")) calls.push(url.pathname);
   });
 
-  await page.goto("/");
+  await page.goto(WORKSPACE);
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   // Give the mount effects every chance to fire before declaring they did not.
   await page.waitForTimeout(1500);
@@ -43,7 +46,7 @@ test("a signed-out visitor causes no API requests at all", async ({ page }) => {
 });
 
 test("the account form can be switched to", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(WORKSPACE);
   await page.getByRole("button", { name: "Create an account" }).click();
   await expect(page.getByRole("heading", { name: "Create an account" })).toBeVisible();
   // And back, because a one-way toggle is a trap.

@@ -13,7 +13,7 @@ renders it, and the result is served from object storage.
 
 ## Status
 
-All eight phases are built. **352 Python tests and 17 browser tests pass**, and
+All eight phases are built. **355 Python tests and 21 browser tests pass**, and
 the full loop has been run for real: submit through the API, a worker claims
 and renders, the file lands in storage, the API serves it back.
 
@@ -252,6 +252,6 @@ one way.
 
 ```bash
 pip install -e "engine[dev]" -e worker/ -e api/
-pytest                      # from the repository root: 352 tests
-cd web && npx playwright test   # 17 browser tests, needs pycoding_e2e
+pytest                      # from the repository root: 355 tests
+cd web && npx playwright test   # 21 browser tests, needs pycoding_e2e
 ```
