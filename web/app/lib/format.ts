@@ -54,7 +54,7 @@ export function videoFilename(title: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
-  return `${slug || "pycoding"}.mp4`;
+  return `${slug || "videosynx"}.mp4`;
 }
 
 /** `4:07` for a video length. Minutes are worth showing, seconds alone are not. */

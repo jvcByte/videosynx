@@ -211,7 +211,7 @@ def _demo_snippets(speaker: Speaker, execute: bool = False) -> list[Snippet]:
     # Refuse to run anything generated unless isolation actually holds.
     assert_sandbox_available()
     snippets = []
-    with tempfile.TemporaryDirectory(prefix="pycoding_demo_") as td:
+    with tempfile.TemporaryDirectory(prefix="videosynx_demo_") as td:
         for i, (code, _, script) in enumerate(specs):
             execution = run_snippet(code, workdir=Path(td) / f"snippet_{i}")
             snippets.append(

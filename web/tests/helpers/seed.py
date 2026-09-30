@@ -19,7 +19,7 @@ from pathlib import Path
 import psycopg
 from psycopg.rows import dict_row
 
-from pycoding_worker.storage import LocalStorage, video_key
+from videosynx_worker.storage import LocalStorage, video_key
 
 # A few bytes is enough: the browser only has to fetch it and attach it to a
 # <video>. Playability is checked elsewhere, against a real render.

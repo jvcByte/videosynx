@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from pycoding_worker.storage import (
+from videosynx_worker.storage import (
     DEFAULT_URL_TTL,
     LocalStorage,
     S3Storage,
@@ -193,13 +193,13 @@ def test_s3_requires_a_bucket():
 
 def test_from_env_prefers_r2_when_configured(tmp_path):
     store = from_env({"R2_BUCKET": "b", "R2_ENDPOINT": "https://x",
-                      "PYCODING_ARTIFACTS": str(tmp_path)})
+                      "VIDEOSYNX_ARTIFACTS": str(tmp_path)})
     assert isinstance(store, S3Storage)
     assert store.bucket == "b"
 
 
 def test_from_env_falls_back_to_local(tmp_path):
-    store = from_env({"PYCODING_ARTIFACTS": str(tmp_path / "a")})
+    store = from_env({"VIDEOSYNX_ARTIFACTS": str(tmp_path / "a")})
     assert isinstance(store, LocalStorage)
     # A checkout with no configuration must still run, and must not look like
     # a deployment.

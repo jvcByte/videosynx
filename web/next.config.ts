@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 // Where the API is. Read by the server when it starts, and never sent to the
 // browser -- see the rewrite below.
-const API_ORIGIN = process.env.PYCODING_API_URL ?? "http://localhost:8000";
+const API_ORIGIN = process.env.VIDEOSYNX_API_URL ?? "http://localhost:8000";
 
 const config: NextConfig = {
   reactStrictMode: true,
@@ -14,7 +14,7 @@ const config: NextConfig = {
   // decides the values for both -- and the loser silently runs with the
   // other's. That is not hypothetical: it made a test suite submit jobs as
   // the wrong account. The auth test run sets this and gets its own.
-  distDir: process.env.PYCODING_DIST_DIR ?? ".next",
+  distDir: process.env.VIDEOSYNX_DIST_DIR ?? ".next",
 
   // The browser calls /api on its own origin and the server forwards it.
   //

@@ -253,7 +253,7 @@ class Intro:
 
     @property
     def subtitle(self) -> str:
-        return "a pycoding tutorial"
+        return "a videosynx tutorial"
 
 
 @dataclass(frozen=True)

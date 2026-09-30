@@ -31,7 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from pycoding_worker.db import Queue
+from videosynx_worker.db import Queue
 
 from .auth import User, current_user
 from .billing import SignatureError, balance, handle_webhook, ledger, tier_for_user
@@ -43,7 +43,7 @@ from .quota import (
     tier_for,
     used_today,
 )
-from pycoding_worker.storage import (
+from videosynx_worker.storage import (
     DEFAULT_URL_TTL,
     LocalStorage,
     Storage,
@@ -63,7 +63,7 @@ def _looks_like_uuid(value: str) -> bool:
         return False
     return True
 
-DEFAULT_DSN = os.environ.get("PYCODING_DSN", "postgresql:///pycoding")
+DEFAULT_DSN = os.environ.get("VIDEOSYNX_DSN", "postgresql:///videosynx")
 
 
 # A script is sent as text, so this is the only bound on request size: there is
@@ -214,7 +214,7 @@ def _published_example_ids() -> list[str]:
     # variable would take the public landing page down instead of quietly
     # showing one example fewer.
     ids: list[str] = []
-    for part in os.environ.get("PYCODING_EXAMPLES", "").split(","):
+    for part in os.environ.get("VIDEOSYNX_EXAMPLES", "").split(","):
         try:
             ids.append(str(uuid.UUID(part.strip())))
         except ValueError:
@@ -239,7 +239,7 @@ def _poster_for(store, row: dict) -> str:
         return key  # the caller checks exists() and falls back to no poster
     at = max(1.0, float(row["duration_s"] or 0) * 0.45)
 
-    with tempfile.TemporaryDirectory(prefix="pycoding_poster_") as td:
+    with tempfile.TemporaryDirectory(prefix="videosynx_poster_") as td:
         source = Path(td) / "in.mp4"
         out = Path(td) / "poster.jpg"
         source.write_bytes(body)
@@ -272,7 +272,7 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         yield
 
     app = FastAPI(
-        title="pycoding",
+        title="videosynx",
         version="0.1.0",
         description="Generate narrated coding tutorial videos.",
         lifespan=lifespan,

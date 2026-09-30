@@ -44,11 +44,11 @@ def _url_secret() -> bytes:
     """Key for signing local URLs.
 
     Per-process by default: a development server's links are not meant to
-    outlive it. Set PYCODING_URL_SECRET when the links must survive a restart.
+    outlive it. Set VIDEOSYNX_URL_SECRET when the links must survive a restart.
     """
     import os
 
-    return (os.environ.get("PYCODING_URL_SECRET") or secrets.token_hex(16)).encode()
+    return (os.environ.get("VIDEOSYNX_URL_SECRET") or secrets.token_hex(16)).encode()
 
 
 @dataclass
@@ -187,4 +187,4 @@ def from_env(environ: dict | None = None) -> Storage:
             secret_key=env.get("R2_SECRET_ACCESS_KEY") or None,
             region=env.get("R2_REGION", "auto"),
         )
-    return LocalStorage(Path(env.get("PYCODING_ARTIFACTS", "/tmp/pycoding/artifacts")))
+    return LocalStorage(Path(env.get("VIDEOSYNX_ARTIFACTS", "/tmp/videosynx/artifacts")))

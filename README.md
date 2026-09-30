@@ -1,4 +1,4 @@
-# pycoding
+# videosynx
 
 Generate narrated coding-tutorial videos from a topic.
 
@@ -48,7 +48,7 @@ No keys, no quota, no spend. Hardcoded snippets and local speech:
 
 ```bash
 pip install -e engine/
-cd engine && python -m pycoding.cli --demo --execute --out demo.mp4
+cd engine && python -m videosynx.cli --demo --execute --out demo.mp4
 ```
 
 `--execute` runs each snippet in the sandbox and renders its real output.
@@ -65,11 +65,11 @@ curl -LO https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-fil
 ## Run the whole service
 
 ```bash
-createdb pycoding
+createdb videosynx
 pip install -e engine/ -e worker/ -e api/
 
-python -m pycoding_api --port 8000          # the API
-python -m pycoding_worker --once            # a worker (drop --once to loop)
+python -m videosynx_api --port 8000          # the API
+python -m videosynx_worker --once            # a worker (drop --once to loop)
 cd web && npm install && npm run dev        # the UI on :3000
 ```
 
@@ -84,7 +84,7 @@ lesson JSON renders it verbatim, with each narration sentence anchored to the
 code fragment it describes:
 
 ```bash
-python -m pycoding.cli --lesson my-lesson.json --execute --tts kokoro
+python -m videosynx.cli --lesson my-lesson.json --execute --tts kokoro
 ```
 
 A lesson has `intro`, `sections` and `outro`. A section is either `code` plus
@@ -253,5 +253,5 @@ one way.
 ```bash
 pip install -e "engine[dev]" -e worker/ -e api/
 pytest                      # from the repository root: 359 tests
-cd web && npx playwright test   # 26 browser tests, needs pycoding_e2e
+cd web && npx playwright test   # 26 browser tests, needs videosynx_e2e
 ```

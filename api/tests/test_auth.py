@@ -21,7 +21,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi import HTTPException
 
-from pycoding_api import auth
+from videosynx_api import auth
 
 AUDIENCE = "authenticated"
 LEGACY_SECRET = "a-shared-secret-long-enough-for-hs256-fixture"

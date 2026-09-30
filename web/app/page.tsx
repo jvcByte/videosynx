@@ -124,8 +124,8 @@ export default function Landing() {
       <nav className="landing-nav">
         <div className="landing-wrap landing-nav-inner">
           <span className="landing-logo">
-            <img src="/logo-mark.png" alt="" width={26} height={26} />
-            pycoding
+            <img src="/logo-mark.webp" alt="" width={26} height={26} />
+            videosynx
           </span>
           <div className="landing-links">
             <a href="#features">Features</a>
@@ -170,7 +170,7 @@ export default function Landing() {
           <div className="landing-mock" aria-hidden>
             <div className="landing-mock-bar">
               <span className="landing-dot" /><span className="landing-dot" /><span className="landing-dot" />
-              <span className="landing-mock-title">main.py — pycoding</span>
+              <span className="landing-mock-title">main.py — videosynx</span>
             </div>
             <pre className="landing-mock-code">
               <span className="k">from</span> flask <span className="k">import</span> Flask{"\n"}
@@ -281,8 +281,8 @@ export default function Landing() {
       <footer className="landing-footer">
         <div className="landing-wrap landing-footer-inner">
           <span className="landing-logo">
-            <img src="/logo-mark.png" alt="" width={26} height={26} />
-            pycoding
+            <img src="/logo-mark.webp" alt="" width={26} height={26} />
+            videosynx
           </span>
           <div className="landing-links">
             <a href="#features">Features</a>

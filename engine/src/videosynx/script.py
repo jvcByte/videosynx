@@ -206,7 +206,7 @@ def code_sections(
         assert_sandbox_available()
 
     built: list[Snippet] = []
-    with tempfile.TemporaryDirectory(prefix="pycoding_") as td:
+    with tempfile.TemporaryDirectory(prefix="videosynx_") as td:
         root = Path(workdir) if workdir else Path(td)
         for i, code in enumerate(snippets_code):
             output: tuple[str, ...] = ()

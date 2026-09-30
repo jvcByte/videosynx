@@ -13,16 +13,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pycoding.lesson import (
+from videosynx.lesson import (
     build_lesson,
     lesson_from_text,
     load_lesson,
     parse_lesson,
     script_to_lesson,
 )
-from pycoding.prompts import sentences
-from pycoding.providers import ScriptedWriter
-from pycoding.timeline import SR, Explanation, Snippet
+from videosynx.prompts import sentences
+from videosynx.providers import ScriptedWriter
+from videosynx.timeline import SR, Explanation, Snippet
 
 CODE = "total = 0\nfor n in range(5):\n    total += n\nprint(total)\n"
 

@@ -22,17 +22,17 @@ import pytest
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 
-from pycoding_api.app import create_app
-from pycoding_api.billing import (
+from videosynx_api.app import create_app
+from videosynx_api.billing import (
     SignatureError,
     apply_event,
     balance,
     tier_for_user,
     verify_signature,
 )
-from pycoding_worker.db import Queue
+from videosynx_worker.db import Queue
 
-DSN = os.environ.get("PYCODING_TEST_DSN", "postgresql:///pycoding_test")
+DSN = os.environ.get("VIDEOSYNX_TEST_DSN", "postgresql:///videosynx_test")
 SECRET = "whsec_test_secret"
 
 
@@ -45,7 +45,7 @@ def _reachable() -> bool:
 
 
 requires_db = pytest.mark.skipif(
-    not _reachable(), reason=f"no Postgres at {DSN}. create it with: createdb pycoding_test"
+    not _reachable(), reason=f"no Postgres at {DSN}. create it with: createdb videosynx_test"
 )
 
 

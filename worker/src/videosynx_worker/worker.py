@@ -22,7 +22,7 @@ from .db import HEARTBEAT_SECONDS, Job, Queue, new_owner
 # next to writing thirty frames in the same second.
 STOP_CHECK_SECONDS = 1.0
 
-log = logging.getLogger("pycoding.worker")
+log = logging.getLogger("videosynx.worker")
 
 # Called by the renderer at stage boundaries: (stage name, progress 0..1).
 Beat = Callable[[str, float], None]
@@ -94,7 +94,7 @@ def failure_code(exc: Exception) -> str:
     to tell someone than ``provider_error`` -- and it is what lets the page
     offer the free way to keep working instead of just reporting a fault.
     """
-    from pycoding.providers import ProviderError
+    from videosynx.providers import ProviderError
 
     if isinstance(exc, ProviderError):
         return f"provider_{exc.reason}"
@@ -281,7 +281,7 @@ class Worker:
 # ------------------------------------------------------------------ renderers
 
 class EngineRenderer:
-    """Render a job with the pycoding engine, then store the result.
+    """Render a job with the videosynx engine, then store the result.
 
     The job's ``artifact_key`` is a storage key, not a path, so the API can
     hand out a URL without knowing where the bytes are. With no storage
@@ -299,7 +299,7 @@ class EngineRenderer:
     def _speaker(self, tts: str | None = None, voice: str | None = None):
         import os
 
-        from pycoding.providers import (
+        from videosynx.providers import (
             ESpeakSpeaker,
             ElevenLabsSpeaker,
             KokoroSpeaker,
@@ -329,15 +329,15 @@ class EngineRenderer:
                  should_stop: Callable[[], None] | None = None) -> tuple[str, float]:
         import os
 
-        from pycoding.lesson import (
+        from videosynx.lesson import (
             build_lesson,
             lesson_from_text,
             load_lesson,
         )
-        from pycoding.providers import default_writer
-        from pycoding.render import render_plan
-        from pycoding.script import build_tutorial
-        from pycoding.timeline import without_captions
+        from videosynx.providers import default_writer
+        from videosynx.render import render_plan
+        from videosynx.script import build_tutorial
+        from videosynx.timeline import without_captions
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         out = self.output_dir / f"{job.id}.mp4"
@@ -350,7 +350,7 @@ class EngineRenderer:
         max_snippets = options.get("max_snippets")
         style = options.get("style") or "sketch"
         captions = options.get("captions", True)
-        watermark = "pycoding" if options.get("watermark") else None
+        watermark = "videosynx" if options.get("watermark") else None
         width, height = (options.get("resolution") or [1920, 1080])[:2]
         log.info("mode: %s, style: %s, %sx%s, watermark: %s",
                  mode, style, width, height, bool(watermark))

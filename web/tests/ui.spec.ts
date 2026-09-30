@@ -3,10 +3,10 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 
 const API = process.env.API_URL ?? "http://127.0.0.1:8021";
-const DSN = process.env.PYCODING_TEST_DSN ?? "postgresql:///pycoding_e2e";
-const ARTIFACTS = process.env.PYCODING_ARTIFACTS ?? "/tmp/pycoding/e2e-artifacts";
+const DSN = process.env.VIDEOSYNX_TEST_DSN ?? "postgresql:///videosynx_e2e";
+const ARTIFACTS = process.env.VIDEOSYNX_ARTIFACTS ?? "/tmp/videosynx/e2e-artifacts";
 const REPO = path.resolve(__dirname, "../..");
-const PYTHON = process.env.PYCODING_PYTHON ?? path.resolve(REPO, ".venv/bin/python");
+const PYTHON = process.env.VIDEOSYNX_PYTHON ?? path.resolve(REPO, ".venv/bin/python");
 
 const DEV_USER = { "X-Dev-User": "e2e-user:free" };
 

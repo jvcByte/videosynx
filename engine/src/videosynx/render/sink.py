@@ -48,7 +48,7 @@ class VideoSink:
             "-s", f"{width}x{height}", "-r", str(fps), "-i", "-",
         ]
         if audio is not None:
-            fd, pcm_path = tempfile.mkstemp(suffix=".s16le", prefix="pycoding_")
+            fd, pcm_path = tempfile.mkstemp(suffix=".s16le", prefix="videosynx_")
             os.close(fd)
             self._pcm_file = Path(pcm_path)
             audio.astype(np.int16).tofile(self._pcm_file)

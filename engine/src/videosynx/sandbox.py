@@ -236,7 +236,7 @@ _PROBE = r"""
 import os, socket, sys
 failures = []
 
-if "PYCODING_SENTINEL" in os.environ:
+if "VIDEOSYNX_SENTINEL" in os.environ:
     failures.append("environment was not cleared")
 
 try:
@@ -278,15 +278,15 @@ def assert_sandbox_available(timeout_s: int = 30) -> None:
 
     with tempfile.TemporaryDirectory() as td:
         workdir = Path(td)
-        environ_before = os.environ.get("PYCODING_SENTINEL")
-        os.environ["PYCODING_SENTINEL"] = "leaked"
+        environ_before = os.environ.get("VIDEOSYNX_SENTINEL")
+        os.environ["VIDEOSYNX_SENTINEL"] = "leaked"
         try:
             result = run_untrusted(_PROBE, workdir=workdir, timeout_s=timeout_s)
         finally:
             if environ_before is None:
-                os.environ.pop("PYCODING_SENTINEL", None)
+                os.environ.pop("VIDEOSYNX_SENTINEL", None)
             else:
-                os.environ["PYCODING_SENTINEL"] = environ_before
+                os.environ["VIDEOSYNX_SENTINEL"] = environ_before
 
     if result.timed_out:
         raise SandboxUnavailable("sandbox probe timed out")

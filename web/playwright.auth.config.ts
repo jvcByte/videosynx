@@ -41,7 +41,7 @@ export default defineConfig({
         // this server serve the bundle that run compiled -- which has no
         // Supabase in it, so the app renders as if there were no project and
         // every assertion here fails for the wrong reason.
-        `PYCODING_DIST_DIR=.next-auth ` +
+        `VIDEOSYNX_DIST_DIR=.next-auth ` +
         `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:9 ` +
         `NEXT_PUBLIC_SUPABASE_ANON_KEY=test-anon-key ` +
         `npm run dev`,

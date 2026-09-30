@@ -14,10 +14,10 @@ from datetime import datetime, timezone
 
 import pytest
 
-from pycoding_worker.db import Queue
-from pycoding_worker.worker import LeaseLost, Worker
+from videosynx_worker.db import Queue
+from videosynx_worker.worker import LeaseLost, Worker
 
-DSN = os.environ.get("PYCODING_TEST_DSN", "postgresql:///pycoding_test")
+DSN = os.environ.get("VIDEOSYNX_TEST_DSN", "postgresql:///videosynx_test")
 
 
 def _reachable() -> bool:
@@ -37,8 +37,8 @@ requires_db = pytest.mark.skipif(
     reason=(
         f"no Postgres at {DSN}. Create one with:\n"
         "  sudo -u postgres createuser -s $USER && sudo -u postgres createdb $USER\n"
-        "  createdb pycoding_test\n"
-        "or set PYCODING_TEST_DSN"
+        "  createdb videosynx_test\n"
+        "or set VIDEOSYNX_TEST_DSN"
     ),
 )
 
@@ -216,7 +216,7 @@ def test_a_declined_job_is_not_retried(queue):
     The same input is declined again, so waiting a day to say so only delays
     the answer.
     """
-    from pycoding_worker.worker import Refused
+    from videosynx_worker.worker import Refused
 
     job_id = queue.submit("declined")
     worker = Worker(queue, FakeRenderer(raises=Refused("no model key")), owner="w0")
@@ -237,7 +237,7 @@ def test_a_canceled_job_stops_the_render(queue):
     this cancels from another thread while the renderer is working, and the
     renderer has to notice through the same callback the real one uses.
     """
-    from pycoding_worker.worker import Canceled
+    from videosynx_worker.worker import Canceled
 
     job_id = queue.submit("a long one")
     reached, told = threading.Event(), threading.Event()

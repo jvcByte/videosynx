@@ -14,7 +14,7 @@ import { SupabaseClient, createClient } from "@supabase/supabase-js";
  * Both values are public by design -- the anon key is meant to be shipped to
  * browsers and is constrained by row-level security at the database, not by
  * being secret. So inlining them at build time is right here, unlike
- * PYCODING_API_URL, which is why that one is a server-side rewrite instead.
+ * VIDEOSYNX_API_URL, which is why that one is a server-side rewrite instead.
  */
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

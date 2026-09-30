@@ -216,7 +216,7 @@ def build_lesson(
         assert_sandbox_available()
 
     snippets: list[Snippet | Explanation] = []
-    with tempfile.TemporaryDirectory(prefix="pycoding_lesson_") as td:
+    with tempfile.TemporaryDirectory(prefix="videosynx_lesson_") as td:
         for i, section in enumerate(lesson.sections):
             if isinstance(section, ExplainSection):
                 _console.log(f"[blue]Explaining[/blue] {section.name}")

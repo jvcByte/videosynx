@@ -1,4 +1,4 @@
-"""Queue consumer for pycoding."""
+"""Queue consumer for videosynx."""
 
 from .db import Job, Queue, new_owner
 from .worker import EngineRenderer, LeaseLost, Worker

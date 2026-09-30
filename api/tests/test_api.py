@@ -17,20 +17,20 @@ from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
-from pycoding_api.app import (
+from videosynx_api.app import (
     Mode,
     SubmitRequest,
     create_app,
     can_render_locally,
     job_label,
 )
-from pycoding_api.quota import TIERS, QuotaExceeded, submit_within_quota, used_today
-from pycoding_api.settings import KOKORO_VOICES as KOKORO_VOICE_IDS
-from pycoding_api.settings import Settings
-from pycoding_worker.db import Queue
-from pycoding_worker.storage import LocalStorage, video_key
+from videosynx_api.quota import TIERS, QuotaExceeded, submit_within_quota, used_today
+from videosynx_api.settings import KOKORO_VOICES as KOKORO_VOICE_IDS
+from videosynx_api.settings import Settings
+from videosynx_worker.db import Queue
+from videosynx_worker.storage import LocalStorage, video_key
 
-DSN = os.environ.get("PYCODING_TEST_DSN", "postgresql:///pycoding_test")
+DSN = os.environ.get("VIDEOSYNX_TEST_DSN", "postgresql:///videosynx_test")
 
 
 def _reachable() -> bool:
@@ -43,7 +43,7 @@ def _reachable() -> bool:
 
 requires_db = pytest.mark.skipif(
     not _reachable(),
-    reason=f"no Postgres at {DSN}. create it with: createdb pycoding_test",
+    reason=f"no Postgres at {DSN}. create it with: createdb videosynx_test",
 )
 
 
@@ -105,7 +105,7 @@ def test_the_mode_must_be_one_the_engine_knows():
 
 def test_an_oversized_script_is_refused():
     """There is no body limit anywhere else, so this field is the only bound."""
-    from pycoding_api.app import MAX_SCRIPT_CHARS
+    from videosynx_api.app import MAX_SCRIPT_CHARS
 
     with pytest.raises(ValueError):
         SubmitRequest(script="x" * (MAX_SCRIPT_CHARS + 1))
@@ -119,7 +119,7 @@ def test_the_api_and_the_engine_agree_on_the_modes():
     """
     from typing import get_args
 
-    from pycoding.script import MODES as ENGINE_MODES
+    from videosynx.script import MODES as ENGINE_MODES
 
     assert set(get_args(Mode)) == set(ENGINE_MODES)
 
@@ -164,7 +164,7 @@ def test_the_voice_catalogue_matches_the_model_it_describes():
     pytest.importorskip("kokoro_onnx")
     from pathlib import Path
 
-    from pycoding.providers import KOKORO_MODEL, KOKORO_VOICES, KokoroSpeaker
+    from videosynx.providers import KOKORO_MODEL, KOKORO_VOICES, KokoroSpeaker
 
     if not Path(KOKORO_MODEL).exists() or not Path(KOKORO_VOICES).exists():
         pytest.skip("the Kokoro model files are not installed")
@@ -699,7 +699,7 @@ def test_nothing_on_the_submit_path_constructs_a_spending_client(client, monkeyp
     refused, so this asserts the whole path is free of the paid clients rather
     than trusting that the rejection happens first.
     """
-    import pycoding.providers as providers
+    import videosynx.providers as providers
 
     built: list[str] = []
     monkeypatch.setattr(providers.GeminiWriter, "__init__",
@@ -838,7 +838,7 @@ def test_unknown_job_is_404(client):
 @pytest.fixture
 def stored(tmp_path) -> tuple[TestClient, LocalStorage]:
     """An app backed by local storage, so the whole loop is exercisable."""
-    from pycoding_api.app import create_app
+    from videosynx_api.app import create_app
 
     store = LocalStorage(tmp_path / "artifacts")
     with TestClient(create_app(DSN, storage=store)) as c:
@@ -880,7 +880,7 @@ def test_examples_are_public_but_only_what_was_published(stored, monkeypatch):
     _succeed(mine, store)
     _succeed(theirs, store)
 
-    monkeypatch.setenv("PYCODING_EXAMPLES", mine)
+    monkeypatch.setenv("VIDEOSYNX_EXAMPLES", mine)
     body = client.get("/examples").json()          # no auth header
 
     assert [e["title"] for e in body] == ["published"]
@@ -897,7 +897,7 @@ def test_an_example_gets_a_still_from_the_video(stored, monkeypatch):
                          headers=auth()).json()["id"]
     _succeed(job_id, store, body=_real_mp4(store.root / "src.mp4"))
 
-    monkeypatch.setenv("PYCODING_EXAMPLES", job_id)
+    monkeypatch.setenv("VIDEOSYNX_EXAMPLES", job_id)
     example = client.get("/examples").json()[0]
 
     assert example["poster_url"], "no still was made from a readable video"
@@ -913,7 +913,7 @@ def test_an_unreadable_video_loses_its_still_not_the_example(stored, monkeypatch
                          headers=auth()).json()["id"]
     _succeed(job_id, store)                        # b"mp4 bytes", not a video
 
-    monkeypatch.setenv("PYCODING_EXAMPLES", job_id)
+    monkeypatch.setenv("VIDEOSYNX_EXAMPLES", job_id)
     r = client.get("/examples")
 
     assert r.status_code == 200
@@ -928,7 +928,7 @@ def test_a_job_that_never_finished_is_not_published(stored, monkeypatch):
     job_id = client.post("/jobs", json={"topic": "still going"},
                          headers=auth()).json()["id"]
 
-    monkeypatch.setenv("PYCODING_EXAMPLES", f"{job_id},not-a-real-id")
+    monkeypatch.setenv("VIDEOSYNX_EXAMPLES", f"{job_id},not-a-real-id")
     assert client.get("/examples").json() == []
 
 
@@ -1063,7 +1063,7 @@ def test_the_artifact_route_is_closed_with_object_storage():
 
     The file route must not survive as an unauthenticated file server.
     """
-    from pycoding_api.app import create_app
+    from videosynx_api.app import create_app
 
     class _ObjectStore:
         def url(self, key, *, expires_in=3600):

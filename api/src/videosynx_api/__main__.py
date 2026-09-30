@@ -1,4 +1,4 @@
-"""Run the API: python -m pycoding_api --dsn ..."""
+"""Run the API: python -m videosynx_api --dsn ..."""
 
 from __future__ import annotations
 
@@ -10,12 +10,12 @@ from .app import create_app
 
 
 def main(argv: list[str] | None = None) -> int:
-    from pycoding.dotenv import load
+    from videosynx.dotenv import load
 
     load()
 
-    parser = argparse.ArgumentParser(description="pycoding HTTP API.")
-    parser.add_argument("--dsn", default=os.environ.get("PYCODING_DSN", "postgresql:///pycoding"))
+    parser = argparse.ArgumentParser(description="videosynx HTTP API.")
+    parser.add_argument("--dsn", default=os.environ.get("VIDEOSYNX_DSN", "postgresql:///videosynx"))
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--reload", action="store_true")

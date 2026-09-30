@@ -10,8 +10,8 @@ import os
 
 import pytest
 
-from pycoding import sandbox
-from pycoding.sandbox import SandboxUnavailable, assert_sandbox_available, run_untrusted
+from videosynx import sandbox
+from videosynx.sandbox import SandboxUnavailable, assert_sandbox_available, run_untrusted
 
 
 @pytest.fixture
@@ -150,7 +150,7 @@ def test_error_output_is_captured_separately(workdir):
 # --------------------------------------------------------------- transcript
 
 def test_transcript_reads_like_a_terminal(workdir):
-    from pycoding.execute import run_snippet
+    from videosynx.execute import run_snippet
 
     execution = run_snippet("print('hello')\nraise ValueError('boom')\n", workdir=workdir)
     assert execution.lines[0] == "$ python snippet.py"
@@ -160,8 +160,8 @@ def test_transcript_reads_like_a_terminal(workdir):
 
 
 def test_transcript_truncates_long_output_to_the_tail():
-    from pycoding.execute import MAX_LINES, transcript
-    from pycoding.sandbox import ExecResult
+    from videosynx.execute import MAX_LINES, transcript
+    from videosynx.sandbox import ExecResult
 
     result = ExecResult(
         stdout="\n".join(f"line {i}" for i in range(60)),

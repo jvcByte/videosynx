@@ -4,17 +4,17 @@ Everything below is copy-pasteable **from any directory**. Set this once per
 shell and the rest works anywhere:
 
 ```bash
-export PYCODING=~/Software/pycoding
+export VIDEOSYNX=~/Software/videosynx
 ```
 
 ### Where things live
 
 ```
-$PYCODING/.venv/     the virtualenv — NOT inside engine/
-$PYCODING/engine/    the renderer and pipeline
-$PYCODING/worker/    the queue and worker
-$PYCODING/api/       the HTTP API
-$PYCODING/web/       the Next.js UI
+$VIDEOSYNX/.venv/     the virtualenv — NOT inside engine/
+$VIDEOSYNX/engine/    the renderer and pipeline
+$VIDEOSYNX/worker/    the queue and worker
+$VIDEOSYNX/api/       the HTTP API
+$VIDEOSYNX/web/       the Next.js UI
 ```
 
 > **The most common mistake:** the virtualenv is at the repository root, not in
@@ -27,7 +27,7 @@ $PYCODING/web/       the Next.js UI
 ## 1. Make a video — one command
 
 ```bash
-$PYCODING/.venv/bin/pycoding \
+$VIDEOSYNX/.venv/bin/videosynx \
     --topic "Python decorators explained" \
     --execute \
     --out /tmp/decorators.mp4
@@ -43,8 +43,8 @@ and its real output appears on screen.
 ### From a lesson you wrote
 
 ```bash
-$PYCODING/.venv/bin/pycoding \
-    --lesson /tmp/pycoding_spike/sequences_types.json \
+$VIDEOSYNX/.venv/bin/videosynx \
+    --lesson /tmp/videosynx_spike/sequences_types.json \
     --execute \
     --out /tmp/lesson.mp4
 ```
@@ -52,7 +52,7 @@ $PYCODING/.venv/bin/pycoding \
 ### Illustration only
 
 ```bash
-$PYCODING/.venv/bin/pycoding \
+$VIDEOSYNX/.venv/bin/videosynx \
     --topic "when to fine-tune a model" \
     --mode illustration \
     --out /tmp/slides.mp4
@@ -66,7 +66,7 @@ sentence. `--mode coding` is the other end — code alone, no slides.
 ### No keys, no quota, nothing spent
 
 ```bash
-$PYCODING/.venv/bin/pycoding --demo --execute --out /tmp/demo.mp4
+$VIDEOSYNX/.venv/bin/videosynx --demo --execute --out /tmp/demo.mp4
 ```
 
 ---
@@ -77,13 +77,13 @@ Three terminals, all using the absolute path:
 
 ```bash
 # terminal 1 — the API
-$PYCODING/.venv/bin/pycoding-api --port 8000
+$VIDEOSYNX/.venv/bin/videosynx-api --port 8000
 
 # terminal 2 — a worker (drop --once to keep looping)
-$PYCODING/.venv/bin/pycoding-worker
+$VIDEOSYNX/.venv/bin/videosynx-worker
 
 # terminal 3 — the UI
-cd $PYCODING/web && npm run dev
+cd $VIDEOSYNX/web && npm run dev
 ```
 
 Open **http://localhost:3000** for the public page, and
@@ -401,14 +401,14 @@ offer a voice that dies at synthesis.
 ## 3. Tests
 
 ```bash
-$PYCODING/.venv/bin/pytest                  # 359 tests
-cd $PYCODING/web && npx playwright test     # 3 browser tests
+$VIDEOSYNX/.venv/bin/pytest                  # 359 tests
+cd $VIDEOSYNX/web && npx playwright test     # 3 browser tests
 ```
 
 The queue tests need Postgres:
 
 ```bash
-createdb pycoding_test    # once
+createdb videosynx_test    # once
 ```
 
 They skip with instructions if it is missing rather than failing.
@@ -420,10 +420,10 @@ They skip with instructions if it is missing rather than failing.
 If you would rather not type the path every time:
 
 ```bash
-source $PYCODING/.venv/bin/activate
+source $VIDEOSYNX/.venv/bin/activate
 ```
 
-Then `pycoding`, `pycoding-api` and `pycoding-worker` work as plain commands.
+Then `videosynx`, `videosynx-api` and `videosynx-worker` work as plain commands.
 `deactivate` undoes it. Note this changes your `PATH` for that shell only.
 
 ---
@@ -456,14 +456,14 @@ period — under three lessons — so `auto` uses Kokoro instead. Ask for
 `--tts elevenlabs` when the allowance covers it and you want the better voice.
 
 Cloudflare R2 has no egress fees but bills for storage; the local backend
-(`PYCODING_ARTIFACTS`, default `/tmp/pycoding/artifacts`) is used when
+(`VIDEOSYNX_ARTIFACTS`, default `/tmp/videosynx/artifacts`) is used when
 `R2_BUCKET` is unset.
 
 ---
 
 ## Configuration
 
-Credentials load from `$PYCODING/.env` automatically at startup. A shell
+Credentials load from `$VIDEOSYNX/.env` automatically at startup. A shell
 `export` still wins over the file, so you can override one value for a single
 run without editing anything.
 
@@ -486,7 +486,7 @@ override it rather than waiting for a release.
 | `GROQ_API_KEY`, `HF_TOKEN`, `OPENROUTER_API_KEY` | free fallbacks for when Gemini's daily allowance is spent |
 | `GROQ_MODELS`, `HF_MODELS`, `OPENROUTER_MODELS` | override that provider's model list, comma-separated |
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | `--tts elevenlabs` |
-| `PYCODING_DSN` | Postgres, default `postgresql:///pycoding` |
+| `VIDEOSYNX_DSN` | Postgres, default `postgresql:///videosynx` |
 | `R2_BUCKET`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | object storage instead of local disk |
 | `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, `STRIPE_WEBHOOK_SECRET` | billing |
 | `SUPABASE_URL` or `SUPABASE_JWKS_URL` | real auth; either disables the `X-Dev-User` bypass |
@@ -499,10 +499,10 @@ override it rather than waiting for a release.
 ## Troubleshooting
 
 **`bash: .venv/bin/python: No such file or directory`**
-You are in a subdirectory. The venv is at `$PYCODING/.venv`. Use the absolute
+You are in a subdirectory. The venv is at `$VIDEOSYNX/.venv`. Use the absolute
 path, or activate it.
 
-**`createdb: database "pycoding" already exists`**
+**`createdb: database "videosynx" already exists`**
 Not an error. Continue.
 
 **`GET /healthz` returns 404**
@@ -553,11 +553,11 @@ worker reads `.env` once, at startup, so a newly added key needs a restart.
 **The UI says "Could not reach the API"**
 With the browser involved this is usually CORS, not the server being down.
 The browser calls `/api` on its own origin and Next forwards it to whatever
-`PYCODING_API_URL` points at (default `http://localhost:8000`). So check the
+`VIDEOSYNX_API_URL` points at (default `http://localhost:8000`). So check the
 API is running on that port — a browser-side CORS problem is no longer
 possible, because every request is same-origin.
 
-`PYCODING_API_URL` is read by the Next server when it starts, so changing it
+`VIDEOSYNX_API_URL` is read by the Next server when it starts, so changing it
 needs a restart of `npm run dev`, not a rebuild. That is deliberate: it used
 to be a `NEXT_PUBLIC_*` value, which is inlined into a client chunk that a
 browser will happily cache and go stale on.

@@ -14,8 +14,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pycoding.render import render_plan
-from pycoding.timeline import (
+from videosynx.render import render_plan
+from videosynx.timeline import (
     FPS,
     SPF,
     SR,
@@ -188,7 +188,7 @@ def test_narration_lands_on_its_planned_frame(tmp_path, index):
 
 def test_typing_has_a_human_rhythm():
     """Line ends and punctuation must cost more frames than ordinary letters."""
-    from pycoding.timeline import typing_weights
+    from videosynx.timeline import typing_weights
 
     code = "ab\ncd, e"
     # state i is the code typed so far, so weights[i] belongs to code[i-1]
@@ -214,7 +214,7 @@ def test_typing_never_outruns_the_readable_floor():
 
     The reported problem was 28.6 chars/sec. The floor is ~13.6.
     """
-    from pycoding.timeline import MIN_FRAMES_PER_WEIGHT, typing_weights
+    from videosynx.timeline import MIN_FRAMES_PER_WEIGHT, typing_weights
 
     code = "x = 1\n" * 40
     plan = build_plan([Snippet(code=code, phrases=(phrase("Short.", 2.0),))])
@@ -246,7 +246,7 @@ def test_close_anchors_queue_instead_of_slowing_the_video():
     was reached, which slowed typing to 4.5 chars/sec and doubled the video.
     They queue instead.
     """
-    from pycoding.timeline import FRAMES_PER_WEIGHT, typing_weights
+    from videosynx.timeline import FRAMES_PER_WEIGHT, typing_weights
 
     code = "x = 1\n" * 40
     phrases = (
@@ -271,8 +271,8 @@ def test_narration_follows_the_code_it_describes():
     not while line 1 is on screen. Checked against the laid-out audio rather
     than the plan's own arithmetic.
     """
-    from pycoding.narration import trim_silence
-    from pycoding.timeline import anchor_frame, resolve_anchors, typing_weights
+    from videosynx.narration import trim_silence
+    from videosynx.timeline import anchor_frame, resolve_anchors, typing_weights
 
     code = "x = 1\n" * 8
     line_at = [code.index("x = 1\n") + i * 6 for i in range(4)]
@@ -431,7 +431,7 @@ def test_caption_text_is_fully_preserved():
 
 
 def test_chunking_respects_limits():
-    from pycoding.timeline import CAPTION_MAX_CHARS, CAPTION_MAX_WORDS, chunk_caption_text
+    from videosynx.timeline import CAPTION_MAX_CHARS, CAPTION_MAX_WORDS, chunk_caption_text
 
     chunks = chunk_caption_text(NARRATION)
     assert len(chunks) > 1
@@ -457,7 +457,7 @@ def test_caption_reaches_the_visual_states():
 # ------------------------------------------------------------------- srt
 
 def test_srt_timestamps_and_layout():
-    from pycoding.srt import timestamp, to_srt
+    from videosynx.srt import timestamp, to_srt
 
     assert timestamp(0) == "00:00:00,000"
     assert timestamp(30) == "00:00:01,000"  # 30 frames at 30fps
@@ -493,7 +493,7 @@ def test_intro_opens_with_a_title_card():
 
 
 def test_intro_duration_follows_its_narration():
-    from pycoding.timeline import INTRO_TAIL_FRAMES
+    from videosynx.timeline import INTRO_TAIL_FRAMES
 
     intro = _intro()
     plan = build_plan([_captioned_snippet()], intro=intro)
@@ -575,11 +575,11 @@ def test_dropping_captions_keeps_the_timeline_length():
 def test_a_watermark_survives_a_slide_repaint():
     """A slide paints the whole canvas, so a mark drawn only into the chrome
     would survive exactly until the first slide."""
-    from pycoding.render import Editor, find_font
-    from pycoding.timeline import Slide, VisualState
+    from videosynx.render import Editor, find_font
+    from videosynx.timeline import Slide, VisualState
 
     state = VisualState("", slide=Slide(heading="H", columns=(("A", ("a",)),)))
-    with_mark = Editor(W, H, find_font(), watermark="pycoding")
+    with_mark = Editor(W, H, find_font(), watermark="videosynx")
     without = Editor(W, H, find_font())
     with_mark.apply(state)
     without.apply(state)
@@ -591,7 +591,7 @@ def test_a_watermark_survives_a_slide_repaint():
 
 def test_visible_lines_tracks_typing():
     """Partial reveals must slice the pre-tokenized spans, not re-lex."""
-    from pycoding.render.theme import highlight, visible_lines
+    from videosynx.render.theme import highlight, visible_lines
 
     code = 'x = "hello"\ny = 2\n'
     spans = highlight(code)
@@ -603,7 +603,7 @@ def test_visible_lines_tracks_typing():
 
 def test_highlight_preserves_trailing_blank_lines():
     """Pygments normalises trailing newlines; the render must not lose lines."""
-    from pycoding.render.theme import highlight, visible_lines
+    from videosynx.render.theme import highlight, visible_lines
 
     for code in ["x", "a\n", "a\n\n", "a\nb\n\n", "a = 1\nb = 2\n\n\nc = 3\n", "\n\n"]:
         spans = highlight(code)

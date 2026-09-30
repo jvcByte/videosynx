@@ -15,7 +15,7 @@ import urllib.error
 import numpy as np
 import pytest
 
-from pycoding.prompts import (
+from videosynx.prompts import (
     MAX_SLIDES,
     code_prompt,
     concept_prompt,
@@ -26,10 +26,10 @@ from pycoding.prompts import (
     parse_slides,
     sentences,
 )
-from pycoding.providers import ProviderError, ScriptedWriter
-from pycoding.render import render_plan
-from pycoding.script import SLIDE_PLAN, build_tutorial, resolve_marker, speak_anchored
-from pycoding.timeline import SR, Explanation, Phrase, Snippet
+from videosynx.providers import ProviderError, ScriptedWriter
+from videosynx.render import render_plan
+from videosynx.script import SLIDE_PLAN, build_tutorial, resolve_marker, speak_anchored
+from videosynx.timeline import SR, Explanation, Phrase, Snippet
 
 CODE = (
     "total = 0\n"
@@ -246,7 +246,7 @@ def test_speak_anchored_passes_prosody_context():
 
 def test_unanchored_sentences_get_spread_not_stacked():
     """A marker that does not match must not collapse the sentence to the start."""
-    from pycoding.timeline import build_plan, Snippet
+    from videosynx.timeline import build_plan, Snippet
 
     phrases = (
         Phrase("One.", ToneSpeaker().say("One."), anchor=0),
@@ -256,7 +256,7 @@ def test_unanchored_sentences_get_spread_not_stacked():
     plan = build_plan([Snippet(code=CODE, phrases=phrases)])
     assert plan.total_frames > 0
     # The middle sentence is interpolated, so it sits between its neighbours.
-    from pycoding.timeline import resolve_anchors
+    from videosynx.timeline import resolve_anchors
 
     anchors = resolve_anchors(phrases, len(CODE))
     assert anchors[0] == 0
@@ -525,14 +525,14 @@ def test_build_tutorial_renders(tmp_path):
 # ------------------------------------------------------------------ providers
 
 def test_gemini_writer_requires_a_key():
-    from pycoding.providers import GeminiWriter
+    from videosynx.providers import GeminiWriter
 
     with pytest.raises(ProviderError):
         GeminiWriter("")
 
 
 def test_elevenlabs_speaker_requires_keys():
-    from pycoding.providers import ElevenLabsSpeaker
+    from videosynx.providers import ElevenLabsSpeaker
 
     with pytest.raises(ProviderError):
         ElevenLabsSpeaker("", "voice")
@@ -546,7 +546,7 @@ def test_a_spent_allowance_is_reported_as_one_fact():
     The message is stored on the job and shown on the page, so it has to be
     something a person can act on.
     """
-    from pycoding.providers import ProviderError, summarise
+    from videosynx.providers import ProviderError, summarise
 
     spent = [(model, ProviderError("daily quota exhausted", reason="quota"))
              for model in ("a", "b", "c", "d", "e")]
@@ -562,7 +562,7 @@ def test_a_single_failure_keeps_the_part_you_can_act_on():
     """The common case now: one key, one provider, one model. A free tier
     that renamed a model answers 404, and the name it was asked for is the
     only thing that makes that fixable."""
-    from pycoding.providers import ProviderError, summarise
+    from videosynx.providers import ProviderError, summarise
 
     message, reason = summarise([
         ("openrouter/old-model-name", ProviderError("HTTP 404: model not found")),
@@ -580,7 +580,7 @@ def test_a_single_failure_keeps_the_part_you_can_act_on():
 
 def test_a_mixed_failure_keeps_the_detail():
     """With no single cause, the specific failures are the useful part."""
-    from pycoding.providers import ProviderError, summarise
+    from videosynx.providers import ProviderError, summarise
 
     message, reason = summarise([
         ("a", ProviderError("quota", reason="quota")),
@@ -591,7 +591,7 @@ def test_a_mixed_failure_keeps_the_detail():
 
 
 def test_a_provider_error_carries_its_reason():
-    from pycoding.providers import ProviderError
+    from videosynx.providers import ProviderError
 
     assert ProviderError("x").reason == "error"
     assert ProviderError("x", reason="quota").reason == "quota"
@@ -633,7 +633,7 @@ def _reply(text: str):
 def test_a_per_minute_limit_is_told_apart_from_a_spent_quota():
     """Both are 429, and treating a per-day quota as busy is what makes a
     chain sleep through its whole retry budget for nothing."""
-    from pycoding.providers import classify_http
+    from videosynx.providers import classify_http
 
     assert classify_http(429, "rate limit exceeded, try again in 2s").reason == "busy"
     assert classify_http(429, "quota exceeded for today").reason == "quota"
@@ -650,7 +650,7 @@ def test_a_per_minute_limit_is_told_apart_from_a_spent_quota():
 
 
 def test_an_openai_compatible_writer_reads_a_reply():
-    from pycoding.providers import OpenAICompatWriter
+    from videosynx.providers import OpenAICompatWriter
 
     writer = OpenAICompatWriter("k", "m", base_url="https://example.test/v1",
                                 opener=_reply("  hello  "))
@@ -665,7 +665,7 @@ def test_every_request_carries_a_user_agent():
     so it reads as a bad key or a retired model name -- anything but the header
     that is actually missing. Everything here is behind the same edge.
     """
-    from pycoding.providers import _post_json
+    from videosynx.providers import _post_json
 
     # Asserted at the one place a request is actually made, so a caller that
     # builds its own headers still gets one. _post_json is what the writers
@@ -693,7 +693,7 @@ def test_every_request_carries_a_user_agent():
 
 
 def test_a_writer_falls_through_its_own_models_before_giving_up():
-    from pycoding.providers import OpenAICompatWriter
+    from videosynx.providers import OpenAICompatWriter
 
     tried = []
 
@@ -711,7 +711,7 @@ def test_a_writer_falls_through_its_own_models_before_giving_up():
 
 
 def test_a_writer_with_no_key_says_so_rather_than_failing_later():
-    from pycoding.providers import OpenAICompatWriter
+    from videosynx.providers import OpenAICompatWriter
 
     with pytest.raises(ProviderError, match="API key"):
         OpenAICompatWriter("", "m", base_url="https://example.test/v1")
@@ -719,7 +719,7 @@ def test_a_writer_with_no_key_says_so_rather_than_failing_later():
 
 def test_the_chain_moves_on_to_the_next_provider():
     """The behaviour the whole thing exists for: Gemini is spent, Groq answers."""
-    from pycoding.providers import ChainWriter
+    from videosynx.providers import ChainWriter
 
     class Spent:
         def write(self, prompt):
@@ -731,7 +731,7 @@ def test_the_chain_moves_on_to_the_next_provider():
 
 
 def test_the_chain_reports_once_every_provider_is_spent():
-    from pycoding.providers import ChainWriter
+    from videosynx.providers import ChainWriter
 
     class Spent:
         def write(self, prompt):
@@ -745,7 +745,7 @@ def test_the_chain_reports_once_every_provider_is_spent():
 
 
 def test_a_chain_of_nothing_is_refused():
-    from pycoding.providers import ChainWriter
+    from videosynx.providers import ChainWriter
 
     with pytest.raises(ProviderError):
         ChainWriter([])
@@ -755,7 +755,7 @@ def test_only_the_providers_with_keys_are_offered(no_keys, monkeypatch):
     """A provider with no key is not offered and then failed into -- it is
     not offered, because a missing key is a configuration fact known here
     and a failure is something a job has to survive."""
-    from pycoding.providers import default_writer
+    from videosynx.providers import default_writer
 
     monkeypatch.setenv("GROQ_API_KEY", "g")
     monkeypatch.setenv("OPENROUTER_API_KEY", "o")
@@ -765,7 +765,7 @@ def test_only_the_providers_with_keys_are_offered(no_keys, monkeypatch):
 def test_a_lone_provider_needs_no_chain_around_it(no_keys, monkeypatch):
     """One provider is not a fallback chain, and wrapping it in one would
     only put a layer between two things that say the same message."""
-    from pycoding.providers import OpenAICompatWriter, default_writer
+    from videosynx.providers import OpenAICompatWriter, default_writer
 
     monkeypatch.setenv("GROQ_API_KEY", "g")
     writer = default_writer()
@@ -774,7 +774,7 @@ def test_a_lone_provider_needs_no_chain_around_it(no_keys, monkeypatch):
 
 
 def test_the_order_is_gemini_first(no_keys, monkeypatch):
-    from pycoding.providers import ChainWriter, default_writer
+    from videosynx.providers import ChainWriter, default_writer
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "o")
     monkeypatch.setenv("GROQ_API_KEY", "g")
@@ -783,7 +783,7 @@ def test_the_order_is_gemini_first(no_keys, monkeypatch):
 
 
 def test_hugging_face_answers_to_either_name(no_keys, monkeypatch):
-    from pycoding.providers import default_writer
+    from videosynx.providers import default_writer
 
     for name in ("HF_TOKEN", "HUGGINGFACE_API_KEY"):
         monkeypatch.delenv("HF_TOKEN", raising=False)
@@ -795,7 +795,7 @@ def test_hugging_face_answers_to_either_name(no_keys, monkeypatch):
 def test_a_model_list_can_be_corrected_without_a_code_change(no_keys, monkeypatch):
     """A free tier renames its models often, and a stale name should be a
     environment variable away from fixed rather than a release."""
-    from pycoding.providers import OpenAICompatWriter, default_writer
+    from videosynx.providers import OpenAICompatWriter, default_writer
 
     monkeypatch.setenv("GROQ_API_KEY", "g")
     monkeypatch.setenv("GROQ_MODELS", " new-one , second-one ,  ")
@@ -806,12 +806,12 @@ def test_a_model_list_can_be_corrected_without_a_code_change(no_keys, monkeypatc
     # A value that names no models at all is a typo, not an instruction to
     # offer none -- which would fail on an empty list rather than use one.
     monkeypatch.setenv("GROQ_MODELS", " , ")
-    from pycoding.providers import GROQ_MODELS
+    from videosynx.providers import GROQ_MODELS
     assert default_writer()._models == list(GROQ_MODELS)
 
 
 def test_no_keys_at_all_names_the_ones_that_would_work(no_keys):
-    from pycoding.providers import default_writer
+    from videosynx.providers import default_writer
 
     with pytest.raises(ProviderError) as caught:
         default_writer()
@@ -823,7 +823,7 @@ def test_no_keys_at_all_names_the_ones_that_would_work(no_keys):
 # ------------------------------------------------------------------- dotenv
 
 def test_env_file_is_parsed(tmp_path, monkeypatch):
-    from pycoding.dotenv import load, parse
+    from videosynx.dotenv import load, parse
 
     assert parse('A=1\n# comment\n\nB = "two words" \n') == {
         "A": "1", "B": "two words"
@@ -839,7 +839,7 @@ def test_env_file_is_parsed(tmp_path, monkeypatch):
 
 
 def test_a_missing_env_file_is_not_an_error(tmp_path):
-    from pycoding.dotenv import load
+    from videosynx.dotenv import load
 
     assert load(tmp_path / "nope.env") == []
 
@@ -851,7 +851,7 @@ def test_the_env_file_is_found_from_a_subdirectory(tmp_path, monkeypatch):
     minutes later as a render dying with "no model key is configured" while
     the key sat in a file one directory up.
     """
-    from pycoding.dotenv import find
+    from videosynx.dotenv import find
 
     (tmp_path / ".git").mkdir()          # the repository root
     (tmp_path / ".env").write_text("FOUND=1\n")
@@ -864,7 +864,7 @@ def test_the_env_file_is_found_from_a_subdirectory(tmp_path, monkeypatch):
 
 def test_the_search_stops_at_the_repository_root(tmp_path):
     """A .env above the checkout is somebody else's and is not ours to read."""
-    from pycoding.dotenv import find
+    from videosynx.dotenv import find
 
     (tmp_path / ".env").write_text("OUTSIDE=1\n")
     repo = tmp_path / "checkout"
@@ -875,7 +875,7 @@ def test_the_search_stops_at_the_repository_root(tmp_path):
 
 
 def test_no_env_file_anywhere_is_not_an_error(tmp_path):
-    from pycoding.dotenv import find
+    from videosynx.dotenv import find
 
     (tmp_path / ".git").mkdir()
     assert find(tmp_path) is None

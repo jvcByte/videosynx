@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from pycoding.prose import lesson_from_prose
+from videosynx.prose import lesson_from_prose
 
 # The shape a real script arrives in: markers at the start of a line, no blank
 # lines between scenes, and hard wrapping through the middle of sentences.
@@ -292,7 +292,7 @@ Scene 3 — The Wrap: Nothing waits, so nothing falls over."""
 def test_a_fenced_block_becomes_a_code_section():
     """"Both" has to mean something in local mode, and the writer putting a
     block in the script is them saying which half the scene belongs to."""
-    from pycoding.lesson import Section
+    from videosynx.lesson import Section
 
     lesson = lesson_from_prose(CODE_SCRIPT)
     kinds = [type(s).__name__ for s in lesson.sections]
@@ -311,7 +311,7 @@ def test_a_fenced_block_becomes_a_code_section():
 def test_code_narration_is_not_anchored_to_the_first_character():
     """Nobody said which line each sentence is about, and guessing would put
     every sentence over the first keystroke."""
-    from pycoding.lesson import Section
+    from videosynx.lesson import Section
 
     code = lesson_from_prose(CODE_SCRIPT).sections[1]
     assert isinstance(code, Section)
@@ -321,7 +321,7 @@ def test_code_narration_is_not_anchored_to_the_first_character():
 def test_a_script_with_no_code_is_all_slides():
     """Neither script submitted so far has a fence in it, so this is the
     path they take -- and it must not invent a code section."""
-    from pycoding.lesson import Section
+    from videosynx.lesson import Section
 
     lesson = lesson_from_prose(ONE_LINE)
     assert not any(isinstance(s, Section) for s in lesson.sections)

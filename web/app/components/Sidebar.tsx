@@ -27,8 +27,8 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <Link className="sidebar-logo" href="/">
-        <img src="/logo-mark.png" alt="" width={20} height={20} />
-        pycoding
+        <img src="/logo-mark.webp" alt="" width={20} height={20} />
+        videosynx
       </Link>
 
       <nav className="sidebar-nav">

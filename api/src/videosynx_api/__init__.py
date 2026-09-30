@@ -1,4 +1,4 @@
-"""HTTP API for pycoding."""
+"""HTTP API for videosynx."""
 
 from .app import create_app
 from .auth import User, current_user

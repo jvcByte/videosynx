@@ -1,4 +1,4 @@
-"""Run a worker: python -m pycoding_worker --dsn ..."""
+"""Run a worker: python -m videosynx_worker --dsn ..."""
 
 from __future__ import annotations
 
@@ -13,14 +13,14 @@ from .worker import EngineRenderer, Worker
 
 
 def main(argv: list[str] | None = None) -> int:
-    from pycoding.dotenv import load
+    from videosynx.dotenv import load
 
     load()
 
-    parser = argparse.ArgumentParser(description="pycoding render worker.")
-    parser.add_argument("--dsn", default="postgresql:///pycoding",
+    parser = argparse.ArgumentParser(description="videosynx render worker.")
+    parser.add_argument("--dsn", default="postgresql:///videosynx",
                         help="Postgres connection string")
-    parser.add_argument("--out", type=Path, default=Path("/tmp/pycoding/queue"),
+    parser.add_argument("--out", type=Path, default=Path("/tmp/videosynx/queue"),
                         help="where rendered videos are written (until Phase 6 "
                              "replaces this with an object store)")
     parser.add_argument("--tts", default="auto",

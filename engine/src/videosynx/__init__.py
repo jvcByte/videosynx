@@ -1,4 +1,4 @@
-"""pycoding engine — deterministic narrated coding-video renderer."""
+"""videosynx engine — deterministic narrated coding-video renderer."""
 
 from .render import render_plan
 from .timeline import (

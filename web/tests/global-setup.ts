@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 
-const DSN = process.env.PYCODING_TEST_DSN ?? "postgresql:///pycoding_e2e";
+const DSN = process.env.VIDEOSYNX_TEST_DSN ?? "postgresql:///videosynx_e2e";
 
 /**
  * Start from an empty queue.
@@ -16,5 +16,5 @@ export default function globalSetup(): void {
     [DSN, "-q", "-c", "truncate jobs, subscriptions, credit_ledger, user_settings"],
     { stdio: "inherit" },
   );
-  execFileSync("rm", ["-rf", process.env.PYCODING_ARTIFACTS ?? "/tmp/pycoding/e2e-artifacts"]);
+  execFileSync("rm", ["-rf", process.env.VIDEOSYNX_ARTIFACTS ?? "/tmp/videosynx/e2e-artifacts"]);
 }

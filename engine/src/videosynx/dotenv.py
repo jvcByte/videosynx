@@ -43,7 +43,7 @@ def find(start: Path | None = None) -> Path | None:
     the directory holding it is a trap. Nothing fails at startup: the key is
     simply absent, and it surfaces much later -- as a render that dies saying
     no model key is configured, while the key is sitting in a file one
-    directory up. Running `pycoding-worker` from `web/` after `npm run dev`
+    directory up. Running `videosynx-worker` from `web/` after `npm run dev`
     is exactly how that happens.
 
     The walk stops at the repository root when there is one, so a .env beside

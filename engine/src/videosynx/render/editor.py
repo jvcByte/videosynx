@@ -91,7 +91,7 @@ class Editor:
         for i, colour in enumerate(theme.DOT_COLORS):
             x = 20 + i * 22
             d.ellipse([x, 12, x + 12, 24], fill=colour)
-        d.text((self.width // 2, 18), f"{self.filename} — pycoding",
+        d.text((self.width // 2, 18), f"{self.filename} — videosynx",
                font=self.f_ui, fill="#cccccc", anchor="mm")
 
         d.rectangle([0, TITLE_H, self.width, TITLE_H + TAB_H], fill=theme.TAB_BG)
@@ -413,7 +413,7 @@ class Editor:
         d.rectangle([(self.width - rule_w) // 2, y, (self.width + rule_w) // 2, y + 4],
                     fill=self.style.accent)
 
-        d.text((self.width // 2, y + int(TITLE_SIZE * 0.6)), "a pycoding tutorial",
+        d.text((self.width // 2, y + int(TITLE_SIZE * 0.6)), "a videosynx tutorial",
                font=self.f_subtitle, fill=self.style.dim, anchor="ma")
 
     def _update_scroll(self, cursor_line: int) -> None:

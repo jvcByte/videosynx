@@ -17,10 +17,10 @@ import numpy as np
 import pytest
 from PIL import Image, ImageColor
 
-from pycoding.render import find_font
-from pycoding.render.diagram import render_diagram
-from pycoding.render.style import CLEAN, SKETCH, style_for
-from pycoding.timeline import LAYOUTS, SHAPES, Diagram, Edge, Node, parse_diagram
+from videosynx.render import find_font
+from videosynx.render.diagram import render_diagram
+from videosynx.render.style import CLEAN, SKETCH, style_for
+from videosynx.timeline import LAYOUTS, SHAPES, Diagram, Edge, Node, parse_diagram
 
 SIZE = (600, 200)
 FONT = find_font()
@@ -101,7 +101,7 @@ def test_every_declared_shape_and_layout_is_drawable():
 # ------------------------------------------------------------------- pieces
 
 def test_a_diagram_slide_reveals_one_node_per_sentence():
-    from pycoding.timeline import Slide
+    from videosynx.timeline import Slide
 
     slide = Slide(heading="H", diagram=flow())
     assert slide.pieces == 3
@@ -109,14 +109,14 @@ def test_a_diagram_slide_reveals_one_node_per_sentence():
 
 def test_columns_win_over_a_diagram():
     """Both are renderable, and the renderer dispatches on columns first."""
-    from pycoding.timeline import Slide
+    from videosynx.timeline import Slide
 
     slide = Slide(heading="H", columns=(("A", ("a",)), ("B", ("b",))), diagram=flow())
     assert slide.pieces == 2
 
 
 def test_a_slide_with_nothing_to_show_reveals_nothing():
-    from pycoding.timeline import Slide
+    from videosynx.timeline import Slide
 
     assert Slide(heading="H").pieces == 0
 
@@ -210,8 +210,8 @@ def test_a_long_label_does_not_overflow_its_shape():
 
 def column_lines(text: str, width: int = 1280, height: int = 720):
     """What the slide would actually put on screen for a one-column slide."""
-    from pycoding.render.editor import Editor
-    from pycoding.timeline import Slide
+    from videosynx.render.editor import Editor
+    from videosynx.timeline import Slide
 
     editor = Editor(width, height, FONT)
     slide = Slide(heading="A Heading", columns=(("", (text,)),), revealed=1)
@@ -272,8 +272,8 @@ def test_words_are_kept_even_when_nothing_can_make_them_fit():
 
 def test_an_ordinary_column_is_left_at_full_size():
     """The fit must not shrink everything -- only what does not fit."""
-    from pycoding.render.editor import Editor
-    from pycoding.timeline import Slide
+    from videosynx.render.editor import Editor
+    from videosynx.timeline import Slide
 
     editor = Editor(1280, 720, FONT)
     slide = Slide(heading="H", columns=(("", ("A short line.",)),), revealed=1)
@@ -288,10 +288,10 @@ DETERMINISM_SRC = str(Path(__file__).resolve().parents[1] / "src")
 DETERMINISM_SCRIPT = f"""
 import hashlib, sys
 sys.path.insert(0, {DETERMINISM_SRC!r})
-from pycoding.render import find_font
-from pycoding.render.diagram import render_diagram
-from pycoding.render.style import SKETCH
-from pycoding.timeline import Diagram, Edge, Node
+from videosynx.render import find_font
+from videosynx.render.diagram import render_diagram
+from videosynx.render.style import SKETCH
+from videosynx.timeline import Diagram, Edge, Node
 
 diagram = Diagram(layout="cycle", nodes=(
     Node("a", "Collect", "box"), Node("b", "Train", "cylinder"),

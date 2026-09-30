@@ -234,7 +234,7 @@ OPENROUTER_MODELS = ("nvidia/nemotron-3.5-lightning:free", "qwen/qwen3.8-27b:fre
 # Face an HTML error page, so the failure reads as a broken key or a bad model
 # name rather than a missing header. Sent from one place so every request
 # carries it.
-USER_AGENT = "pycoding/0.1 (+https://github.com/pycoding)"
+USER_AGENT = "videosynx/0.1 (+https://github.com/videosynx)"
 
 
 def _post_json(url: str, body: bytes, headers: dict, timeout: float) -> dict:

@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from pycoding_worker.db import Job
-from pycoding_worker.worker import Worker
+from videosynx_worker.db import Job
+from videosynx_worker.worker import Worker
 
 
 class FakeQueue:
@@ -57,8 +57,8 @@ def test_a_spent_allowance_is_named_as_such():
     page than a provider that is simply broken, and the page can only tell
     them apart by the error code.
     """
-    from pycoding.providers import ProviderError
-    from pycoding_worker.worker import failure_code
+    from videosynx.providers import ProviderError
+    from videosynx_worker.worker import failure_code
 
     assert failure_code(ProviderError("spent", reason="quota")) == "provider_quota"
     assert failure_code(ProviderError("busy", reason="busy")) == "provider_busy"
@@ -68,7 +68,7 @@ def test_a_spent_allowance_is_named_as_such():
 def test_the_retry_schedule_grows():
     """A brief outage should be retried while it is fresh; a spent daily
     allowance has to be outlasted, and it comes back in a day."""
-    from pycoding_worker.worker import RETRY_BACKOFF_S, retry_delay
+    from videosynx_worker.worker import RETRY_BACKOFF_S, retry_delay
 
     delays = [retry_delay("provider_busy", n) for n in range(1, 7)]
     assert delays == list(RETRY_BACKOFF_S)
@@ -83,7 +83,7 @@ def test_the_retry_schedule_grows():
 def test_a_declined_job_is_never_retried():
     """`Refused` says it itself: nothing went wrong, nothing was spent. The
     same input declines again, so a day of waiting only delays the answer."""
-    from pycoding_worker.worker import retry_delay
+    from videosynx_worker.worker import retry_delay
 
     assert retry_delay("Refused", 1) is None
     assert retry_delay("Refused", 3) is None
@@ -91,7 +91,7 @@ def test_a_declined_job_is_never_retried():
 
 def test_a_first_attempt_gets_the_first_gap():
     """`attempt` is the attempt that just failed, so it indexes from 1."""
-    from pycoding_worker.worker import retry_delay
+    from videosynx_worker.worker import retry_delay
 
     assert retry_delay("provider_error", 1) == 60
     assert retry_delay("provider_error", 2) == 300
@@ -111,8 +111,8 @@ def test_the_worker_hands_the_queue_the_delay():
 def test_local_mode_refuses_work_it_cannot_do_without_a_model():
     """Belt and braces: the API refuses this before it is ever queued, but the
     queue can be written to directly."""
-    from pycoding_worker.db import Job
-    from pycoding_worker.worker import EngineRenderer, Refused
+    from videosynx_worker.db import Job
+    from videosynx_worker.worker import EngineRenderer, Refused
 
     renderer = EngineRenderer(Path("/tmp"))
     job = Job(id="j", user_id="u", topic="a topic that needs writing", tier="free",
@@ -132,10 +132,10 @@ def test_a_local_job_never_builds_a_provider(tmp_path, monkeypatch):
     import json
 
     import numpy as np
-    import pycoding.providers as providers
-    import pycoding.render as render
-    from pycoding.timeline import SR
-    from pycoding_worker.worker import EngineRenderer
+    import videosynx.providers as providers
+    import videosynx.render as render
+    from videosynx.timeline import SR
+    from videosynx_worker.worker import EngineRenderer
 
     def refuse():
         raise AssertionError("a local job must not build a provider")
@@ -165,10 +165,10 @@ def test_a_local_job_never_builds_a_provider(tmp_path, monkeypatch):
 def test_a_job_that_needs_writing_goes_through_the_chain(tmp_path, monkeypatch):
     """The other side of the same conditional, and the seam that decides
     whether any of the provider work reaches the service at all."""
-    import pycoding.providers as providers
-    import pycoding.render as render
-    from pycoding.providers import ProviderError
-    from pycoding_worker.worker import EngineRenderer
+    import videosynx.providers as providers
+    import videosynx.render as render
+    from videosynx.providers import ProviderError
+    from videosynx_worker.worker import EngineRenderer
 
     seen = []
 
