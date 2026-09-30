@@ -13,11 +13,14 @@ CPU, so a caller queues this rather than waiting on a request.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
 from .providers import Speaker
+import numpy as np
+
 from .narration import trim_silence
 from .prompts import sentences
 from .timeline import SR
@@ -26,6 +29,38 @@ from .timeline import SR
 # here and a clip in a video are the same audio rather than two things that
 # nearly match.
 BITRATE = "96k"
+
+# How long to hold after a sentence, and after a paragraph.
+#
+# Kokoro does not pause at a full stop: measured at about 60 ms of trailing
+# silence, which is nothing. A reader does, and a listener uses it -- without
+# a gap the sentences run together and the whole clip reads as one long
+# breath. The video path never had this problem because its phrases are laid
+# out on a timeline with room between them; concatenating PCM directly is
+# what exposed it.
+SENTENCE_PAUSE_S = 0.45
+PARAGRAPH_PAUSE_S = 0.9
+
+
+def _segments(text: str) -> list[tuple[str, float]]:
+    """Sentences, each with the silence that follows it.
+
+    Paragraphs are honoured as well as full stops: `sentences` splits on
+    whitespace after a full stop, so a blank line is consumed as one and a
+    pasted article loses the shape it was written in. A paragraph is a longer
+    pause than a sentence, and both are a pause.
+    """
+    out: list[tuple[str, float]] = []
+    for block in re.split(r"\n\s*\n", text.strip()):
+        said = sentences(block)
+        for index, sentence in enumerate(said):
+            last_of_paragraph = index == len(said) - 1
+            out.append((sentence, PARAGRAPH_PAUSE_S if last_of_paragraph
+                        else SENTENCE_PAUSE_S))
+    # Nothing is read after the last one, so nothing is held after it either.
+    if out:
+        out[-1] = (out[-1][0], 0.0)
+    return out
 
 
 def synthesise(
@@ -51,17 +86,19 @@ def synthesise(
     for the whole of it, which on a four-minute clip is a progress bar that
     has stopped.
     """
-    parts = sentences(text)
+    parts = _segments(text)
     if not parts:
         raise ValueError("nothing to say")
 
     chunks: list[bytes] = []
-    for index, sentence in enumerate(parts):
+    for index, (sentence, pause) in enumerate(parts):
         if should_stop is not None:
             should_stop()
         if on_progress is not None:
             on_progress(index / len(parts))
         chunks.append(trim_silence(speaker.say(sentence)).tobytes())
+        if pause:
+            chunks.append(np.zeros(int(pause * SR), dtype=np.int16).tobytes())
     if on_progress is not None:
         on_progress(1.0)
 
