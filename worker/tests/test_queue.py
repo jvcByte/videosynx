@@ -523,3 +523,28 @@ def test_reaper_does_not_touch_the_queue_of_running_jobs(queue):
     queue.claim("w0")
     assert queue.reap() == []
     assert queue.counts().get("queued") == 2
+
+
+@requires_db
+def test_a_retry_starts_at_the_beginning(queue):
+    """A new attempt does not inherit the last one's stage or progress.
+
+    A job that got to seventy per cent and failed is requeued with a bar at
+    seventy per cent, sitting in a queue for something that has not started.
+    The stage is worse: the row claims to be rendering while it waits.
+    """
+    job_id = queue.submit("t")
+    queue.claim("w0")
+    queue.heartbeat(job_id, "w0", stage="rendering", progress=0.7)
+    assert queue.get(job_id)["stage"] == "rendering"
+
+    # A delay is what makes it a retry rather than a failure: without one it
+    # is terminal, which is what `PERMANENT` codes get.
+    queue.fail(job_id, "w0", code="Boom", message="no", delay_seconds=60)
+    make_due(queue, job_id)
+    assert queue.claim("w1") is not None
+
+    row = queue.get(job_id)
+    assert row["status"] == "leased"
+    assert row["stage"] is None, "the new attempt claims the old one's stage"
+    assert row["progress"] == 0, "the new attempt claims the old one's progress"

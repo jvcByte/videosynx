@@ -236,7 +236,13 @@ class Queue:
                        lease_expires_at = now() + interval '{LEASE_SECONDS} seconds',
                        heartbeat_at     = now(),
                        attempt          = j.attempt + 1,
-                       started_at       = coalesce(j.started_at, now())
+                       started_at       = coalesce(j.started_at, now()),
+                       -- A new attempt starts at the beginning. Left over, a
+                       -- retried job sits in the queue showing the stage and
+                       -- the progress bar of the run that failed -- a bar at
+                       -- seventy per cent for something that has not started.
+                       stage            = null,
+                       progress         = 0
                   from candidate
                  where j.id = candidate.id
                 returning j.*

@@ -546,7 +546,7 @@ export function SpeechView() {
             <li className="card clip" key={job.id}>
               <div className="clip-body">
                 <p className="clip-title">{job.topic}</p>
-                <Status status={job.status} attempt={job.attempt} />
+                <Status status={job.status} stage={job.stage} attempt={job.attempt} />
               </div>
               {job.status === "succeeded" && (
                 <div className="clip-actions">

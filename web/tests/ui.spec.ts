@@ -310,6 +310,41 @@ test("the quota is shown and a bad topic is refused", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Generate" })).toBeEnabled();
 });
 
+test("a running job says what it is doing, not just that it started", async ({ page }) => {
+  // It read "Starting" from the claim to the finished video. `job_status` has
+  // values for the middle of a render -- generating, narrating, executing --
+  // and nothing has ever written one, so a four-minute render had one word.
+  // What the worker does write is `stage`, and that is what the row reads.
+  execFileSync("psql", [
+    DSN, "-q", "-c",
+    `insert into jobs (user_id, topic, tier, status, stage, progress)
+     values ('e2e-user', 'a job that is rendering', 'free', 'rendering',
+             'rendering', 0.7)`,
+  ]);
+
+  await page.goto(at("videos"));
+  const row = page.locator('[data-testid="job"]:has-text("a job that is rendering")');
+
+  await expect(row.locator(".status")).toHaveText("Rendering");
+  // Still a running job, so the dot says so rather than saying finished.
+  await expect(row).toHaveAttribute("data-status", "rendering");
+});
+
+test("a stage the row has no word for falls back to the status", async ({ page }) => {
+  // `stage` is free text the worker writes; a value from a newer worker than
+  // this page is not a reason to render a blank label.
+  execFileSync("psql", [
+    DSN, "-q", "-c",
+    `insert into jobs (user_id, topic, tier, status, stage, progress)
+     values ('e2e-user', 'a job with a strange stage', 'free', 'leased',
+             'consulting_the_oracle', 0.4)`,
+  ]);
+
+  await page.goto(at("videos"));
+  const row = page.locator('[data-testid="job"]:has-text("a job with a strange stage")');
+  await expect(row.locator(".status")).toHaveText("Starting");
+});
+
 test("a job that failed and is coming back reads as Retrying", async ({ page }) => {
   // The state the worker leaves behind after a failure it means to repeat:
   // queued again, an attempt spent, the error kept, and a wait before the

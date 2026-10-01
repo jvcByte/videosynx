@@ -120,7 +120,7 @@ function JobCard({
         data-available={job.available === false ? "no" : undefined}>
       <div className="job-main">
         <p className="job-title">{job.topic}</p>
-        <Status status={job.status} attempt={job.attempt} />
+        <Status status={job.status} stage={job.stage} attempt={job.attempt} />
       </div>
 
       {/* What it is, how long, and how long ago. The three things you would
