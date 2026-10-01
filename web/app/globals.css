@@ -1020,15 +1020,21 @@ input:disabled, textarea:disabled, select:disabled {
 /* The card is the dark surface, not a white frame around a dark rectangle.
    That frame was the thing not sitting right on a pale page: it left a
    border of nothing around every preview and made four objects out of two.
-   Here the label, the pill, the preview and the sentence are all on one
-   surface, the way the renderer's own chrome is. */
+   Here the label, the pill, the preview and the sentence are all on one.
+
+   And it is the *site's* dark, not a neutral one. `#1a1a1a` is nobody's
+   colour: the app's dark palette is a green-black, and so is the band the
+   counts sit on, so a grey card on a green page read as a box carried in
+   from somewhere else. The card is chrome and wears the site's palette; the
+   screen inside it is the renderer's, which is a picture of the output and
+   has to keep the colours the output actually has. */
 .maker {
   display: flex;
   flex-direction: column;
   padding: 16px 16px 18px;
   border-radius: var(--r-lg);
   overflow: hidden;
-  background: #1a1a1a;
+  background: #131e1a;
 }
 
 /* The output's name, in the quietest type on the card. It is a label, not a
@@ -1073,19 +1079,29 @@ input:disabled, textarea:disabled, select:disabled {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
 }
 
-/* A depiction, not chrome: the renderer's own dark surfaces in both themes,
-   the same way the editor in the hero is drawn. Everything inside is
-   `aria-hidden` -- the pill above it is what carries the meaning. It grows
-   to whatever the card was given, so the bento needs no per-card sizing. */
+/* The renderer's own editor background, in both themes, drawn the same way
+   the editor in the hero is: `#1e1e1e` is what the video is actually painted
+   on, so a preview of the video should be painted on it too. It is lighter
+   than the card it sits in, which is what makes it read as a screen rather
+   than as a hole.
+
+   Everything inside is `aria-hidden` -- the pill above carries the meaning.
+   It grows to whatever the card was given, so the bento needs no per-card
+   sizing. */
 .shot {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 168px;
+  border: 1px solid #2b2b2b;
   border-radius: var(--r-md);
   overflow: hidden;
-  background: #111111;
+  background: #1e1e1e;
 }
+
+/* A post is not the editor, so it gets the panel colour -- which also lets
+   the frame inside it read as the lighter thing. */
+.shot-post { background: #181818; }
 
 /* The top padding is the pill's: content starts below it rather than under
    it, and stays centred in what is left. */
@@ -1468,15 +1484,29 @@ input:disabled, textarea:disabled, select:disabled {
   color: var(--fg-muted);
 }
 
-/* The band the design fills with photographs. It carries the counts instead,
-   which is why it is a solid colour with nothing behind it. */
 /* A deep green band in both themes -- it carries the counts, and those are
    worth a different surface rather than the same one twice. The rules are
    here because on a dark page #062019 is a two-percent step from the
    background: without them the band reads as a slightly different black
-   rather than as a band. */
+   rather than as a band.
+
+   The photograph is the hero's, seen through the green rather than instead
+   of it. A band carrying measured counts should not be a picture of anything
+   -- but it can be a surface with a picture under it, which is what the
+   scrim makes: the numbers stay the subject and the band stops being the one
+   flat rectangle on a page that has a photograph at the top of it. */
 .landing-stats {
-  background: #062019;
+  background-color: #062019;
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, #062019 93%, transparent) 0%,
+      color-mix(in srgb, #062019 84%, transparent) 50%,
+      color-mix(in srgb, #062019 93%, transparent) 100%
+    ),
+    url("/hero_bg.jpg");
+  background-size: cover, cover;
+  background-position: center, center 30%;
+  background-repeat: no-repeat, no-repeat;
   color: #eaf3ee;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
