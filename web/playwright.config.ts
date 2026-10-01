@@ -15,6 +15,9 @@ const WEB_PORT = 3021;
 export default defineConfig({
   testDir: "./tests",
   globalSetup: "./tests/global-setup.ts",
+  // Puts `next-env.d.ts` back afterwards: this run writes it pointing
+  // at `.next-e2e`, and a triple-slash reference outlives the run.
+  globalTeardown: "./tests/global-teardown.ts",
   timeout: 60_000,
   fullyParallel: false, // the tests share one database and one quota
   workers: 1,

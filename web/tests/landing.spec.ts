@@ -215,3 +215,75 @@ test("the prices sell the video, not the parts it is made from", async ({ page }
     await expect(section, `${jargon} is on the price list`).not.toContainText(jargon);
   }
 });
+
+// ---------------------------------------------------------------- for machines
+// The page is written for a reader and read by machines. These assert the
+// half that a reader cannot see, because a missing canonical tag or a
+// `noindex` that leaked onto the marketing page both look exactly like a
+// working page from a browser.
+
+test("the site tells crawlers what it is", async ({ request }) => {
+  const robots = await (await request.get("/robots.txt")).text();
+  expect(robots).toContain("Sitemap:");
+  // The dashboard is behind a sign-in, and a URL indexed under our name with
+  // somebody's email on it is the failure this prevents.
+  expect(robots).toContain("Disallow: /dashboard");
+  // Named and allowed: being readable by the things people now ask instead of
+  // searching is a decision, and it is recorded where an audit would look.
+  for (const bot of ["GPTBot", "ClaudeBot", "PerplexityBot", "Google-Extended"]) {
+    expect(robots, `${bot} is not addressed`).toContain(bot);
+  }
+
+  const sitemap = await (await request.get("/sitemap.xml")).text();
+  expect(sitemap).toContain("<loc>");
+  expect(sitemap).not.toContain("/dashboard");
+
+  const llms = await (await request.get("/llms.txt")).text();
+  expect(llms).toContain("# videosynx");
+  expect(llms).toMatch(/## Pricing/);
+});
+
+test("the product page carries the facts a machine quotes", async ({ page }) => {
+  await page.goto("/");
+  const html = await page.content();
+
+  // Canonical, so the https version and the www one are one page.
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /^https?:\/\//);
+  // What a search result may show. Without `large` the whole product -- which
+  // is pictures -- is a thumbnail. Next puts the per-engine directives in
+  // their own tag, so this is `googlebot` and not `robots`.
+  await expect(page.locator('meta[name="robots"]'))
+    .toHaveAttribute("content", /index/);
+  await expect(page.locator('meta[name="googlebot"]'))
+    .toHaveAttribute("content", /max-image-preview:large/);
+  await expect(page.locator('meta[property="og:image"]')).toHaveCount(1);
+  await expect(page.locator('meta[name="twitter:card"]'))
+    .toHaveAttribute("content", "summary_large_image");
+
+  // The product, the price and the questions, in the graph.
+  expect(html).toContain('"SoftwareApplication"');
+  expect(html).toContain('"FAQPage"');
+  expect(html).toContain('"Organization"');
+  expect(html).toContain('"@type":"Offer"');
+});
+
+test("every question the markup claims is one a reader can see", async ({ page }) => {
+  // Marking up questions that are not on the page is the oldest trick there
+  // is and search engines treat it as one. The two are built from one list --
+  // this is what says they still are.
+  await page.goto("/");
+  const asked = await page.locator(".faq dt").allTextContents();
+  expect(asked.length).toBeGreaterThan(3);
+
+  const html = await page.content();
+  for (const question of asked) {
+    expect(html, `"${question}" is marked up but not shown`).toContain(question);
+    expect(html).toContain(question.replace(/"/g, '\\"'));
+  }
+});
+
+test("the workspace is not for crawling", async ({ page }) => {
+  await page.goto("/dashboard");
+  await expect(page.locator('meta[name="robots"]'))
+    .toHaveAttribute("content", /noindex/);
+});

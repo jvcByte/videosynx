@@ -1635,6 +1635,38 @@ input:disabled, textarea:disabled, select:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+/* Questions, answered in the open.
+
+   Two columns above a certain width, because a list of six answers is read
+   by scanning the questions and stopping at one -- a single column of
+   paragraphs makes that a scroll rather than a glance. */
+.landing-faq { padding-top: 76px; }
+
+.faq {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 30px 44px;
+}
+
+.faq dt {
+  font-size: 15.5px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+
+.faq dd {
+  margin: 9px 0 0;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--fg-muted);
+}
+
+@media (max-width: 720px) {
+  .faq { grid-template-columns: minmax(0, 1fr); }
+}
+
 .landing-final {
   padding-top: 84px;
   padding-bottom: 84px;

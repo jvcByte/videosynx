@@ -6,6 +6,7 @@ import {
   CreditPack, Plan, Plans, PublishedExample, Stats, absolute, serverGet,
 } from "./lib/api";
 import { duration, modeLabel, tierLabel } from "./lib/format";
+import { SITE_NAME, SITE_URL, offerFor } from "./lib/seo";
 
 /**
  * The public page, rendered on the server.
@@ -19,19 +20,120 @@ import { duration, modeLabel, tierLabel } from "./lib/format";
  * already its own client component.
  */
 export const metadata: Metadata = {
-  title: "videosynx — turn any topic into a video, and publish it",
+  alternates: { canonical: "/" },
+  title: "Turn any topic into a video, and publish it to social",
   description:
-    "Give it a topic and it writes the script, narrates it in a natural " +
-    "voice, renders a finished video and posts it to your channels. Give it " +
-    "plain text instead and it reads that aloud. Free to start.",
+    "Give it a topic and it writes the lesson, runs the code it wrote, " +
+    "narrates it in a natural voice, and renders a finished MP4 with " +
+    "captions. Give it plain text instead and it reads that aloud. Free to " +
+    "start.",
   openGraph: {
-    title: "videosynx — any topic into a video, published",
+    title: "Turn any topic into a finished video tutorial",
     description:
-      "A topic becomes a finished, narrated video, published to your " +
-      "channels. Plain text becomes a voice-over. Free to start.",
+      "A topic becomes a finished, narrated, captioned video. Plain text " +
+      "becomes a voice-over. 54 voices, 9 languages. Free to start.",
     type: "website",
+    url: "/",
   },
 };
+
+/**
+ * What someone asks before they decide, answered the same way twice.
+ *
+ * The page says these out loud *and* they are the FAQPage below. Marking up
+ * questions a reader cannot see is the oldest trick in the book and search
+ * engines treat it as one, so the two come from this list rather than from
+ * one of them being written to match the other.
+ *
+ * Every answer is something the service does today. That is the constraint
+ * that decided which questions are here: there is no entry about publishing
+ * to social channels, because that is on the waitlist and a question-answer
+ * pair is the shape of claim an assistant quotes back verbatim.
+ */
+const FAQ = [
+  {
+    q: "What can I make with it?",
+    a: "Coding tutorials from a topic, illustrated explanations for concepts that need a picture before any code, and voice-overs from text you already have. Every video comes back as an MP4 with a matching .srt.",
+  },
+  {
+    q: "Do I have to write anything?",
+    a: "No. Give it a subject and it writes the lesson, the code and the narration. If you have already written a script, paste that instead and it renders exactly what you wrote, on our machine, without calling a model at all.",
+  },
+  {
+    q: "Does the code in the videos actually run?",
+    a: "Yes. Every snippet executes in a sandbox with no network, no home directory and no inherited environment, and the output it really printed appears in the video. Nothing is screen-recorded.",
+  },
+  {
+    q: "What languages can it narrate in?",
+    a: "Fifty-four voices across nine languages — English, Spanish, French, Hindi, Italian, Japanese, Portuguese, Chinese and more — at three reading speeds.",
+  },
+  {
+    q: "How long does a video take to make?",
+    a: "A few minutes for a typical lesson. The code is written and run, the narration is synthesised on our own machine, and every frame is drawn and encoded. Most of the wait is the narration.",
+  },
+  {
+    q: "What does it cost?",
+    a: "Free to start: three videos a day at 720p with a watermark, and ten local renders. Paid plans raise the limits and remove the watermark. Past the day's allowance a credit buys one minute of finished video, charged when the render finishes rather than when you ask for it.",
+  },
+];
+
+/** The FAQ, and the product, in the shape a machine reads. */
+function LandingSchema({ plans }: { plans: Plans | null }) {
+  const graph = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareApplication",
+        "@id": `${SITE_URL}/#app`,
+        name: SITE_NAME,
+        url: SITE_URL,
+        applicationCategory: "MultimediaApplication",
+        operatingSystem: "Web",
+        description:
+          "Turns a topic into a finished video tutorial: it writes the " +
+          "lesson, runs the code, narrates it in a natural voice and renders " +
+          "a captioned MP4. Plain text becomes a voice-over instead.",
+        featureList: [
+          "Video generation from a topic",
+          "Text to speech with 54 voices in 9 languages",
+          "Captions burned in, with a matching .srt",
+          "Code executed in a sandbox, with its real output on screen",
+          "Own-script rendering with no model call",
+        ],
+        publisher: { "@id": `${SITE_URL}/#organization` },
+        isPartOf: { "@id": `${SITE_URL}/#website` },
+        // A browser is not a thing you install, so there is no version,
+        // download or file size to claim here -- those fields exist for
+        // applications that have them and inventing them is how a rich result
+        // gets rejected.
+        ...(plans && plans.plans.length
+          ? {
+              offers: offerFor(plans),
+              // The free tier is the one that needs no card, which is what a
+              // zero price in the list already says.
+              isAccessibleForFree: plans.plans.some((plan) => plan.price_usd === 0),
+            }
+          : {}),
+      },
+      {
+        "@type": "FAQPage",
+        "@id": `${SITE_URL}/#faq`,
+        isPartOf: { "@id": `${SITE_URL}/#website` },
+        mainEntity: FAQ.map((item) => ({
+          "@type": "Question",
+          name: item.q,
+          acceptedAnswer: { "@type": "Answer", text: item.a },
+        })),
+      },
+    ],
+  };
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(graph) }}
+    />
+  );
+}
 
 /**
  * The public page.
@@ -332,6 +434,7 @@ export default async function Landing() {
 
   return (
     <div className="landing">
+      <LandingSchema plans={plans} />
       <nav className="landing-nav">
         <div className="landing-wrap landing-nav-inner">
           <span className="landing-logo">
@@ -343,6 +446,7 @@ export default async function Landing() {
             <a href="#how">How it works</a>
             <a href="#examples">Examples</a>
             <a href="#pricing">Pricing</a>
+            <a href="#faq">Questions</a>
           </div>
           <div className="landing-nav-actions">
             {/* The page follows the theme now, so a visitor whose system
@@ -569,6 +673,25 @@ export default async function Landing() {
         </section>
       )}
 
+      {/* Before the last call to action, which is where the last objection
+          is answered. The same list the FAQPage markup is built from, so the
+          questions a machine is told about are the ones on the page. */}
+      <section className="landing-wrap landing-faq" id="faq">
+        <header className="landing-section-head">
+          <span className="landing-eyebrow landing-eyebrow-center">Questions</span>
+          <h2 className="landing-h2">The things people ask first</h2>
+        </header>
+
+        <dl className="faq">
+          {FAQ.map((item) => (
+            <div key={item.q}>
+              <dt>{item.q}</dt>
+              <dd>{item.a}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
       <section className="landing-wrap landing-final">
         <h2 className="landing-h2">Ready to create your first tutorial?</h2>
         <p className="landing-sub">
@@ -591,6 +714,7 @@ export default async function Landing() {
             <a href="#how">How it works</a>
             <a href="#examples">Examples</a>
             <a href="#pricing">Pricing</a>
+            <a href="#faq">Questions</a>
             <a href="/dashboard">Dashboard</a>
           </div>
         </div>
