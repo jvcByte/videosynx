@@ -25,15 +25,25 @@ XP_PER_TUTORIAL = 100
 XP_PER_MINUTE = 10
 XP_PER_LEVEL = 500
 
-# Milestones, in the order they are earned. Each is a fact about the account
-# rather than a reward for using the page.
+# Milestones, roughly in the order they are earned. Each is a fact about the
+# account rather than a reward for using the page -- and each is a *different*
+# fact, because twelve ways of counting tutorials is one badge printed twelve
+# times. Between them they cover how much, how long, how big, how often, which
+# of the things you have used, and whether you came back after it broke.
 ACHIEVEMENTS: tuple[tuple[str, str, str], ...] = (
     # id, name, what it takes
     ("first", "First Tutorial", "rendered a tutorial"),
     ("runner", "Code Runner", "five tutorials rendered"),
     ("marathon", "Marathon", "an hour of video produced"),
+    ("scripted", "Own Script", "rendered a script you wrote"),
+    ("local", "Local Mode", "rendered without calling a model"),
+    ("epic", "Long-form", "a single video over ten minutes"),
+    ("voiced", "Voice-over", "made a speech clip"),
+    ("undeterred", "Undeterred", "a render that failed, and then worked"),
     ("steady", "Steady", "seven days in a row"),
     ("prolific", "Prolific", "twenty-five tutorials rendered"),
+    ("series", "Series", "five hours of video produced"),
+    ("devoted", "Devoted", "thirty days in a row"),
 )
 
 
@@ -89,18 +99,33 @@ def streak_from(days: set[date], today: date) -> int:
 
 
 def achievements_for(*, rendered: int, minutes: float, streak: int,
-                      earned_on: dict[str, date | None]) -> list[dict]:
+                      earned_on: dict[str, date | None],
+                      clips: int = 0, longest_s: float = 0.0,
+                      used_script: bool = False, local_only: bool = False,
+                      recovered: bool = False) -> list[dict]:
     """Which badges this account has, and which it has not.
 
     The locked ones are returned too, with what they take -- a wall of badges
     with no explanation of the greyed-out ones is a puzzle, not encouragement.
+
+    Everything past `earned_on` is a fact the caller has to go and look up,
+    and each defaults to "not yet". They are keyword-only and defaulted rather
+    than grouped into a record so that every one is named at the call site:
+    `achievements_for(5, 60, 7, ...)` is a call nobody can read.
     """
     earned = {
         "first": rendered >= 1,
         "runner": rendered >= 5,
-        "marathon": minutes >= 60,
-        "steady": streak >= 7,
         "prolific": rendered >= 25,
+        "marathon": minutes >= 60,
+        "series": minutes >= 300,
+        "epic": longest_s >= 600,
+        "steady": streak >= 7,
+        "devoted": streak >= 30,
+        "scripted": used_script,
+        "local": local_only,
+        "voiced": clips >= 1,
+        "undeterred": recovered,
     }
     return [
         {
@@ -118,7 +143,10 @@ def achievements_for(*, rendered: int, minutes: float, streak: int,
 
 
 def progress_for(*, rendered: int, minutes: float, streak: int,
-                 earned_on: dict[str, date | None]) -> Progress:
+                 earned_on: dict[str, date | None],
+                 clips: int = 0, longest_s: float = 0.0,
+                 used_script: bool = False, local_only: bool = False,
+                 recovered: bool = False) -> Progress:
     xp = rendered * XP_PER_TUTORIAL + int(minutes) * XP_PER_MINUTE
     level, into, needed = level_for(xp)
     return Progress(
@@ -127,6 +155,10 @@ def progress_for(*, rendered: int, minutes: float, streak: int,
         xp_into_level=into,
         xp_for_level=needed,
         streak=streak,
-        achievements=achievements_for(rendered=rendered, minutes=minutes,
-                                      streak=streak, earned_on=earned_on),
+        achievements=achievements_for(
+            rendered=rendered, minutes=minutes, streak=streak,
+            earned_on=earned_on, clips=clips, longest_s=longest_s,
+            used_script=used_script, local_only=local_only,
+            recovered=recovered,
+        ),
     )

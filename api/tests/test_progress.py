@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from videosynx_api.progress import (
+    ACHIEVEMENTS,
     XP_PER_LEVEL,
     XP_PER_MINUTE,
     XP_PER_TUTORIAL,
@@ -110,3 +111,78 @@ def test_a_seven_day_streak_earns_steady():
     assert "steady" in {b["id"] for b in badges if b["earned"]}
     badges = achievements_for(rendered=1, minutes=0, streak=6, earned_on={})
     assert "steady" not in {b["id"] for b in badges if b["earned"]}
+
+
+# --------------------------------------------------------- the later badges
+# Each is a different fact, so each gets a test that only its own fact earns
+# it. A badge reachable two ways is two badges with one name.
+
+def _earned(**facts) -> set[str]:
+    badges = achievements_for(
+        rendered=facts.pop("rendered", 0), minutes=facts.pop("minutes", 0.0),
+        streak=facts.pop("streak", 0), earned_on={}, **facts)
+    return {b["id"] for b in badges if b["earned"]}
+
+
+def test_five_hours_of_video_is_a_series_and_one_hour_is_not():
+    assert "series" not in _earned(minutes=60)
+    assert "series" in _earned(minutes=300)
+
+
+def test_long_form_needs_one_long_video_not_many_short_ones():
+    """Ten hours of three-minute videos is the Series badge, not this one."""
+    assert "epic" not in _earned(rendered=200, minutes=600, longest_s=179)
+    assert "epic" in _earned(rendered=1, longest_s=600)
+
+
+def test_own_script_is_for_rendering_one_not_for_pasting_one():
+    assert "scripted" not in _earned(rendered=10, minutes=60)
+    assert "scripted" in _earned(rendered=1, used_script=True)
+
+
+def test_local_mode_is_its_own_badge():
+    assert "local" not in _earned(rendered=10)
+    assert "local" in _earned(rendered=1, local_only=True)
+
+
+def test_a_clip_earns_the_voice_over_badge():
+    assert "voiced" not in _earned(rendered=10, minutes=60)
+    assert "voiced" in _earned(clips=1)
+
+
+def test_undeterred_is_for_recovering_not_for_failing():
+    """A job that failed and stayed failed is not this, and neither is one
+    that is still on its second attempt."""
+    assert "undeterred" not in _earned(rendered=10)
+    assert "undeterred" in _earned(rendered=1, recovered=True)
+
+
+def test_thirty_days_is_a_streak_of_its_own():
+    assert "devoted" not in _earned(streak=7)
+    assert "devoted" in _earned(streak=30)
+
+
+def test_every_badge_is_reachable_and_only_by_its_own_fact():
+    """Nothing is a duplicate, and nothing is unreachable.
+
+    A badge no combination of facts can earn is a locked tile forever, which
+    is a promise the page cannot keep.
+    """
+    reachable = {
+        "first": {"rendered": 1},
+        "runner": {"rendered": 5},
+        "prolific": {"rendered": 25},
+        "marathon": {"minutes": 60},
+        "series": {"minutes": 300},
+        "epic": {"longest_s": 600},
+        "steady": {"streak": 7},
+        "devoted": {"streak": 30},
+        "scripted": {"used_script": True},
+        "local": {"local_only": True},
+        "voiced": {"clips": 1},
+        "undeterred": {"recovered": True},
+    }
+    every = {key for key, _, _ in ACHIEVEMENTS}
+    assert set(reachable) == every, "a badge with no fact behind it"
+    for key, facts in reachable.items():
+        assert key in _earned(**facts), f"{key} cannot be earned"

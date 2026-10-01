@@ -1139,3 +1139,59 @@ def test_the_artifact_route_is_closed_with_object_storage():
         assert c.get(f"/jobs/{job_id}/video", headers=auth()).json()["url"].startswith(
             "https://r2.example/"
         )
+
+
+# --------------------------------------------------------------- the badges
+
+def _given(conn, user_id: str, **cols) -> None:
+    """A row, written straight in, because these are facts about history and
+    history is not something a test should have to render."""
+    fields = {"user_id": user_id, "topic": "t", "tier": "free", "status": "succeeded"}
+    fields.update(cols)
+    columns = ", ".join(fields)
+    marks = ", ".join(["%s"] * len(fields))
+    conn.execute(f"insert into jobs ({columns}) values ({marks})",
+                 tuple(Json(v) if key == "options" else v
+                       for key, v in fields.items()))
+
+
+def test_a_voice_over_is_not_a_tutorial_rendered(client):
+    """They share a queue and a row shape and are not the same thing.
+
+    Counted together, "Prolific: twenty-five tutorials rendered" was reachable
+    with twenty-five voice-overs, and the XP for them came with it. The clip
+    has its own number and its own badge.
+    """
+    user = "badge-clips"
+    with psycopg.connect(DSN, autocommit=True, row_factory=dict_row) as conn:
+        for _ in range(5):
+            _given(conn, user, status="succeeded",
+                   options={"kind": "speech"}, duration_s=30)
+
+    progress = client.get("/me/progress",
+                          headers={"X-Dev-User": f"{user}:free"}).json()
+    earned = {a["id"] for a in progress["achievements"] if a["earned"]}
+    assert "voiced" in earned
+    assert "first" not in earned, "a clip counted as a tutorial"
+    assert progress["xp"] == 0, "a clip earned tutorial XP"
+
+
+def test_the_badges_are_earned_by_the_work_that_names_them(client):
+    """One row per badge, each asking for one different thing."""
+    user = "badge-mixed"
+    with psycopg.connect(DSN, autocommit=True, row_factory=dict_row) as conn:
+        # A long video, made without a model, from a script of its own.
+        _given(conn, user, duration_s=700,
+               options={"script": "x", "generation": "local"})
+        # One that took two tries.
+        _given(conn, user, duration_s=10, attempt=2, options={})
+        # And a failed one that should earn nothing at all.
+        _given(conn, user, status="failed", duration_s=9999, attempt=9,
+               options={"kind": "speech", "script": "x"})
+
+    progress = client.get("/me/progress",
+                          headers={"X-Dev-User": f"{user}:free"}).json()
+    earned = {a["id"] for a in progress["achievements"] if a["earned"]}
+    assert earned == {"first", "epic", "scripted", "local", "undeterred"}, earned
+    # The failed row is enormous and must not have counted toward the hour.
+    assert progress["xp"] == 2 * 100 + int(710 / 60) * 10

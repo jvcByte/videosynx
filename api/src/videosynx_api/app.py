@@ -399,22 +399,61 @@ def _achievement_dates(conn, user_id: str) -> dict:
     dates: dict[str, "datetime | None"] = {}
     row = conn.execute(
         """
-        select min(created_at) filter (where running_rendered >= 1) as first,
+        select -- How much: running totals, so the fifth one and the hour mark
+               -- are the row where they were crossed rather than whichever
+               -- row happens to be last.
+               min(created_at) filter (where running_rendered >= 1) as first,
                min(created_at) filter (where running_rendered >= 5) as runner,
+               min(created_at) filter (where running_rendered >= 25) as prolific,
                min(created_at) filter (where running_seconds >= 3600) as marathon,
-               min(created_at) filter (where running_rendered >= 25) as prolific
+               min(created_at) filter (where running_seconds >= 18000) as series,
+               -- How big: the first one that was, not the first one there was.
+               min(created_at) filter (where is_video and duration_s >= 600)
+                     as epic,
+               -- Which of the things: the first render that used each. All
+               -- four of these ask about a render that *worked* -- a job that
+               -- failed while using a script did not use the feature, and one
+               -- that is still on its second attempt has not recovered.
+               min(created_at) filter (where succeeded and options ? 'script')
+                     as scripted,
+               min(created_at)
+                 filter (where succeeded and options->>'generation' = 'local')
+                 as local,
+               min(created_at)
+                 filter (where succeeded and options->>'kind' = 'speech')
+                 as voiced,
+               -- Coming back: a render that needed more than one try and got
+               -- there in the end.
+               min(created_at) filter (where succeeded and attempt > 1)
+                     as undeterred
           from (
-            select created_at, status,
-                   count(*) filter (where status = 'succeeded')
+            select created_at, duration_s, attempt, options,
+                   succeeded, is_video,
+                   count(*) filter (where is_video)
                      over (order by created_at) as running_rendered,
-                   coalesce(sum(duration_s) filter (where status = 'succeeded')
+                   coalesce(sum(duration_s) filter (where is_video)
                      over (order by created_at), 0) as running_seconds
-              from jobs where user_id = %s
+              from (
+                -- A clip shares the queue but is not a tutorial, so it is
+                -- counted by its own badge and by nothing else. Counting it
+                -- here would have made "Prolific: twenty-five tutorials
+                -- rendered" reachable with twenty-five voice-overs.
+                select created_at, duration_s, attempt, options,
+                       status = 'succeeded' as succeeded,
+                       status = 'succeeded'
+                         and options->>'kind' is distinct from 'speech'
+                         as is_video
+                  from jobs where user_id = %s
+              ) classified
           ) history
         """,
         (user_id,),
     ).fetchone()
-    for key in ("first", "runner", "marathon", "prolific"):
+    # Only the ones a date means something for. A streak is not a row that
+    # happened on a day -- it is seven days, and the seventh is arithmetic
+    # rather than an event -- so `steady` and `devoted` carry none.
+    for key in ("first", "runner", "prolific", "marathon", "series", "epic",
+                "scripted", "local", "voiced", "undeterred"):
         when = row[key] if row else None
         dates[key] = when.date() if when else None
     return dates
@@ -507,10 +546,31 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         with _connect(dsn) as conn:
             totals = conn.execute(
                 """
-                select count(*) filter (where status = 'succeeded') as rendered,
-                       coalesce(sum(duration_s)
-                                filter (where status = 'succeeded'), 0) as seconds
-                  from jobs where user_id = %s
+                select
+                  -- A tutorial and a voice-over share a queue and a row
+                  -- shape and are not the same thing, so the counts that
+                  -- describe tutorials count tutorials. The clip has its own
+                  -- number and its own badge.
+                  count(*) filter (where succeeded and is_video) as rendered,
+                  coalesce(sum(duration_s)
+                           filter (where succeeded and is_video), 0) as seconds,
+                  max(duration_s) filter (where succeeded and is_video)
+                    as longest,
+                  count(*) filter (where succeeded and not is_video) as clips,
+                  -- Has it ever used this: each answers one badge, and asking
+                  -- once here beats four more round trips.
+                  bool_or(succeeded and options ? 'script') as used_script,
+                  bool_or(succeeded and options->>'generation' = 'local')
+                    as local_only,
+                  bool_or(succeeded and attempt > 1) as recovered
+                  from (
+                    select duration_s, attempt, options,
+                           status = 'succeeded' as succeeded,
+                           status = 'succeeded'
+                             and options->>'kind' is distinct from 'speech'
+                             as is_video
+                      from jobs where user_id = %s
+                  ) classified
                 """,
                 (user.id,),
             ).fetchone()
@@ -531,8 +591,15 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         rendered = int(totals["rendered"])
         minutes = float(totals["seconds"]) / 60
         streak = streak_from(days, datetime.now(timezone.utc).date())
-        return progress_for(rendered=rendered, minutes=minutes, streak=streak,
-                            earned_on=earned_on).as_dict()
+        return progress_for(
+            rendered=rendered, minutes=minutes, streak=streak,
+            earned_on=earned_on,
+            clips=int(totals["clips"]),
+            longest_s=float(totals["longest"] or 0),
+            used_script=bool(totals["used_script"]),
+            local_only=bool(totals["local_only"]),
+            recovered=bool(totals["recovered"]),
+        ).as_dict()
 
     @app.get("/examples")
     def examples() -> list[dict]:
