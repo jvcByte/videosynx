@@ -53,7 +53,11 @@ export const metadata: Metadata = {
 const FAQ = [
   {
     q: "What can I make with it?",
-    a: "Coding tutorials from a topic, illustrated explanations for concepts that need a picture before any code, and voice-overs from text you already have. Every video comes back as an MP4 with a matching .srt.",
+    // The four things the headline and the cards above promise, in one
+    // answer. The question is the one an assistant is most likely to be
+    // handed, and an answer that listed two of the four would describe a
+    // smaller product than the page does.
+    a: "Any topic becomes a finished video tutorial: it writes the lesson, runs the code it wrote, explains each line in a natural voice, and hands back an MP4 with captions and a matching .srt. Give it plain text instead and it makes a voice-over. Finished videos can be published straight to the channels you post to.",
   },
   {
     q: "Do I have to write anything?",
@@ -90,15 +94,21 @@ function LandingSchema({ plans }: { plans: Plans | null }) {
         applicationCategory: "MultimediaApplication",
         operatingSystem: "Web",
         description:
-          "Turns a topic into a finished video tutorial: it writes the " +
-          "lesson, runs the code, narrates it in a natural voice and renders " +
-          "a captioned MP4. Plain text becomes a voice-over instead.",
+          "Turns any topic into a finished video tutorial: it writes the " +
+          "lesson, runs the code it wrote, narrates each line in a natural " +
+          "voice, renders a captioned MP4, and can publish it to your " +
+          "channels. Plain text becomes a voice-over instead.",
+        // The same four things the headline promises, and the same ones the
+        // FAQ answers. Three places describing one product is three places to
+        // disagree, so they are written to say the same thing in the same
+        // order: make a video, make a voice-over, publish it.
         featureList: [
-          "Video generation from a topic",
+          "Video generation from any topic",
+          "Code executed in a sandbox, with its real output on screen",
           "Text to speech with 54 voices in 9 languages",
           "Captions burned in, with a matching .srt",
-          "Code executed in a sandbox, with its real output on screen",
           "Own-script rendering with no model call",
+          "Publishing a finished video to your channels",
         ],
         publisher: { "@id": `${SITE_URL}/#organization` },
         isPartOf: { "@id": `${SITE_URL}/#website` },

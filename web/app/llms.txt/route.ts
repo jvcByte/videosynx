@@ -60,11 +60,14 @@ connects.
 
 ## What it makes
 
-- Coding tutorials, from a sentence of subject, on any topic.
-- Illustrated explanations, for concepts that need a picture before code.
-- Voice-overs, from text that has already been written.
-- Captions, burned into the frame and timed to the narration.
-- A downloadable MP4 and SRT for every one.
+The four things the product promises, in the order its own page promises
+them:
+
+- A video tutorial from any topic: the lesson written, the code run with its
+  real output on screen, narrated, and captioned.
+- A voice-over, from plain text instead of a topic.
+- A published video, posted to the channels an account connects.
+- An MP4 and a matching .srt for every one, on a signed link.
 
 ## How it works
 
@@ -77,7 +80,7 @@ connects.
 
 ## Facts
 
-- Pricing: free to start. ${plans ? `Paid plans and credit packs are listed below.` : ""}
+- Pricing: free to start, with paid plans and credit packs below.
 - Voices: 54 voices across 9 languages, plus a premium tier.
 - Output: 720p on the free plan, 1080p on the paid ones; MP4 plus SRT.
 - Accounts: the dashboard is behind a sign-in and is not indexed.
