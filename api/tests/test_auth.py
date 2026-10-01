@@ -226,15 +226,24 @@ def test_the_dev_bypass_works_when_nothing_is_configured(monkeypatch):
     assert auth.current_user(authorization=None, x_dev_user="user-1").tier == "free"
 
 
-def test_no_credential_anywhere_is_503_rather_than_401(monkeypatch):
-    """A server that cannot check anything is not the caller's fault either."""
+def test_no_credential_anywhere_is_503_rather_than_401(monkeypatch, caplog):
+    """A server that cannot check anything is not the caller's fault either.
+
+    And it says so without naming its own configuration. "set SUPABASE_URL or
+    SUPABASE_JWT_SECRET" was in the response body, where the reader is whoever
+    is trying to sign in -- somebody who cannot set either, being told to.
+    """
     monkeypatch.setattr(auth, "jwks_url", lambda: "")
     monkeypatch.setattr(auth, "jwt_secret", lambda: "")
     monkeypatch.setattr(auth, "_jwks_client", None)
 
-    with pytest.raises(HTTPException) as caught:
-        auth.current_user(authorization="Bearer whatever", x_dev_user=None)
+    with caplog.at_level("WARNING", logger="videosynx.api"):
+        with pytest.raises(HTTPException) as caught:
+            auth.current_user(authorization="Bearer whatever", x_dev_user=None)
+
     assert caught.value.status_code == 503
+    assert "SUPABASE" not in caught.value.detail
+    assert "SUPABASE_URL" in caplog.text, "the operator is told which one"
 
 
 def test_credentials_in_the_environment_are_seen(monkeypatch):
