@@ -1001,22 +1001,37 @@ input:disabled, textarea:disabled, select:disabled {
    the *empty* card that reads as filler. A card that contains a picture of
    the thing it is describing earns its border -- the box is a frame, not a
    container for a paragraph. */
+
+/* Four tiles of the same size say the four things are worth the same, which
+   is not true of a product's features and leaves the eye nowhere to land. So
+   the grid is a composition: the video is wide, publishing is tall beside
+   it, and the two smaller ones tuck underneath. Same four facts, in an order
+   the eye can follow. */
 .landing-makers {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  grid-auto-rows: minmax(210px, auto);
 }
 
+.maker-wide { grid-column: span 2; }
+.maker-tall { grid-column: span 1; grid-row: span 2; }
+
+/* The card is the dark surface, not a white frame around a dark rectangle.
+   That frame was the thing not sitting right on a pale page: it left a
+   border of nothing around every preview and made four objects out of two.
+   Here the label, the pill, the preview and the sentence are all on one
+   surface, the way the renderer's own chrome is. */
 .maker {
   display: flex;
   flex-direction: column;
-  padding: 18px 18px 20px;
-  border: 1px solid var(--line);
+  padding: 16px 16px 18px;
   border-radius: var(--r-lg);
-  background: var(--surface-1);
+  overflow: hidden;
+  background: #1a1a1a;
 }
 
-/* The output's name, in the quietest type on the page. It is a label, not a
+/* The output's name, in the quietest type on the card. It is a label, not a
    heading: nobody arrives wanting "text to speech", they arrive wanting the
    voice-over, which is what the pill underneath is. */
 .maker-label {
@@ -1024,10 +1039,17 @@ input:disabled, textarea:disabled, select:disabled {
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--fg-faint);
+  color: #8b9a95;
 }
 
-.maker-shot { position: relative; margin-top: 16px; }
+.maker-body { margin-top: 14px; font-size: 13.5px; color: #a3b0ac; }
+
+.maker-shot {
+  position: relative;
+  display: flex;
+  flex: 1;
+  margin-top: 14px;
+}
 
 /* What you type, floating over what comes back. The one thing on the card
    that is a sentence rather than a picture, so it is the one thing a screen
@@ -1035,10 +1057,10 @@ input:disabled, textarea:disabled, select:disabled {
 .maker-pill {
   position: absolute;
   z-index: 1;
-  top: 14px;
+  top: 12px;
   left: 50%;
   transform: translateX(-50%);
-  max-width: calc(100% - 24px);
+  max-width: calc(100% - 20px);
   padding: 5px 13px;
   border-radius: 999px;
   background: var(--accent);
@@ -1051,18 +1073,18 @@ input:disabled, textarea:disabled, select:disabled {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
 }
 
-.maker-body { margin-top: 14px; font-size: 14px; color: var(--fg-muted); }
-
 /* A depiction, not chrome: the renderer's own dark surfaces in both themes,
    the same way the editor in the hero is drawn. Everything inside is
-   `aria-hidden` -- the pill above it is what carries the meaning. */
+   `aria-hidden` -- the pill above it is what carries the meaning. It grows
+   to whatever the card was given, so the bento needs no per-card sizing. */
 .shot {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  min-height: 184px;
+  min-height: 168px;
   border-radius: var(--r-md);
   overflow: hidden;
-  background: #1e1e1e;
+  background: #111111;
 }
 
 /* The top padding is the pill's: content starts below it rather than under
@@ -1181,27 +1203,124 @@ input:disabled, textarea:disabled, select:disabled {
   font-size: 11px;
 }
 
-.shot-term .shot-body {
-  font-family: var(--mono);
-  font-size: 12.5px;
-  line-height: 2.1;
-  color: #d4d4d4;
-}
+/* ------------------------------------------------------------ published */
 
-.shot-term .p { color: #6a9955; }
-/* The same green as the literal it printed, so the two cards are visibly the
-   same program. */
-.shot-term .out { color: #b5cea8; }
+.shot-post .shot-body { justify-content: space-between; gap: 12px; padding-top: 42px; }
 
-.shot-srt .shot-body {
-  gap: 5px;
-  font-family: var(--mono);
+.shot-post-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12.5px;
   color: #d4d4d4;
 }
 
-.shot-srt .n { color: #6a9955; }
-.shot-srt .t { color: #8a9a95; }
+.shot-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2f6b55, #4f9c78);
+  flex: none;
+}
+
+.shot-post-when { margin-left: auto; color: #8a9a95; font-size: 11.5px; }
+
+/* The thumbnail, at the shape a feed actually shows it at -- portrait, which
+   is what every channel this card names asks for. A landscape box here would
+   be a smaller lie than the extra whitespace it replaced. */
+.shot-post-frame {
+  position: relative;
+  flex: none;
+  aspect-ratio: 4 / 5;
+  padding: 16px 14px;
+  border-radius: 8px;
+  background: #1e1e1e;
+  border: 1px solid #2b2b2b;
+  overflow: hidden;
+}
+
+/* Placed rather than laid out: it belongs in the middle of the frame
+   whatever else is in there. */
+.shot-post-frame .shot-play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.shot-post-mini {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.95;
+  color: #d4d4d4;
+  white-space: pre;
+}
+
+.shot-post-mini span { display: block; }
+.shot-post-mini b { font-weight: inherit; }
+.shot-post-mini .k { color: #569cd6; }
+.shot-post-mini .f { color: #dcdcaa; }
+.shot-post-mini .d { color: #c586c0; }
+.shot-post-mini .n { color: #b5cea8; }
+
+/* The line being read, burned into the foot of the frame, which is where the
+   renderer puts it and where a feed shows it. */
+.shot-post-cap {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #e6e6e6;
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.shot-post-title { font-size: 13px; color: #e6e6e6; line-height: 1.4; }
+
+.shot-channels { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.shot-channels span {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  color: #c8d2ce;
+}
+
+/* A tick rather than a word, in the one colour that means finished. */
+.shot-check {
+  position: relative;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #2f6b55;
+}
+
+.shot-check::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 3px;
+  width: 4px;
+  height: 8px;
+  border: solid #cdf0dd;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* ----------------------------------------------------------- own script */
+
+.shot-script .shot-body {
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #d4d4d4;
+}
 
 .landing-band {
   background: var(--surface-1);
@@ -1469,12 +1588,20 @@ input:disabled, textarea:disabled, select:disabled {
   .landing-nav-actions button { white-space: nowrap; }
 }
 
-@media (max-width: 720px) {
-  /* Two columns of previews stop working before the rest of the layout does.
-     An example prompt is a sentence on one line, and half a card cannot hold
-     one -- it ellipsises into "Explain Python list com…", which is exactly
-     the part of the card that is supposed to say what the thing does. */
+@media (max-width: 1020px) {
+  /* Three columns of previews stop working before the rest of the layout
+     does. An example prompt is a sentence on one line, and a third of a card
+     cannot hold one -- it ellipsises into "Explain Python list com…", which
+     is exactly the part of the card that says what the thing does. The
+     composition survives at two columns; the tall card just stops being
+     tall, because beside nothing there is nothing to be tall against. */
+  .landing-makers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .maker-tall { grid-row: span 1; }
+}
+
+@media (max-width: 660px) {
   .landing-makers { grid-template-columns: minmax(0, 1fr); }
+  .maker-wide, .maker-tall { grid-column: span 1; }
 }
 
 @media (max-width: 560px) {

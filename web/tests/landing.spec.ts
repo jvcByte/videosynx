@@ -14,10 +14,10 @@ import { tierLabel } from "../app/lib/format";
 test("the landing page introduces the product", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("coding");
-  // The two things it makes, and the first thing on the page: this used to
-  // read "AI-powered coding tutorials", which describes how it is built
-  // rather than what lands at the end of it.
+  // What it makes and where it goes, neither of which is "coding tutorials".
+  // The headline said "AI-powered coding tutorials" until it turned out the
+  // page was describing how the thing is built rather than what arrives.
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("publish");
   await expect(page.getByText("Video generation · Text to speech")).toBeVisible();
   // The workspace is not on it: a composer here would be a second place to
   // submit from, with its own copy of everything.

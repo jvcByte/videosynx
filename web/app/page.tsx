@@ -19,16 +19,16 @@ import { duration, modeLabel, tierLabel } from "./lib/format";
  * already its own client component.
  */
 export const metadata: Metadata = {
-  title: "videosynx — coding video tutorials and voice-over, generated",
+  title: "videosynx — turn any topic into a video, and publish it",
   description:
-    "Give it a topic and it writes the lesson, runs the code, narrates each " +
-    "line in a natural voice and hands you a captioned MP4. Give it plain " +
-    "text instead and it reads that aloud. Free to start.",
+    "Give it a topic and it writes the script, narrates it in a natural " +
+    "voice, renders a finished video and posts it to your channels. Give it " +
+    "plain text instead and it reads that aloud. Free to start.",
   openGraph: {
-    title: "videosynx — coding video tutorials and voice-over",
+    title: "videosynx — any topic into a video, published",
     description:
-      "Turn a topic into a finished video tutorial, or plain text into a " +
-      "voice-over. Free to start.",
+      "A topic becomes a finished, narrated video, published to your " +
+      "channels. Plain text becomes a voice-over. Free to start.",
     type: "website",
   },
 };
@@ -63,27 +63,31 @@ export const metadata: Metadata = {
 const MAKERS = [
   {
     kind: "code",
+    shape: "wide",
     label: "Video generation",
     pill: "Explain Python list comprehensions",
     body: "A topic becomes a lesson — written, narrated, and handed back as an MP4.",
   },
   {
+    kind: "post",
+    shape: "tall",
+    label: "Publish to social",
+    pill: "Post it when it is done",
+    body: "One click when the render finishes, and it is on the channels you post to.",
+  },
+  {
     kind: "voice",
+    shape: "small",
     label: "Text to speech",
     pill: "Read this aloud, calmly",
-    body: "Give it plain text and get a voice-over back, with the pauses in the right places.",
+    body: "Plain text in, a voice-over out, with the pauses in the right places.",
   },
   {
-    kind: "term",
-    label: "Code that actually runs",
-    pill: "Run it and show what it prints",
-    body: "Every snippet executes in a sandbox with no network. Its real output is in the video.",
-  },
-  {
-    kind: "srt",
-    label: "Captions",
-    pill: "Caption every word to the voice",
-    body: "Timed to the narration and burned into the frame, with a matching .srt alongside.",
+    kind: "script",
+    shape: "small",
+    label: "Your own script",
+    pill: "Render this script I wrote",
+    body: "Already written it? Paste it in and it renders what you wrote.",
   },
 ] as const;
 
@@ -134,33 +138,73 @@ function ShotVoice() {
   );
 }
 
-/** The same program as the first card, run for real. */
-function ShotTerm() {
+/**
+ * A published post, laid out the way a feed lays one out.
+ *
+ * The one preview that is not about making the video: it is the same render
+ * seen from the other end, on a channel, with a title somebody wrote for it.
+ */
+function ShotPost() {
   return (
-    <div className="shot shot-term" aria-hidden>
+    <div className="shot shot-post" aria-hidden>
       <div className="shot-body">
-        <span><b className="p">$</b> python total.py</span>
-        <span className="out">6</span>
+        <div className="shot-post-head">
+          <span className="shot-avatar" />
+          <span className="shot-post-who">videosynx</span>
+          <span className="shot-post-when">just now</span>
+        </div>
+        {/* The render itself, shrunk to the shape a feed shows it at, with
+            the caption burned in where the renderer puts it. An empty box
+            with a play glyph would have been the same picture with the
+            content left out. */}
+        <div className="shot-post-frame">
+          <div className="shot-post-mini">
+            <span><b className="k">def</b> <b className="f">total</b>(prices):</span>
+            <span>{"    "}<b className="k">return</b> <b className="f">sum</b>(prices)</span>
+            <span><b className="d">print</b>(<b className="f">total</b>([<b className="n">2</b>, <b className="n">4</b>]))</span>
+          </div>
+          <span className="shot-play" />
+          <span className="shot-post-cap">
+            A function takes a list. It gives back one number.
+          </span>
+        </div>
+        <div className="shot-post-title">List comprehensions, explained</div>
+        <div className="shot-channels">
+          <span>YouTube</span><span>TikTok</span><span>Instagram</span>
+        </div>
+      </div>
+      <div className="shot-meta">
+        <span className="shot-check" />
+        <span>Published</span>
+      </div>
+    </div>
+  );
+}
+
+/** Prose rather than code, because that is what a script someone wrote is. */
+function ShotScript() {
+  return (
+    <div className="shot shot-script" aria-hidden>
+      <div className="shot-body">
+        <span>Today we look at list comprehensions.</span>
+        <span>They build one list out of another.</span>
         <span><b className="caret" /></span>
       </div>
-    </div>
-  );
-}
-
-/** The subtitle file, which is the other half of the download. */
-function ShotSrt() {
-  return (
-    <div className="shot shot-srt" aria-hidden>
-      <div className="shot-body">
-        <span className="n">1</span>
-        <span className="t">{"00:00:04,200 --> 00:00:07,100"}</span>
-        <span>A function takes a list. It gives back one number.</span>
+      <div className="shot-meta">
+        <span className="shot-play" />
+        <span className="figure">1:12</span>
+        <span className="shot-chip">Your script</span>
       </div>
     </div>
   );
 }
 
-const SHOTS = { code: ShotCode, voice: ShotVoice, term: ShotTerm, srt: ShotSrt };
+const SHOTS = {
+  code: ShotCode,
+  post: ShotPost,
+  voice: ShotVoice,
+  script: ShotScript,
+};
 
 // No tool is named in any of these. The steps are what happens to the video,
 // and which encoder drew the frames is not part of that story.
@@ -318,29 +362,28 @@ export default async function Landing() {
                 a sentence about how it is built rather than about what
                 arrives at the end of it. */}
             <span className="landing-eyebrow">Video generation · Text to speech</span>
-            {/* The accent goes on one word, not on a phrase. "Coding
-                tutorial" is what it is; "finished" is the part that is a
-                promise rather than a category, and two lines of gold is a
-                highlight that has stopped highlighting anything. */}
+            {/* The accent goes on one phrase, not the whole headline: two
+                lines of gold is a highlight that has stopped highlighting
+                anything. "Any topic" is what is new here -- the page used to
+                sell coding tutorials, and the thing makes videos. */}
             <h1>
-              Turn a topic into a <em>finished</em> coding tutorial.
+              Turn <em>any topic</em> into a video, then publish it to social.
             </h1>
             <p className="landing-lede">
-              Give it a programming subject and it writes the lesson, runs the
-              code, explains each line in a natural voice, and hands you a
-              captioned MP4. Give it your own text instead and it reads that
-              aloud.
+              Give it a subject and it writes the lesson, narrates it in a
+              natural voice, renders a finished video, and posts it where you
+              publish. Give it your own text instead and it reads that aloud.
             </p>
             <div className="landing-actions">
               <Link className="landing-cta landing-cta-lg" href="/dashboard#create">
-                Create your first tutorial
+                Create your first video
               </Link>
               <a className="landing-ghost landing-cta-lg" href="#how">See how it works</a>
             </div>
             <ul className="landing-checks">
-              <li>Runs the code</li>
+              <li>Any topic</li>
               <li>Natural narration</li>
-              <li>Captions + SRT</li>
+              <li>Publish to social</li>
               <li>Text to speech</li>
             </ul>
           </div>
@@ -372,11 +415,10 @@ export default async function Landing() {
       <section className="landing-wrap landing-features-wrap" id="features">
         <header className="landing-section-head">
           <span className="landing-eyebrow landing-eyebrow-center">What it makes</span>
-          <h2 className="landing-h2">Videos, and voice-overs.</h2>
+          <h2 className="landing-h2">Videos, voice-overs, and a place to put them.</h2>
           <p className="landing-sub">
-            Give it a topic and it writes the lesson, runs the code, narrates it
-            and captions it. Give it your own text and it reads that aloud
-            instead.
+            Give it a topic and it writes the lesson, narrates it and captions
+            it. Give it your own text and it reads that aloud instead.
           </p>
         </header>
 
@@ -384,7 +426,7 @@ export default async function Landing() {
           {MAKERS.map((maker) => {
             const Shot = SHOTS[maker.kind];
             return (
-              <article className="maker" key={maker.label}>
+              <article className={`maker maker-${maker.shape}`} key={maker.label}>
                 <h3 className="maker-label">{maker.label}</h3>
                 <div className="maker-shot">
                   {/* The instruction, floated over the result: what you type
