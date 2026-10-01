@@ -662,6 +662,32 @@ test("the voice engine is shown, and is the plan's to give", async ({ page }) =>
   await expect(page.getByText(/ElevenLabs narration is included in Studio/)).toBeVisible();
 });
 
+test("a voice can be heard before it is chosen", async ({ page, request }) => {
+  // `am_michael` says nothing about what either of them sounds like, so the
+  // only way to pick between fifty-four of them is to listen.
+  await page.goto(at("settings"));
+
+  const voice = page.getByLabel("Voice");
+  const chosen = await voice.inputValue();
+  // Whatever is saved, not a particular one: the settings tests above save a
+  // voice of their own, and this is not the place to assert the default.
+  expect(chosen).toBeTruthy();
+
+  // A file, not a render: one of these takes eight seconds to synthesise and
+  // the queue would be asked for one per click. It has to be *there* -- a
+  // preview that plays nothing is worse than no button, because it looks
+  // like it worked.
+  const sample = await request.get(`/voices/${chosen}.mp3`);
+  expect(sample.status()).toBe(200);
+  expect(sample.headers()["content-type"]).toContain("audio");
+  expect((await sample.body()).byteLength).toBeGreaterThan(1000);
+
+  // And pressing it asks for that voice's sample.
+  const asked = page.waitForRequest((r) => r.url().includes(`/voices/${chosen}.mp3`));
+  await page.getByRole("button", { name: /Hear / }).click();
+  await asked;
+});
+
 test("the wallet says what is in it and what a credit buys", async ({ page }) => {
   await page.goto(at("wallet"));
 

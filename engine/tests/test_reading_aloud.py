@@ -159,3 +159,38 @@ def test_a_full_stop_is_held_long_enough_to_read_as_one():
     where a listener stops hearing a list and starts hearing sentences."""
     assert SENTENCE_PAUSE_S >= 0.6
     assert PARAGRAPH_PAUSE_S >= SENTENCE_PAUSE_S * 2
+
+
+# --------------------------------------------------------- the voice samples
+# The settings page offers a preview per voice, and the preview is a file
+# rather than a synthesis: one takes eight seconds to make, there are fifty-
+# four of them, and the click that wants one wants it now. Files can go stale
+# in a way that code cannot, so this is what says they have not.
+
+
+def test_every_voice_in_the_catalogue_has_a_sample():
+    """A voice with no sample is a picker entry that plays nothing.
+
+    Both directions, because both are failures: a missing file is a button
+    that does nothing, and a file for a voice that no longer exists is four
+    megabytes of a voice nobody can choose.
+    """
+    from pathlib import Path
+
+    from videosynx.providers import KokoroSpeaker
+
+    # The model is the authority on what a voice is. `settings.KOKORO_VOICES`
+    # in the API is a copy of it, and `api/tests` is where those two are
+    # compared; this compares the copy that ships as audio.
+    root = Path(__file__).resolve().parents[2] / "web" / "public" / "voices"
+    if not root.exists():
+        pytest.skip("no published voice samples in this checkout")
+
+    published = {path.stem for path in root.glob("*.mp3")}
+    catalogue = set(KokoroSpeaker().voices)
+
+    assert not catalogue - published, (
+        f"no sample to hear for {sorted(catalogue - published)}")
+    assert not published - catalogue, (
+        f"a sample for a voice that is not in the model: "
+        f"{sorted(published - catalogue)}")

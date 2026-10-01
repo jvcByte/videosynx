@@ -8,6 +8,7 @@ tests do -- no key, no quota, no spend.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -570,14 +571,36 @@ class KokoroSpeaker:
         # render is minutes in and after everything else has been paid for.
         # Catch it while the model is still open, and fall back.
         get_voices = getattr(self._kokoro, "get_voices", None)
-        known = set(get_voices()) if callable(get_voices) else set()
-        if known and voice not in known:
+        self._known: tuple[str, ...] = tuple(get_voices()) if callable(get_voices) else ()
+        if self._known and voice not in self._known:
             _console.log(
                 f"[yellow]unknown voice {voice!r}; using {DEFAULT_KOKORO_VOICE}[/yellow]"
             )
             voice = DEFAULT_KOKORO_VOICE
         self._voice = voice
         self._speed = speed
+
+    @property
+    def voices(self) -> tuple[str, ...]:
+        """Every voice this model can speak with, in the order it lists them.
+
+        The catalogue rather than a copy of it. It is read here anyway to
+        catch an unknown name before synthesis rather than minutes into a
+        render, and the list is the one thing about it that cannot go stale.
+        """
+        return self._known
+
+    def with_voice(self, voice: str) -> "KokoroSpeaker":
+        """The same loaded model, speaking as somebody else.
+
+        Opening one costs five seconds cold and better than one warm, so a
+        caller that wants all fifty-four at once -- the settings page's
+        previews, made once into static files -- should open one and change
+        what it says.
+        """
+        other = copy.copy(self)
+        other._voice = voice if voice in self._known else DEFAULT_KOKORO_VOICE
+        return other
 
     def say(self, text: str, *, previous: str = "", following: str = "") -> np.ndarray:
         # Neighbour text is accepted for interface parity and ignored: Kokoro

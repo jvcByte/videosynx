@@ -21,5 +21,12 @@ sess_*/
 build/
 dist/
 
+# Except the voice previews. Those are not artifacts of a render, they are
+# the catalogue: one short clip per voice, made once by
+# `python -m videosynx.voice_samples`, so that choosing between fifty-four
+# identifiers is something you can hear instead of guess. Four megabytes that
+# do not change until a voice does.
+!web/public/voices/*.mp3
+
 # Output videos — large, and regenerable
 tmp/

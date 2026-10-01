@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent } from "react";
+import { FormEvent, useEffect, useRef } from "react";
 import { Mode, Settings, Voice } from "../lib/api";
 import { byLanguage } from "../lib/format";
 
@@ -52,6 +52,23 @@ export function SettingsPanel({
   onEdit: (patch: Partial<Settings>) => void;
   onSave: (event: FormEvent) => void;
 }) {
+  // The one already playing, so a second press replaces it rather than
+  // talking over it -- and so leaving the view stops it. A sample still
+  // reading to an empty screen is a preview with nobody watching it.
+  const playing = useRef<HTMLAudioElement | null>(null);
+  useEffect(() => () => playing.current?.pause(), []);
+
+  function hear(voice: string) {
+    playing.current?.pause();
+    // A static file, not the render queue: the samples are made once and
+    // committed, and `engine/tests/test_reading_aloud.py` fails if a voice in
+    // the catalogue has none. So a play that fails is a broken deployment
+    // rather than a thing to explain to somebody mid-click.
+    const audio = new Audio(`/voices/${encodeURIComponent(voice)}.mp3`);
+    void audio.play().catch(() => {});
+    playing.current = audio;
+  }
+
   return (
     <section className="card settings-view" aria-label="Settings">
       {/* Three states kept apart: still loading is not a failure, and a
@@ -216,31 +233,52 @@ export function SettingsPanel({
 
             <label className="field">
               <span className="field-label">Voice</span>
-              <select
-                aria-label="Voice"
-                value={settings.voice}
-                onChange={(e) => onEdit({ voice: e.target.value })}
-              >
+              <span className="field-row">
+                <select
+                  aria-label="Voice"
+                  value={settings.voice}
+                  onChange={(e) => onEdit({ voice: e.target.value })}
+                >
                 {/* Until the catalogue arrives, the saved voice is still
                     selectable -- a picker that silently drops the current
                     value would look like the setting had been lost. */}
-                {voices.length === 0 && (
-                  <option value={settings.voice}>{settings.voice}</option>
-                )}
-                {byLanguage(voices).map(([language, group]) => (
-                  <optgroup key={language} label={language}>
-                    {group.map((voice) => (
-                      <option key={voice.id} value={voice.id}>
-                        {voice.id} — {voice.gender}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+                  {voices.length === 0 && (
+                    <option value={settings.voice}>{settings.voice}</option>
+                  )}
+                  {byLanguage(voices).map(([language, group]) => (
+                    <optgroup key={language} label={language}>
+                      {group.map((voice) => (
+                        <option key={voice.id} value={voice.id}>
+                          {voice.id} — {voice.gender}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                {/* An id like `am_michael` says nothing about what either one
+                    sounds like, so the only way to choose between fifty-four
+                    of them is to hear them. A file rather than a synthesis:
+                    one of these takes eight seconds to make and the render
+                    queue would be asked for one per click.
+
+                    Inside the label, with the select. A label does not
+                    activate its control when the click lands on interactive
+                    content within it, so pressing this does not open the
+                    picker -- which is what would happen if it were a span. */}
+                <button
+                  type="button"
+                  className="ghost field-play"
+                  onClick={() => hear(settings.voice)}
+                  aria-label={`Hear ${settings.voice}`}
+                >
+                  ▶ Hear it
+                </button>
+              </span>
             </label>
             <p className="field-note">
-              Which Kokoro voice. The engine above decides whether it is
-              used at all, so a plan narrating with ElevenLabs ignores it.
+              Which Kokoro voice. The engine above decides whether it is used
+              at all, so a plan narrating with ElevenLabs ignores it. Previews
+              are read at the normal pace.
             </p>
           </fieldset>
 
