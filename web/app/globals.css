@@ -2331,8 +2331,11 @@ input:disabled, textarea:disabled, select:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 19px;
-  color: var(--fg-faint);
+  /* The emblem's ink, on a locked badge. One step louder than `--fg-faint`,
+     because the whole medal is then dimmed to sixty per cent -- and at the
+     faint token through that, the shape of what is on offer stops being
+     legible, which is the only thing a locked badge has to say. */
+  color: var(--fg-muted);
   background: var(--surface-3);
   border: 2px solid var(--m);
 }
@@ -2364,9 +2367,26 @@ input:disabled, textarea:disabled, select:disabled {
    The star is stamped into it rather than drawn on: dark, with the light
    catching the lower lip of the impression. Drawn on top it reads as a
    sticker however good the metal is. */
+/* The emblem, struck into the face rather than printed on it.
+
+   A line drawing in `currentColor` with a light copy one pixel below it is
+   what an impression in metal looks like: the ink is the shadow in the cut,
+   and the light below is the far wall of it catching the same light that
+   made the dome. Drawn flat on top it is a sticker, however good the metal
+   underneath is. */
+.award-emblem {
+  width: 23px;
+  height: 23px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.55));
+}
+
 .awards-row li.is-earned .award-medal {
-  color: rgba(0, 0, 0, 0.42);
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+  color: rgba(0, 0, 0, 0.46);
   background:
     radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0) 46%),
     linear-gradient(155deg, var(--m-hi) 0%, var(--m) 46%, var(--m-lo) 100%);

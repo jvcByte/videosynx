@@ -1,6 +1,7 @@
 "use client";
 
 import { Progress } from "../lib/api";
+import { BadgeEmblem } from "./BadgeEmblem";
 
 /**
  * What the account has earned.
@@ -104,7 +105,9 @@ export function Achievements({ progress }: { progress: Progress | null }) {
                 apart is the metal -- which says how hard the badge is, and
                 which a screen reader cannot see. Hence both halves in words
                 beside the name. */}
-            <span className="award-medal" aria-hidden>★</span>
+            <span className="award-medal" aria-hidden>
+              <BadgeEmblem id={badge.id} />
+            </span>
             <span className="award-name">
               {badge.name}
               <span className="visually-hidden">
