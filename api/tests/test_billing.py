@@ -136,19 +136,44 @@ def test_no_configured_secret_refuses_everything():
 # ------------------------------------------------------------------- webhook
 
 @requires_db
-def test_checkout_grants_entitlement(client):
+def test_a_credit_pack_grants_the_credits_it_advertised(client):
+    """The number on the price list, not the number on the receipt.
+
+    `amount_total` is in the currency's smallest unit, and granting it as
+    credits meant the pack advertised as a hundred granted nine hundred --
+    which the pricing change would have turned into fifteen hundred minutes
+    for the price of a hundred. The pack size is written into the metadata
+    when the session is created; this is the half that reads it.
+    """
     payload = event("checkout.session.completed", {
         "id": "cs_1", "client_reference_id": "user-1",
-        "metadata": {"user_id": "user-1", "tier": "paid"},
-        "amount_total": 2000, "customer": "cus_1", "subscription": "sub_1",
+        "metadata": {"user_id": "user-1", "credits": "100"},
+        "amount_total": 1500, "customer": "cus_1",
     }, event_id="evt_checkout_1")
 
     body = post(client, payload).json()
-    assert body["handled"] and body["tier"] == "paid" and body["credits"] == 2000
+    assert body["handled"] and body["credits"] == 100
+
+    with psycopg.connect(DSN, row_factory=dict_row) as conn:
+        assert balance(conn, "user-1") == 100, "1500 cents is not 1500 minutes"
+
+
+def test_a_subscription_grants_the_tier_and_no_credits(client):
+    """A subscription buys a tier. The checkout that starts one carries no
+    pack, so it must not mint credits out of its own price."""
+    payload = event("checkout.session.completed", {
+        "id": "cs_2", "client_reference_id": "user-1",
+        "metadata": {"user_id": "user-1", "tier": "paid"},
+        "amount_total": 1900, "customer": "cus_1", "subscription": "sub_1",
+    }, event_id="evt_checkout_2")
+
+    body = post(client, payload).json()
+    assert body["handled"] and body["tier"] == "paid"
+    assert body["credits"] == 0
 
     with psycopg.connect(DSN, row_factory=dict_row) as conn:
         assert tier_for_user(conn, "user-1") == "paid"
-        assert balance(conn, "user-1") == 2000
+        assert balance(conn, "user-1") == 0
 
 
 @requires_db
@@ -156,8 +181,8 @@ def test_the_same_event_delivered_twice_grants_once(client):
     """Stripe delivers at least once. A second grant is free money out."""
     payload = event("checkout.session.completed", {
         "id": "cs_1", "client_reference_id": "user-1",
-        "metadata": {"user_id": "user-1", "tier": "paid"},
-        "amount_total": 2000, "customer": "cus_1",
+        "metadata": {"user_id": "user-1", "credits": "500"},
+        "amount_total": 6500, "customer": "cus_1",
     }, event_id="evt_replayed")
 
     first = post(client, payload).json()
@@ -166,7 +191,7 @@ def test_the_same_event_delivered_twice_grants_once(client):
     assert first["duplicate"] is False
     assert second["duplicate"] is True
     with psycopg.connect(DSN, row_factory=dict_row) as conn:
-        assert balance(conn, "user-1") == 2000, "the replay granted again"
+        assert balance(conn, "user-1") == 500, "the replay granted again"
 
 
 @requires_db
@@ -253,12 +278,12 @@ def test_a_paid_account_can_submit_more_before_the_cap(client):
 @requires_db
 def test_subscription_endpoint_reports_credits_and_history(client):
     post(client, event("checkout.session.completed", {
-        "metadata": {"user_id": "user-5", "tier": "paid"},
+        "metadata": {"user_id": "user-5", "credits": "100"},
         "amount_total": 1500, "client_reference_id": "user-5",
     }, event_id="evt_hist"))
     body = client.get("/me/subscription", headers={"X-Dev-User": "user-5:free"}).json()
     assert body["tier"] == "paid"
-    assert body["credits"] == 1500
+    assert body["credits"] == 100
     assert body["recent"][0]["reason"] == "purchase"
 
 
@@ -280,7 +305,7 @@ def test_checkout_requires_a_token(client):
 @requires_db
 def test_apply_event_is_idempotent_at_the_ledger():
     payload = json.loads(event("checkout.session.completed", {
-        "metadata": {"user_id": "u"}, "amount_total": 500,
+        "metadata": {"user_id": "u", "credits": "500"}, "amount_total": 6500,
     }, event_id="evt_direct"))
     with psycopg.connect(DSN, row_factory=dict_row) as conn:
         first = apply_event(conn, payload)

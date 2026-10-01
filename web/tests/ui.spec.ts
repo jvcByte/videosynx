@@ -425,7 +425,12 @@ test("upgrading without billing configured says so", async ({ page }) => {
   await expect(panel).toBeVisible();
 
   await panel.getByRole("button", { name: "Upgrade" }).click();
-  await expect(panel.getByRole("alert")).toContainText("billing is not configured");
+
+  // It explains itself without naming our environment: a person who cannot
+  // set STRIPE_PRICE_ID was being told to set it.
+  const alert = panel.getByRole("alert");
+  await expect(alert).toContainText(/not available on this server/i);
+  await expect(alert).not.toContainText(/STRIPE|SUPABASE/);
 });
 
 test("a rejected submission explains itself", async ({ page }) => {
@@ -665,8 +670,9 @@ test("the wallet says what is in it and what a credit buys", async ({ page }) =>
   await expect(page.getByText("Balance")).toBeVisible();
   await expect(page.locator(".wallet-balance")).toContainText("0");
 
-  // What it is for, in as many words.
-  await expect(page.getByText(/one credit is one tutorial/i)).toBeVisible();
+  // What it is for, in as many words -- and the word is minutes, because a
+  // two-minute lesson and a ten-minute one are not the same amount of work.
+  await expect(page.getByText(/one credit is one minute/i)).toBeVisible();
 
   // The packs, priced by the server rather than by the page.
   await expect(page.locator(".wallet-packs .pack")).toHaveCount(2);
@@ -682,5 +688,7 @@ test("buying credits explains itself when billing is not configured", async ({ p
   await page.locator(".wallet-packs .pack").first().getByRole("button").click();
   // Scoped to the wallet's own notice: the page has other regions, and a
   // bare alert locator finds whichever of them happens to be a role=alert.
-  await expect(page.locator(".notice-bad")).toContainText(/not configured/i);
+  const notice = page.locator(".notice-bad");
+  await expect(notice).toContainText(/not available on this server/i);
+  await expect(notice).not.toContainText(/STRIPE|SUPABASE/);
 });

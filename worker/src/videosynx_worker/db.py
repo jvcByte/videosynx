@@ -312,24 +312,78 @@ class Queue:
 
     # ---------------------------------------------------------------- terminal
 
+    def balance(self, user_id: str) -> int:
+        """Credits this account has, which may be negative.
+
+        The same rows `videosynx_api.billing.balance` sums for the wallet. It
+        is read here as well because the worker has to decide whether a render
+        it has already planned is one the account can pay for, and it cannot
+        import the API -- `videosynx-api` depends on this package, so the
+        import would be a cycle.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "select coalesce(sum(delta), 0) as n from credit_ledger"
+                " where user_id = %s",
+                (user_id,),
+            ).fetchone()
+        return int(row["n"])
+
     def finish(self, job_id: str, owner: str, *, artifact_key: str,
                duration_s: float) -> bool:
+        """Record the video, and bill for it, or do neither.
+
+        One statement rather than an update followed by an insert. This
+        connection is `autocommit=True`, so a second statement would be a
+        second commit -- and a process that died between them would leave a
+        finished job nobody was ever charged for, which nothing revisits:
+        `reap` only looks at active jobs, `retry_job` only accepts failures,
+        and the worker's own error handling calls `fail`, which matches on a
+        `lease_owner` this update has already cleared.
+
+        The charge is what makes the video cost anything. A job inside its
+        day's allowance carries no `credits_per_minute`, so the `where` clause
+        on the insert leaves it alone -- and so does a speech clip, which the
+        API never stamps. A failed or cancelled job never reaches here at all,
+        which is what makes a render nobody received free.
+        """
         with self._connect() as conn:
             row = conn.execute(
                 """
-                update jobs
-                   set status = 'succeeded', artifact_key = %s, duration_s = %s,
-                       finished_at = now(), lease_owner = null,
-                       lease_expires_at = null, progress = 1
-                 where id = %s and lease_owner = %s
-                   -- A worker that finished anyway must not un-cancel a job
-                   -- and hand back a video nobody asked for.
-                   and status <> 'canceled'
-                returning id
+                with done as (
+                    update jobs
+                       set status = 'succeeded', artifact_key = %s,
+                           duration_s = %s, finished_at = now(),
+                           lease_owner = null, lease_expires_at = null,
+                           progress = 1
+                     where id = %s and lease_owner = %s
+                       -- A worker that finished anyway must not un-cancel a
+                       -- job and hand back a video nobody asked for.
+                       and status <> 'canceled'
+                    returning user_id, options, duration_s
+                ),
+                charged as (
+                    insert into credit_ledger (user_id, delta, reason)
+                    select done.user_id,
+                           -- A video is billed by the minute it turned out to
+                           -- be, rounded up: twelve seconds is a minute,
+                           -- because there is no fraction of one to sell.
+                           -(ceil(done.duration_s / 60)::int
+                             * (done.options->>'credits_per_minute')::int),
+                           %s
+                      from done
+                     where done.options ? 'credits_per_minute'
+                       and done.duration_s is not null
+                    returning 1
+                )
+                -- Whether the *update* landed, not whether it was billed: a
+                -- job inside its allowance charges nothing, and that is a
+                -- finished job rather than a failed one.
+                select (select count(*) from done) as updated
                 """,
-                (artifact_key, duration_s, job_id, owner),
+                (artifact_key, duration_s, job_id, owner, f"job:{job_id}"),
             ).fetchone()
-        return row is not None
+        return row is not None and row["updated"] > 0
 
     def fail(self, job_id: str, owner: str, *, code: str, message: str,
              delay_seconds: float | None = None) -> bool:

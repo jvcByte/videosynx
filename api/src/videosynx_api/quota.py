@@ -9,14 +9,17 @@ never starts, so a quota that can be raced is not a quota.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import ceil
 
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
-# For the credit balance and the ledger write. billing.py imports nothing
-# from here, so there is no cycle -- the tiers are the only thing both know.
-from .billing import _grant, balance
+# For the credit balance. billing.py imports nothing from here, so there is no
+# cycle -- the tiers are the only thing both know. The ledger *write* for a job
+# is no longer here: it moved to the worker, which is the only thing that knows
+# how long the video turned out to be.
+from .billing import balance
 
 
 @dataclass(frozen=True)
@@ -75,19 +78,68 @@ TIERS: dict[str, Tier] = {
     ),
 }
 
-# Sold on top of a plan. The ledger and the webhook have been able to record
-# these since billing was written; nothing sold them, and nothing spent them.
+# Sold on top of a plan. A credit is a minute of video, so a pack is a number
+# of minutes -- which is the thing a buyer can actually count, and the only
+# unit the service produces.
+#
+# Priced at $0.15 and $0.13 a minute against the roughly $0.12 a minute an
+# ElevenLabs render costs. At the old $9/100 a minute of the Studio tier was
+# sold below what it cost to make.
 CREDIT_PACKS: tuple[dict, ...] = (
-    {"credits": 100, "usd": 9, "note": "A hundred more, whenever."},
-    {"credits": 500, "usd": 39, "note": "Cheaper each, if you go through them."},
+    {"credits": 100, "usd": 15, "note": "A hundred minutes, whenever."},
+    {"credits": 500, "usd": 65, "note": "Cheaper by the minute, if you go through them."},
 )
 
 DEFAULT_TIER = "free"
 
-# What a job costs once the day's allowance is spent. One, so that a credit
-# and a tutorial are the same thing and the balance reads as a number of
-# videos rather than as points.
-CREDITS_PER_JOB = 1
+# What a minute of video costs once the day's allowance is spent.
+#
+# Charged when the render finishes rather than when it is asked for, because
+# nothing knows how long a lesson is until it has been written: measured over
+# the renders in the database, a topic produced anything from one second to
+# thirteen minutes. `submit_within_quota` decides whether a job may run;
+# `Queue.finish` decides what it cost.
+CREDITS_PER_MINUTE = 1
+
+# Characters a minute of narration covers, for pricing a job whose input is
+# text we already have.
+#
+# From the measured rate for the calm pace: about 157 words a minute at about
+# 5.5 characters a word. A script's narration is the script, so this is a real
+# estimate rather than a guess -- which is exactly what it is not when the
+# input is a bare topic, and why the exact check lives in the worker instead.
+CHARS_PER_MINUTE = 860
+
+
+def estimate_minutes(text: str) -> int:
+    """Minutes of narration *text* is likely to become, rounded up."""
+    return max(1, ceil(len(text) / CHARS_PER_MINUTE))
+
+
+def unsettled(conn: psycopg.Connection, user_id: str) -> int:
+    """Jobs this account has started and not yet been billed for.
+
+    Past the allowance, a credit is what a job costs -- but it is taken when
+    the job finishes, so a balance on its own does not say how much of it is
+    already spoken for. Without this, one credit submits ten videos: every
+    submission sees the same balance, every render finishes, and the account
+    lands wherever ten of them put it.
+
+    `finished_at is null` rather than a list of statuses. It is set by a
+    finished job, by a failure that will not be retried, and by the reaper on
+    both of its paths, and it is cleared again by `POST /jobs/{id}/retry` -- so
+    a retried job is correctly spoken for twice over, and no fourth copy of the
+    job-status list has to be kept in step with the three that exist.
+    """
+    row = conn.execute(
+        """
+        select count(*) as n from jobs
+         where user_id = %s and finished_at is null
+           and options ? 'credits_per_minute'
+        """,
+        (user_id,),
+    ).fetchone()
+    return int(row["n"])
 
 
 def tier_for(name: str | None) -> Tier:
@@ -188,14 +240,39 @@ def submit_within_quota(
         # the saved settings long before the job is queued.
         local = merged.get("generation") == "local"
         used = used_today(conn, user_id, local=local)
-        charged = 0
         if used >= limit_for(tier, local):
-            # Past the day's allowance, which is not the same as refused. A
-            # credit is what one more costs, and the two writes go in one
-            # transaction: a charge with no job is worse than no charge.
-            if balance(conn, user_id) < CREDITS_PER_JOB:
+            # Past the day's allowance, which is not the same as refused -- a
+            # credit is what one more costs. It is charged at the end, though,
+            # so what has to hold here is that the balance covers this job
+            # *and* everything already started and not yet paid for.
+            #
+            # `unsettled` is the half that is easy to leave out and expensive
+            # to leave out: without it one credit submits ten videos, because
+            # every submission sees the same untouched balance.
+            spendable = balance(conn, user_id) - unsettled(conn, user_id)
+            if spendable < CREDITS_PER_MINUTE:
                 raise QuotaExceeded(tier, used, local=local)
-            charged = CREDITS_PER_JOB
+
+            # A speech clip is read from text that is already here and
+            # synthesised on this machine; Kokoro costs nothing per character.
+            # Charging a minute for it would put a price on the one thing in
+            # the product that has no marginal cost, so clips stay on the
+            # allowance and are never stamped.
+            #
+            # A video is priced by the minute, and the rate rides on the job
+            # the way `tts` and `resolution` do: the API owns the price, the
+            # worker applies it, and neither has to import the other.
+            if merged.get("kind") != "speech":
+                # Priced from the input where there is one. A script's
+                # narration is the script, so its length is a real number. A
+                # topic's is not -- the model decides -- and that case is
+                # caught by the worker, which knows the answer exactly.
+                if merged.get("script") or merged.get("lesson"):
+                    need = estimate_minutes(
+                        str(merged.get("script") or merged.get("lesson") or ""))
+                    if spendable < need:
+                        raise QuotaExceeded(tier, used, local=local)
+                merged["credits_per_minute"] = CREDITS_PER_MINUTE
 
         row = conn.execute(
             """
@@ -205,12 +282,5 @@ def submit_within_quota(
             """,
             (user_id, topic, tier.name, Json(merged), idempotency_key),
         ).fetchone()
-
-        if charged:
-            # No stripe_event_id: this did not come from Stripe, and the
-            # unique index on that column is what keeps a replayed webhook
-            # from granting twice. NULLs do not collide.
-            _grant(conn, user_id=user_id, credits=-charged,
-                   reason=f"job:{row['id']}", event_id=None)
 
     return str(row["id"]), tier

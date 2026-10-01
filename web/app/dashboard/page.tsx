@@ -386,6 +386,7 @@ export default function Home() {
             <CreateView
               settings={settings}
               quota={quota}
+              credits={plan?.credits ?? null}
               topic={topic}
               onTopic={setTopic}
               script={script}

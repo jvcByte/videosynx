@@ -212,11 +212,23 @@ def apply_event(conn: psycopg.Connection, event: dict) -> Granted | None:
         # created, because a completed session does not carry its line items
         # unless they were explicitly expanded.
         tier = (obj.get("metadata") or {}).get("tier") or DEFAULT_PAID_TIER
-        amount = int(obj.get("amount_total") or 0)
+
+        # What was bought, not what it cost. `amount_total` is in the
+        # currency's smallest unit, and granting that as credits meant the
+        # pack advertised as a hundred actually granted nine hundred -- at
+        # fifteen dollars, fifteen hundred. The pack size is written into the
+        # metadata when the session is created (`POST /billing/credits`), so
+        # the number a buyer saw is the number that arrives.
+        #
+        # Absent for a subscription checkout, which buys a tier rather than
+        # credits: it grants none, and `credits=0` is what keeps the ledger
+        # free of rows that mean nothing.
+        bought = (obj.get("metadata") or {}).get("credits")
+        amount = int(bought) if bought else 0
         applied = _grant(
             conn,
             user_id=user_id,
-            credits=amount,  # stored in the currency's smallest unit
+            credits=amount,
             reason="purchase",
             event_id=event_id,
             tier=tier,

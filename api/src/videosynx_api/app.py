@@ -16,6 +16,7 @@ room for one.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
@@ -35,12 +36,17 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from videosynx_worker.db import Queue
 
 from .auth import User, current_user
+
+# The API had no logger of its own; everything it wanted to say it said in
+# the response body, where the reader is a browser. What an operator needs to
+# know -- a missing credential, an unset price -- goes here instead.
+log = logging.getLogger("videosynx.api")
 from .features import BY_ID, FEATURES, UNKNOWN
 from .billing import SignatureError, balance, handle_webhook, ledger, tier_for_user
 from .progress import progress_for, streak_from
 from .quota import (
     CREDIT_PACKS,
-    CREDITS_PER_JOB,
+    CREDITS_PER_MINUTE,
     TIERS,
     QuotaExceeded,
     Tier,
@@ -616,10 +622,21 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         secret = os.environ.get("STRIPE_SECRET_KEY", "")
         prices = _credit_prices()
         if not secret or body.credits not in prices:
+            # Which variable is missing is the operator's business, and the
+            # log is where an operator looks. A buyer cannot set
+            # STRIPE_CREDIT_PRICES and being told to is not an answer they
+            # can act on -- it is our shopping list, printed on their screen.
+            log.warning(
+                "cannot sell credits: STRIPE_SECRET_KEY is %s and pack %s "
+                "has %s price id (STRIPE_CREDIT_PRICES configures %s)",
+                "set" if secret else "unset",
+                body.credits,
+                "a" if body.credits in prices else "no",
+                sorted(prices) or "nothing",
+            )
             raise HTTPException(
                 status.HTTP_503_SERVICE_UNAVAILABLE,
-                "buying credits is not configured on this server "
-                "(STRIPE_SECRET_KEY and a price per pack)",
+                "Buying credits is not available on this server yet.",
             )
         import stripe
 
@@ -664,7 +681,7 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
                 for tier in TIERS.values()
             ],
             "credit_packs": [dict(pack) for pack in CREDIT_PACKS],
-            "credits_per_job": CREDITS_PER_JOB,
+            "credits_per_minute": CREDITS_PER_MINUTE,
         }
 
     @app.get("/features")
@@ -843,10 +860,14 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         secret = os.environ.get("STRIPE_SECRET_KEY", "")
         price = os.environ.get("STRIPE_PRICE_ID", "")
         if not secret or not price:
+            log.warning(
+                "cannot start a subscription: STRIPE_SECRET_KEY is %s and "
+                "STRIPE_PRICE_ID is %s",
+                "set" if secret else "unset", "set" if price else "unset",
+            )
             raise HTTPException(
                 status.HTTP_503_SERVICE_UNAVAILABLE,
-                "billing is not configured on this server "
-                "(STRIPE_SECRET_KEY and STRIPE_PRICE_ID unset)",
+                "Subscriptions are not available on this server yet.",
             )
         import stripe
 

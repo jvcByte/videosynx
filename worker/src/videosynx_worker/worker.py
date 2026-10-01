@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from math import ceil
 from pathlib import Path
 from typing import Callable, Protocol
 
@@ -296,6 +297,33 @@ class EngineRenderer:
         self.execute = execute
         self.storage = storage
 
+    def _affordable(self, job: Job, duration_s: float) -> None:
+        """Refuse a render the balance cannot pay for, now that it is known.
+
+        Only ever raises for a job billed by the minute: one inside its day's
+        allowance carries no rate, and neither does a speech clip, so both
+        pass through untouched.
+
+        The submission had to price this job from its input, and the input
+        does not decide how long a lesson turns out to be. Here the number is
+        real. Checking it costs the narration and saves the render -- which is
+        the cheap half of the mistake, and the only half that can still be
+        avoided once the model has written the lesson.
+        """
+        per_minute = job.options.get("credits_per_minute")
+        if not per_minute:
+            return
+        minutes = ceil(duration_s / 60)
+        owed = minutes * int(per_minute)
+        balance = self.queue.balance(job.user_id)
+        if balance < owed:
+            raise Refused(
+                f"this video runs {minutes} "
+                f"{'minute' if minutes == 1 else 'minutes'}, which is {owed} "
+                f"credits, and the balance is {balance}. Top up, or make a "
+                f"shorter one."
+            )
+
     def _speak(self, job: Job, beat: Beat, should_stop) -> tuple[str, float]:
         """Read the text aloud and hand back an audio file.
 
@@ -469,6 +497,17 @@ class EngineRenderer:
                                       max_snippets=max_snippets)
 
         plan = without_captions(tutorial.plan) if not captions else tutorial.plan
+
+        # The one place the length is a fact rather than a guess. The
+        # submission had to price this job from the input, and the input does
+        # not decide how long a lesson turns out to be -- measured over
+        # twenty-seven renders, a three-hundred-character topic produced
+        # anything from one second to thirteen minutes. Here it is known, and
+        # it is known before the frames are drawn, so a job the account
+        # cannot pay for is refused after the narration and before the render
+        # rather than being handed over and billed anyway.
+        self._affordable(job, plan.duration_s)
+
         beat("rendering", 0.7)
         try:
             render_plan(plan, out, width=width, height=height, style=style,

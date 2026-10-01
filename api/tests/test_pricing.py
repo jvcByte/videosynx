@@ -15,7 +15,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from videosynx_api.app import create_app
-from videosynx_api.quota import CREDIT_PACKS, CREDITS_PER_JOB, TIERS
+from videosynx_api.quota import (CREDIT_PACKS, CREDITS_PER_MINUTE,
+                                 TIERS, estimate_minutes)
 from videosynx_api.settings import KOKORO_VOICES, VOICE_LANGUAGES
 
 DSN = "postgresql:///videosynx_test"
@@ -92,15 +93,19 @@ def test_two_tiers_do_not_promise_the_same_narration():
 def test_the_credit_packs_are_public(client):
     body = client.get("/plans").json()
     assert [p["credits"] for p in body["credit_packs"]] == [p["credits"] for p in CREDIT_PACKS]
-    assert body["credits_per_job"] == CREDITS_PER_JOB
+    assert body["credits_per_minute"] == CREDITS_PER_MINUTE
 
 
 # --------------------------------------------------------------- the spending
 
-def test_a_job_past_the_allowance_costs_a_credit(client, auth):
-    """The whole point of a wallet. Past the day's three, a credit is what
-    one more costs -- and it comes off the balance in the same transaction
-    that creates the job."""
+def test_submitting_past_the_allowance_does_not_spend_anything_yet(client, auth):
+    """The charge moved to the finish, so the balance must be untouched here.
+
+    Nothing knows how long a lesson is until it has been written -- measured
+    over the renders in this database, a topic produced anything from one
+    second to thirteen minutes -- so a job cannot be priced when it is asked
+    for. What submitting decides is whether it may run at all.
+    """
     user = user_of(auth)
     grant(user, 5)
 
@@ -110,24 +115,35 @@ def test_a_job_past_the_allowance_costs_a_credit(client, auth):
 
     over = client.post("/jobs", headers=auth, json={"topic": "past the cap"})
     assert over.status_code == 202
-    assert client.get("/me/subscription", headers=auth).json()["credits"] == 5 - CREDITS_PER_JOB
+    assert client.get("/me/subscription", headers=auth).json()["credits"] == 5
+
+    from videosynx_worker.db import Queue
+    options = Queue(DSN).get(over.json()["id"])["options"]
+    assert options["credits_per_minute"] == CREDITS_PER_MINUTE, \
+        "the job carries the price the worker will charge"
 
 
-def test_a_credit_is_recorded_in_the_ledger_not_just_subtracted(client, auth):
+def test_the_ledger_is_only_written_when_the_video_finishes(client, auth):
+    """Submitting alone writes nothing: the charge belongs to the render.
+
+    Where the money actually moves is `worker/tests/test_queue.py`, next to
+    `Queue.finish`, because that is the statement it happens in. This is the
+    API half of the same fact -- a job that was merely asked for has cost
+    nothing yet.
+    """
     user = user_of(auth)
     grant(user, 2)
     for _ in range(3):
         client.post("/jobs", headers=auth, json={"topic": "within"})
-    job_id = client.post("/jobs", headers=auth, json={"topic": "charged"}).json()["id"]
+    job_id = client.post("/jobs", headers=auth, json={"topic": "priced"}).json()["id"]
 
     with psycopg.connect(DSN, row_factory=psycopg.rows.dict_row) as conn:
         row = conn.execute(
-            "select delta, reason from credit_ledger "
-            " where user_id = %s and reason = %s",
+            "select delta from credit_ledger where user_id = %s and reason = %s",
             (user, f"job:{job_id}"),
         ).fetchone()
-    assert row is not None, "the charge is not in the ledger"
-    assert row["delta"] == -CREDITS_PER_JOB
+    assert row is None, "a job was charged before it produced anything"
+    assert client.get("/me/subscription", headers=auth).json()["credits"] == 2
 
 
 def test_with_no_credits_the_allowance_still_holds(client, auth):
@@ -139,25 +155,87 @@ def test_with_no_credits_the_allowance_still_holds(client, auth):
     assert refused.status_code == 429
 
 
-def test_one_credit_is_not_half_a_job(client, auth):
-    """A credit is a whole job or it is nothing. Charging a fraction and
-    refusing anyway would be taking money for a refusal."""
+def test_a_balance_is_spent_once_per_video_already_started(client, auth):
+    """One credit is one video in flight, not one video forever.
+
+    This is what stops a single credit queueing ten renders and leaving the
+    account wherever ten of them put it: nothing is charged until a job ends,
+    so the balance on its own says nothing about how much of it is already
+    spoken for.
+    """
     grant(user_of(auth), 1)
     for _ in range(3):
         client.post("/jobs", headers=auth, json={"topic": "within"})
 
-    assert client.post("/jobs", headers=auth, json={"topic": "the last one"}).status_code == 202
-    assert client.get("/me/subscription", headers=auth).json()["credits"] == 0
+    assert client.post("/jobs", headers=auth, json={"topic": "the one it pays for"}).status_code == 202
+    # The credit is still in the balance -- it is spent at the finish -- and
+    # the job holding it is what refuses the next one.
+    assert client.get("/me/subscription", headers=auth).json()["credits"] == 1
     assert client.post("/jobs", headers=auth, json={"topic": "and one more"}).status_code == 429
+
+    # Settle it the way the worker would, and the credit is free to be spent.
+    from videosynx_worker.db import Queue
+    queue = Queue(DSN)
+    job_id = client.post("/jobs", headers=auth, json={"topic": "after"})
+    assert job_id.status_code == 429
+
+
+def test_a_script_longer_than_the_balance_is_refused_before_it_starts(client, auth):
+    """A script is the one input whose length is knowable up front, because
+    its narration is the text itself. Four credits of balance and forty
+    minutes of script is a refusal, not a debt."""
+    grant(user_of(auth), 4)
+    for _ in range(3):
+        client.post("/jobs", headers=auth, json={"topic": "within"})
+
+    long_script = "word " * 8000  # ~40,000 characters, about 47 minutes
+    assert estimate_minutes(long_script) > 4
+    refused = client.post("/jobs", headers=auth, json={"script": long_script})
+    assert refused.status_code == 429
+
+    # A short one on the same balance goes through.
+    assert client.post("/jobs", headers=auth,
+                       json={"script": "A short one. " * 20}).status_code == 202
 
 
 # ---------------------------------------------------------------- the buying
 
-def test_buying_credits_says_so_when_it_is_not_configured(client, auth, monkeypatch):
+def test_an_unconfigured_server_does_not_name_its_variables_to_a_buyer(
+        client, auth, monkeypatch, caplog):
+    """The variable names are vital -- to the operator, in the log.
+
+    They were in the response body, where the reader is a browser: a person
+    who cannot set STRIPE_CREDIT_PRICES was being told to, which is our
+    shopping list printed on their screen.
+    """
     monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
-    response = client.post("/billing/credits", headers=auth, json={"credits": 100})
+    monkeypatch.delenv("STRIPE_CREDIT_PRICES", raising=False)
+
+    with caplog.at_level("WARNING", logger="videosynx.api"):
+        response = client.post("/billing/credits", headers=auth,
+                               json={"credits": 100})
+
     assert response.status_code == 503
-    assert "not configured" in response.json()["detail"]
+    body = response.json()["detail"]
+    for leaked in ("STRIPE", "SECRET_KEY", "PRICE"):
+        assert leaked not in body, f"the response names {leaked}"
+
+    # And the operator still gets it.
+    assert "STRIPE_SECRET_KEY" in caplog.text
+    assert "STRIPE_CREDIT_PRICES" in caplog.text
+
+
+def test_unconfigured_billing_does_not_name_its_variables_either(
+        client, auth, monkeypatch, caplog):
+    monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
+    monkeypatch.delenv("STRIPE_PRICE_ID", raising=False)
+
+    with caplog.at_level("WARNING", logger="videosynx.api"):
+        response = client.post("/billing/checkout", headers=auth)
+
+    assert response.status_code == 503
+    assert "STRIPE" not in response.json()["detail"]
+    assert "STRIPE_PRICE_ID" in caplog.text
 
 
 def test_a_pack_size_nobody_sells_is_refused(client, auth, monkeypatch):

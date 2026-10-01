@@ -195,10 +195,12 @@ export function VideosView({ list }: { list: VideoList }) {
  * failed.
  */
 export function CreateView({
-  settings, quota, topic, onTopic, script, onScript, mode, onMode, onSubmitted,
+  settings, quota, credits, topic, onTopic, script, onScript, mode, onMode,
+  onSubmitted,
 }: {
   settings: Settings | null;
   quota: Quota | null;
+  credits: number | null;
   topic: string;
   onTopic: (topic: string) => void;
   script: string;
@@ -264,6 +266,7 @@ export function CreateView({
         onDismissError={() => setError(null)}
         generation={settings?.generation ?? "auto"}
         quota={quota}
+        credits={credits}
       />
     </div>
   );
@@ -620,11 +623,16 @@ export function WalletView() {
           {balance ?? "—"}
           <span>{balance === 1 ? "credit" : "credits"}</span>
         </p>
+        {/* Minutes, and charged at the end rather than the start. Both halves
+            matter to a reader deciding whether to spend one: a credit is a
+            minute of finished video, and it is taken when there is a video to
+            take it for. */}
         <p className="field-note">
           {packs
-            ? `One credit is one tutorial, once the day's ${plan?.jobs_per_day ?? ""} ` +
-              "are used up. Nothing else spends them."
-            : "One credit is one tutorial, past the day's allowance."}
+            ? `One credit is one minute of finished video, once the day's ${
+                plan?.jobs_per_day ?? ""
+              } are used up. Nothing else spends them.`
+            : "One credit is one minute of finished video, past the day's allowance."}
         </p>
       </section>
 

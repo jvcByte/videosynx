@@ -14,10 +14,13 @@ spending client on its own.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 
 import jwt
+
+log = logging.getLogger("videosynx.api")
 from fastapi import Header, HTTPException, status
 
 def _setting(name: str, default: str = "") -> str:
@@ -140,10 +143,15 @@ def _decode(token: str) -> dict:
     secret = jwt_secret()
     if secret:
         return _verified(token, secret, ["HS256"])
+    # The variable names go to the log. A person trying to sign in cannot set
+    # SUPABASE_URL, and telling them to is telling the wrong reader.
+    log.warning(
+        "cannot verify tokens: neither SUPABASE_URL nor SUPABASE_JWT_SECRET "
+        "is set",
+    )
     raise HTTPException(
         status.HTTP_503_SERVICE_UNAVAILABLE,
-        "auth is not configured on this server "
-        "(set SUPABASE_URL or SUPABASE_JWT_SECRET)",
+        "Sign-in is not available on this server yet.",
     )
 
 

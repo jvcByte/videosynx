@@ -267,8 +267,8 @@ export interface Plans {
   currency: string;
   plans: Plan[];
   credit_packs: CreditPack[];
-  /** What one job costs once the day's allowance is spent. */
-  credits_per_job: number;
+  /** What a minute of video costs once the day's allowance is spent. */
+  credits_per_minute: number;
 }
 
 /** What the service has actually done. Public — no account needed. */

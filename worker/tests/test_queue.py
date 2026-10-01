@@ -48,7 +48,9 @@ def queue() -> Queue:
     q = Queue(DSN)
     q.install()
     with q._connect() as conn:
-        conn.execute("truncate jobs")
+        # The ledger too: a balance left behind by one test is the same kind
+        # of leak as a job left behind, and it decides the next test's result.
+        conn.execute("truncate jobs, credit_ledger")
     return q
 
 
@@ -381,6 +383,91 @@ def test_finish_is_refused_when_the_lease_moved(queue):
     queue.claim("w0")
     assert queue.finish(job_id, "w1", artifact_key="x", duration_s=1.0) is False
     assert queue.get(job_id)["status"] != "succeeded"
+
+
+# ------------------------------------------------------------------ the charge
+
+@requires_db
+def test_finishing_a_paid_job_charges_it_by_the_minute(queue):
+    """The whole of the per-minute price, in one place.
+
+    Twelve seconds is a minute, because there is no fraction of one to sell.
+    The charge lands in the same statement that records the video, so a job
+    cannot be marked finished and left unbilled by a process that died in
+    between -- and it is that statement, not two, because this connection is
+    in autocommit and a second one would be a second commit.
+    """
+    job_id = queue.submit("paid", user_id="payer", options={"credits_per_minute": 1})
+    queue.claim("w0")
+    assert queue.finish(job_id, "w0", artifact_key="k", duration_s=372.0) is True
+
+    with queue._connect() as conn:
+        rows = conn.execute(
+            "select delta, reason from credit_ledger where user_id = 'payer'"
+        ).fetchall()
+    assert [r["delta"] for r in rows] == [-7], "372 seconds is seven minutes"
+    assert rows[0]["reason"] == f"job:{job_id}"
+
+
+@requires_db
+def test_a_job_inside_its_allowance_is_finished_and_not_charged(queue):
+    """No rate on the job means no charge -- and still a finished video. The
+    result reports the update rather than the insert, or every free job would
+    look like a failed finish."""
+    job_id = queue.submit("free", user_id="nonpayer")
+    queue.claim("w0")
+    assert queue.finish(job_id, "w0", artifact_key="k", duration_s=372.0) is True
+
+    with queue._connect() as conn:
+        rows = conn.execute(
+            "select 1 from credit_ledger where user_id = 'nonpayer'"
+        ).fetchall()
+    assert rows == []
+    assert queue.get(job_id)["status"] == "succeeded"
+
+
+@requires_db
+def test_finishing_twice_charges_once(queue):
+    """A second finish cannot land: the lease is cleared by the first, so the
+    update matches nothing, and the charge rides on the update."""
+    job_id = queue.submit("once", user_id="payer2", options={"credits_per_minute": 1})
+    queue.claim("w0")
+    assert queue.finish(job_id, "w0", artifact_key="k", duration_s=60.0) is True
+    assert queue.finish(job_id, "w0", artifact_key="k", duration_s=60.0) is False
+
+    with queue._connect() as conn:
+        n = conn.execute(
+            "select count(*) as n from credit_ledger where user_id = 'payer2'"
+        ).fetchone()["n"]
+    assert n == 1
+
+
+@requires_db
+def test_a_failed_job_is_not_charged(queue):
+    """A render nobody received is free, which is the whole reason the charge
+    sits on `finish` and not on `submit`."""
+    job_id = queue.submit("doomed", user_id="unlucky",
+                          options={"credits_per_minute": 1})
+    queue.claim("w0")
+    queue.fail(job_id, "w0", code="RenderFailed", message="no")
+
+    with queue._connect() as conn:
+        rows = conn.execute(
+            "select 1 from credit_ledger where user_id = 'unlucky'"
+        ).fetchall()
+    assert rows == []
+
+
+@requires_db
+def test_the_balance_says_what_the_ledger_says(queue):
+    queue.submit("a", user_id="reader", options={"credits_per_minute": 1})
+    with queue._connect() as conn:
+        conn.execute(
+            "insert into credit_ledger (user_id, delta, reason)"
+            " values ('reader', 10, 'test'), ('reader', -3, 'test')"
+        )
+    assert queue.balance("reader") == 7
+    assert queue.balance("nobody") == 0
 
 
 # -------------------------------------------------------------------- the reaper

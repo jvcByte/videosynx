@@ -543,9 +543,12 @@ export default async function Landing() {
             <div className="packs-head">
               <h3>Credits</h3>
               <p>
-                {plans.credits_per_job === 1
-                  ? "One credit is one tutorial, whenever you have used up the day's."
-                  : `${plans.credits_per_job} credits are one tutorial, past the day's.`}
+                {/* By the minute, not by the video: a two-minute lesson and a
+                    ten-minute one are not the same amount of work, and a pack
+                    of a hundred is a hundred minutes of them. */}
+                {plans.credits_per_minute === 1
+                  ? "One credit is one minute of video, once the day's allowance is gone. A pack is that many minutes."
+                  : `${plans.credits_per_minute} credits are one minute of video, past the day's allowance.`}
               </p>
             </div>
             <ul className="packs-row">

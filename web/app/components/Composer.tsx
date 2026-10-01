@@ -31,7 +31,7 @@ const MODES: { value: Mode; label: string; blurb: string }[] = [
  */
 export function Composer({
   topic, onTopic, script, onScript, mode, onMode,
-  onSubmit, submitting, error, onDismissError, generation, quota,
+  onSubmit, submitting, error, onDismissError, generation, quota, credits,
 }: {
   topic: string;
   onTopic: (value: string) => void;
@@ -45,6 +45,9 @@ export function Composer({
   onDismissError: () => void;
   generation: "auto" | "local";
   quota: Quota | null;
+  /** The balance, for saying what the next video will cost. Null while it
+   *  is still loading, which is not the same as none. */
+  credits: number | null;
 }) {
   const ready = Boolean(topic.trim() || script.trim());
   const chosen = MODES.find((m) => m.value === mode) ?? MODES[0];
@@ -169,8 +172,15 @@ export function Composer({
           : localSpent
             ? "Today's local renders are used up. They reset tomorrow."
             : modelSpent && writtenForYou
-              ? "Today's allowance is spent. Switch generation to local to keep going — it calls no model, and " +
-                `${quota.local_remaining} local renders are left today.`
+              ? credits !== null && credits > 0
+                // Said before submitting, because this one costs money and
+                // the amount is not knowable yet: the video is billed by the
+                // minute it turns out to be, and nothing knows that until it
+                // has been written.
+                ? `Today's allowance is spent, so this one spends credits: one a minute, ` +
+                  `taken when the video is finished. Your balance is ${credits}.`
+                : "Today's allowance is spent. Switch generation to local to keep going — it calls no model, and " +
+                  `${quota.local_remaining} local renders are left today.`
               : writtenForYou
                 ? "A model writes the code and narration. Counts against your daily allowance."
                 : "Structured on this machine, at no cost. No model call."}
