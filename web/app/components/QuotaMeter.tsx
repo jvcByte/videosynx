@@ -1,4 +1,5 @@
 import { Quota } from "../lib/api";
+import { tierLabel } from "../lib/format";
 
 /**
  * How much of today's allowance is left.
@@ -38,7 +39,7 @@ export function QuotaMeter({
 
   return (
     <div className="quota">
-      <span className="tier">{quota.tier}</span>
+      <span className="tier">{tierLabel(quota.tier)}</span>
       <span className="figure">
         {quota.remaining} of {quota.jobs_per_day}
       </span>

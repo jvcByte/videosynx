@@ -651,8 +651,10 @@ test("the voice engine is shown, and is the plan's to give", async ({ page }) =>
   // This account is on free, so Kokoro is what it narrates with.
   await expect(engine).toHaveValue("kokoro");
 
-  // And the reason is on the page rather than left as a greyed-out box.
-  await expect(page.getByText(/ElevenLabs narration is included in Paid/)).toBeVisible();
+  // And the reason is on the page rather than left as a greyed-out box. It
+  // names the plan the way the pricing page does -- "Studio", not the `paid`
+  // row in the database.
+  await expect(page.getByText(/ElevenLabs narration is included in Studio/)).toBeVisible();
 });
 
 test("the wallet says what is in it and what a credit buys", async ({ page }) => {

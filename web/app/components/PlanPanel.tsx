@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ApiError, Subscription, api } from "../lib/api";
-import { relativeTime } from "../lib/format";
+import { narrationLabel, relativeTime, tierLabel } from "../lib/format";
 
 /**
  * The plan, the credits, and the way to buy more.
@@ -46,9 +46,9 @@ export function PlanPanel({ plan }: { plan: Subscription | null }) {
       ) : (
         <>
           <p className="panel-figure">
-            <span className="panel-tier">{plan.tier}</span>
+            <span className="panel-tier">{tierLabel(plan.tier)}</span>
             <span className="field-note">
-              {plan.jobs_per_day} tutorials a day · {plan.tts} narration
+              {plan.jobs_per_day} videos a day · {narrationLabel(plan.tts)} narration
             </span>
           </p>
 

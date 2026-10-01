@@ -15,6 +15,42 @@ export function modeLabel(mode: string): string {
 }
 
 /**
+ * A tier's name as a person reads it.
+ *
+ * The ids belong to the database and the queue. `byok` is a word about API
+ * keys and `paid` is a word about the transaction; neither is what a plan is
+ * called on a price tag, and a visitor should never have to learn our
+ * vocabulary to buy one. An id nobody has labelled yet is capitalised rather
+ * than shown raw, which is what the server used to do for all of them.
+ */
+const TIER_LABELS: Record<string, string> = {
+  free: "Free",
+  byok: "Pro",
+  paid: "Studio",
+};
+
+export function tierLabel(tier: string): string {
+  return TIER_LABELS[tier] ?? tier.charAt(0).toUpperCase() + tier.slice(1);
+}
+
+/**
+ * The narration a tier includes, by quality rather than by supplier.
+ *
+ * Which engine reads a line is an implementation detail that will change; how
+ * good it sounds will not. `auto` is the tier letting the worker pick, and it
+ * picks the included one, so it reads the same as it.
+ */
+const NARRATION_LABELS: Record<string, string> = {
+  kokoro: "Natural",
+  auto: "Natural",
+  elevenlabs: "Premium",
+};
+
+export function narrationLabel(tts: string): string {
+  return NARRATION_LABELS[tts] ?? tts;
+}
+
+/**
  * Whether a script is already lesson JSON, which renders as written.
  *
  * Mirrors `is_structured_lesson` on the API, which is the authority: it is

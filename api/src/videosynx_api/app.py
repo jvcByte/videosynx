@@ -642,13 +642,17 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         anybody. The numbers come from the tiers themselves rather than from
         a pricing table somewhere else, so the figure a visitor reads and the
         figure their jobs are allowed against cannot drift apart.
+
+        `id` is the tier's own name -- the value stored on a job -- and not a
+        label. What a plan is *called* is presentation, and lives with the
+        page that shows it; `byok` is a word about API keys and `paid` is a
+        word about the transaction, neither of which belongs on a price tag.
         """
         return {
             "currency": "usd",
             "plans": [
                 {
                     "id": tier.name,
-                    "name": tier.name.capitalize(),
                     "price_usd": tier.price_usd,
                     "tagline": tier.tagline,
                     "features": list(tier.features),

@@ -34,6 +34,10 @@ class Tier:
     # against can only be edited in one place.
     price_usd: int = 0
     tagline: str = ""
+    # What a visitor is sold, which is the video and the narration -- never
+    # the parts they are assembled from. Naming the voice engine or the model
+    # on a pricing page prices the shopping list rather than the meal, and it
+    # dates the moment either one is swapped out.
     features: tuple[str, ...] = ()
 
 
@@ -47,8 +51,8 @@ TIERS: dict[str, Tier] = {
         narration=True, watermark=True, resolution=(1280, 720),
         local_jobs_per_day=10, price_usd=0,
         tagline="Everything you need to make one.",
-        features=("3 tutorials a day", "720p, watermarked",
-                  "Kokoro narration", "The voice library",
+        features=("3 videos a day", "720p, watermarked",
+                  "Natural narration", "54 voices, 9 languages",
                   "10 local renders a day"),
     ),
     "byok": Tier(
@@ -56,8 +60,8 @@ TIERS: dict[str, Tier] = {
         narration=True, watermark=False, resolution=(1920, 1080),
         local_jobs_per_day=30, price_usd=7,
         tagline="More of it, and no watermark.",
-        features=("10 tutorials a day", "1080p, no watermark",
-                  "Longer videos", "Your own model keys",
+        features=("10 videos a day", "1080p, no watermark",
+                  "Longer videos", "Bring your own API key",
                   "30 local renders a day"),
     ),
     "paid": Tier(
@@ -65,8 +69,8 @@ TIERS: dict[str, Tier] = {
         narration=True, watermark=False, resolution=(1920, 1080),
         local_jobs_per_day=100, price_usd=19,
         tagline="For making them properly.",
-        features=("50 tutorials a day", "1080p, no watermark",
-                  "ElevenLabs narration", "Priority in the queue",
+        features=("50 videos a day", "1080p, no watermark",
+                  "Premium narration", "Priority in the queue",
                   "100 local renders a day"),
     ),
 }

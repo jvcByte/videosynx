@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from videosynx_api.app import create_app
 from videosynx_api.quota import CREDIT_PACKS, CREDITS_PER_JOB, TIERS
+from videosynx_api.settings import KOKORO_VOICES, VOICE_LANGUAGES
 
 DSN = "postgresql:///videosynx_test"
 
@@ -54,6 +55,38 @@ def test_the_prices_are_public_and_come_from_the_tiers(client):
         # The limits shown are the limits enforced, not a second copy.
         assert plan["jobs_per_day"] == TIERS[plan["id"]].jobs_per_day
         assert plan["features"] and plan["tagline"]
+
+
+def test_the_pricing_sells_the_video_not_the_parts():
+    """What a plan lists is what a visitor gets, not what it is built from.
+
+    The voice engine and the model are suppliers. Naming one on a price tag
+    prices the shopping list rather than the meal, it means nothing to most
+    of the people reading it, and it dates the page the day it is swapped.
+    """
+    tools = ("kokoro", "elevenlabs", "byok", "ffmpeg", "gemini", "pillow")
+    for tier in TIERS.values():
+        copy = " ".join((tier.tagline, *tier.features)).lower()
+        for tool in tools:
+            assert tool not in copy, f"the {tier.name} plan sells {tool}"
+
+
+def test_the_voice_count_on_the_price_list_is_the_real_one():
+    """A visitor can count it in the picker, so it had better be right.
+
+    Written out rather than derived: a plan is a tuple of strings, and a tier
+    that counted voices to describe itself would have to reach into the
+    engine's catalogue to do it. This is what keeps the two honest instead.
+    """
+    languages = {VOICE_LANGUAGES[name[:2]][0] for name in KOKORO_VOICES}
+    assert f"{len(KOKORO_VOICES)} voices, {len(languages)} languages" \
+        in TIERS["free"].features
+
+
+def test_two_tiers_do_not_promise_the_same_narration():
+    """`Natural` and `Premium` have to be two different things, because one
+    of them is what the upgrade is for."""
+    assert TIERS["free"].tts != TIERS["paid"].tts
 
 
 def test_the_credit_packs_are_public(client):

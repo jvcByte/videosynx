@@ -192,7 +192,7 @@ export function SettingsPanel({
                 disabled box with no explanation is a puzzle. */}
             {engine !== "elevenlabs" && (
               <p className="field-note">
-                ElevenLabs narration is included in Paid.{" "}
+                ElevenLabs narration is included in Studio.{" "}
                 <a className="field-link" href="#overview">See plans →</a>
               </p>
             )}

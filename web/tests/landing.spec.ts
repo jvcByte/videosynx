@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { tierLabel } from "../app/lib/format";
+
 /**
  * The public page, which is what someone sees before they have an account.
  *
@@ -13,7 +15,10 @@ test("the landing page introduces the product", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByRole("heading", { level: 1 })).toContainText("coding");
-  await expect(page.getByText("AI-powered coding tutorials")).toBeVisible();
+  // The two things it makes, and the first thing on the page: this used to
+  // read "AI-powered coding tutorials", which describes how it is built
+  // rather than what lands at the end of it.
+  await expect(page.getByText("Video generation · Text to speech")).toBeVisible();
   // The workspace is not on it: a composer here would be a second place to
   // submit from, with its own copy of everything.
   await expect(page.getByRole("button", { name: "Generate" })).toHaveCount(0);
@@ -148,7 +153,12 @@ test("the features section says what the service does", async ({ page }) => {
   await page.goto("/");
   const section = page.locator("#features");
   await expect(section.getByRole("heading", { level: 2 })).toBeVisible();
-  await expect(section.getByRole("article")).toHaveCount(6);
+  await expect(section.getByRole("article")).toHaveCount(4);
+  // Each card is a name and the instruction that produces the thing named.
+  // The instruction is the half a reader can act on, so it has to be text
+  // rather than a picture of text.
+  await expect(section.getByText("Explain Python list comprehensions")).toBeVisible();
+  await expect(section.getByText("Read this aloud, calmly")).toBeVisible();
 });
 
 test("the prices are in the page, not fetched after it", async ({ page, request }) => {
@@ -164,7 +174,10 @@ test("the prices are in the page, not fetched after it", async ({ page, request 
 
   const plans = await (await request.get("http://127.0.0.1:8021/plans")).json();
   for (const plan of plans.plans) {
-    expect(html, `${plan.name} is missing from the HTML`).toContain(plan.name);
+    // The API sends the tier's database name, so the label is the page's --
+    // which means this is checking the page applied one at all, and it is the
+    // same function the page uses.
+    expect(html, `${plan.id} is missing from the HTML`).toContain(tierLabel(plan.id));
     // The number a visitor reads is the number the API enforces.
     expect(html).toContain(`$${plan.price_usd}`);
   }
@@ -177,4 +190,21 @@ test("the prices are in the page, not fetched after it", async ({ page, request 
   const section = page.locator("#pricing");
   await expect(section).toBeVisible();
   await expect(section.getByRole("listitem").filter({ hasText: "Free" })).toBeVisible();
+});
+
+test("the prices sell the video, not the parts it is made from", async ({ page }) => {
+  // The plans were called Free, Byok and Paid, and the features named the
+  // voice engine and the model. None of that is what a visitor is buying --
+  // and naming a supplier dates the page the day it is swapped out.
+  await page.goto("/");
+  const section = page.locator("#pricing");
+
+  // The plan names, exactly -- `byok` and `paid` are database values that
+  // happen to be readable, which is not the same as being names.
+  expect(await section.locator(".plan h3").allTextContents())
+    .toEqual(["Free", "Pro", "Studio"]);
+
+  for (const jargon of ["Byok", "Kokoro", "ElevenLabs", "model keys"]) {
+    await expect(section, `${jargon} is on the price list`).not.toContainText(jargon);
+  }
 });

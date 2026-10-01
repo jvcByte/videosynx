@@ -5,7 +5,7 @@ import { ThemeToggle } from "./components/ThemeToggle";
 import {
   CreditPack, Plan, Plans, PublishedExample, Stats, absolute, serverGet,
 } from "./lib/api";
-import { duration, modeLabel } from "./lib/format";
+import { duration, modeLabel, tierLabel } from "./lib/format";
 
 /**
  * The public page, rendered on the server.
@@ -19,16 +19,16 @@ import { duration, modeLabel } from "./lib/format";
  * already its own client component.
  */
 export const metadata: Metadata = {
-  title: "videosynx — turn any topic into a coding video tutorial",
+  title: "videosynx — coding video tutorials and voice-over, generated",
   description:
-    "Give it a subject and it writes the code, runs it, explains each line " +
-    "while the code types itself out, narrates it, and produces a finished " +
-    "MP4 with captions. Free to start.",
+    "Give it a topic and it writes the lesson, runs the code, narrates each " +
+    "line in a natural voice and hands you a captioned MP4. Give it plain " +
+    "text instead and it reads that aloud. Free to start.",
   openGraph: {
-    title: "videosynx — coding video tutorials from a topic",
+    title: "videosynx — coding video tutorials and voice-over",
     description:
-      "Code, execution, narration, captions and a finished MP4, from one " +
-      "sentence of subject.",
+      "Turn a topic into a finished video tutorial, or plain text into a " +
+      "voice-over. Free to start.",
     type: "website",
   },
 };
@@ -46,46 +46,128 @@ export const metadata: Metadata = {
  * only one of them is true.
  */
 
-// One mark each, and they are punctuation rather than signal: six small
-// glyphs in the same muted colour, because six coloured icons for six
-// equally-weighted claims is the decoration this page is meant to avoid.
-const FEATURES = [
+/**
+ * One thing the service makes: what you get, what you type, and what comes
+ * back.
+ *
+ * The card is the shape of the transaction. The label names the output, the
+ * pill is the instruction that produces it, and the preview underneath is the
+ * result — so the page says "this in, that out" without a paragraph about
+ * either. The previews are drawn rather than screenshotted, in the same
+ * renderer chrome the hero uses, because a picture of a video that was made
+ * once goes stale and a drawn one cannot.
+ *
+ * Nothing here names a model or a voice engine. A visitor is buying the video
+ * and the narration, not the parts they are assembled from.
+ */
+const MAKERS = [
   {
-    mark: "✦",
-    title: "AI-powered generation",
-    body: "Give it a topic and it writes the code, the narration and the slides — a complete tutorial, not a snippet.",
+    kind: "code",
+    label: "Video generation",
+    pill: "Explain Python list comprehensions",
+    body: "A topic becomes a lesson — written, narrated, and handed back as an MP4.",
   },
   {
-    mark: "⌘",
-    title: "Real code execution",
-    body: "Every snippet runs in a sandbox with no network, and its actual output appears in the video.",
+    kind: "voice",
+    label: "Text to speech",
+    pill: "Read this aloud, calmly",
+    body: "Give it plain text and get a voice-over back, with the pauses in the right places.",
   },
   {
-    mark: "CC",
-    title: "Captions and subtitles",
-    body: "Burned in and exactly timed to the voice, with a matching .srt written alongside.",
+    kind: "term",
+    label: "Code that actually runs",
+    pill: "Run it and show what it prints",
+    body: "Every snippet executes in a sandbox with no network. Its real output is in the video.",
   },
   {
-    mark: "◇",
-    title: "Illustrated explanations",
-    body: "Concepts get drawn slides before any code — shapes, arrows and the words for the idea.",
+    kind: "srt",
+    label: "Captions",
+    pill: "Caption every word to the voice",
+    body: "Timed to the narration and burned into the frame, with a matching .srt alongside.",
   },
-  {
-    mark: "◈",
-    title: "Sandboxed by default",
-    body: "Generated code is treated as hostile: no network, no home directory, no inherited environment.",
-  },
-  {
-    mark: "→",
-    title: "Bring your own script",
-    body: "Paste a script instead of a topic and it renders what you wrote, on this machine, with no model call at all.",
-  },
+] as const;
+
+/** The waveform in the speech preview, in pixels. Fixed, not random: this is
+ *  rendered on the server, and a random height would differ between the pass
+ *  that makes the HTML and the one that hydrates it. */
+const WAVE = [
+  16, 28, 44, 62, 40, 72, 55, 30, 46, 68, 52, 34,
+  58, 22, 40, 54, 30, 48, 64, 26, 42, 36, 52, 18,
 ];
 
+/** A rendered frame: code, typed out, over the line being read. */
+function ShotCode() {
+  return (
+    <div className="shot shot-code" aria-hidden>
+      {/* One source line each: the body renders with `white-space: pre` to
+          keep the indent, so a line break here would be one on screen. */}
+      <div className="shot-body">
+        <span><b className="k">def</b> <b className="f">total</b>(prices):</span>
+        <span>{"    "}<b className="k">return</b> <b className="f">sum</b>(prices)</span>
+        <span><b className="d">print</b>(<b className="f">total</b>([<b className="n">2</b>, <b className="n">4</b>]))<b className="caret" /></span>
+      </div>
+      <div className="shot-caption">
+        A function takes a list. It gives back one number.
+      </div>
+      {/* The line that says this is a frame of a video rather than a code
+          editor with a caption bolted to it. */}
+      <div className="shot-scrub" />
+    </div>
+  );
+}
+
+/** A clip: the words, and the sound of them. */
+function ShotVoice() {
+  return (
+    <div className="shot shot-voice" aria-hidden>
+      <div className="shot-body">
+        <div className="shot-wave">
+          {WAVE.map((height, i) => <i key={i} style={{ height }} />)}
+        </div>
+      </div>
+      <div className="shot-meta">
+        <span className="shot-play" />
+        <span className="figure">0:14</span>
+        <span className="shot-chip">Calm</span>
+      </div>
+    </div>
+  );
+}
+
+/** The same program as the first card, run for real. */
+function ShotTerm() {
+  return (
+    <div className="shot shot-term" aria-hidden>
+      <div className="shot-body">
+        <span><b className="p">$</b> python total.py</span>
+        <span className="out">6</span>
+        <span><b className="caret" /></span>
+      </div>
+    </div>
+  );
+}
+
+/** The subtitle file, which is the other half of the download. */
+function ShotSrt() {
+  return (
+    <div className="shot shot-srt" aria-hidden>
+      <div className="shot-body">
+        <span className="n">1</span>
+        <span className="t">{"00:00:04,200 --> 00:00:07,100"}</span>
+        <span>A function takes a list. It gives back one number.</span>
+      </div>
+    </div>
+  );
+}
+
+const SHOTS = { code: ShotCode, voice: ShotVoice, term: ShotTerm, srt: ShotSrt };
+
+// No tool is named in any of these. The steps are what happens to the video,
+// and which encoder drew the frames is not part of that story.
 const STEPS = [
-  { n: "1", title: "Submit a topic", body: "Or paste a script, or upload lesson JSON. Through the page or the API." },
+  { n: "1", title: "Submit a topic", body: "Or paste your own script, or upload a lesson file. Through the page or the API." },
   { n: "2", title: "The lesson is written", body: "Code, explanation, slides and narration, in that order." },
-  { n: "3", title: "The video is rendered", body: "Frames are drawn and piped to ffmpeg. Nothing is screen-recorded." },
+  { n: "3", title: "The video is rendered", body: "Every frame is drawn and encoded here. Nothing is screen-recorded." },
   { n: "4", title: "You get the file", body: "An MP4 and an SRT, served from storage on a signed link." },
 ];
 
@@ -149,9 +231,12 @@ function ExampleCard({ example }: { example: Example }) {
 
 /** One plan. The price and the limits both come from the API's tiers. */
 function PlanCard({ plan }: { plan: Plan }) {
+  // The API sends the tier's own name, which is a database value. What a plan
+  // is called is this page's business.
+  const name = tierLabel(plan.id);
   return (
     <li className={`plan${plan.price_usd > 0 ? "" : " plan-free"}`}>
-      <h3>{plan.name}</h3>
+      <h3>{name}</h3>
       <p className="plan-tagline">{plan.tagline}</p>
       <p className="plan-price figure">
         ${plan.price_usd}
@@ -166,7 +251,7 @@ function PlanCard({ plan }: { plan: Plan }) {
         className={plan.price_usd > 0 ? "landing-ghost" : "landing-cta"}
         href="/dashboard#create"
       >
-        {plan.price_usd > 0 ? `Choose ${plan.name}` : "Start free"}
+        {plan.price_usd > 0 ? `Choose ${name}` : "Start free"}
       </Link>
     </li>
   );
@@ -212,6 +297,7 @@ export default async function Landing() {
             <a href="#features">Features</a>
             <a href="#how">How it works</a>
             <a href="#examples">Examples</a>
+            <a href="#pricing">Pricing</a>
           </div>
           <div className="landing-nav-actions">
             {/* The page follows the theme now, so a visitor whose system
@@ -227,14 +313,23 @@ export default async function Landing() {
       <header className="landing-hero">
         <div className="landing-wrap landing-hero-inner">
           <div>
-            <span className="landing-eyebrow">AI-powered coding tutorials</span>
+            {/* The two things this makes, said before anything else. The
+                eyebrow used to read "AI-powered coding tutorials", which is
+                a sentence about how it is built rather than about what
+                arrives at the end of it. */}
+            <span className="landing-eyebrow">Video generation · Text to speech</span>
+            {/* The accent goes on one word, not on a phrase. "Coding
+                tutorial" is what it is; "finished" is the part that is a
+                promise rather than a category, and two lines of gold is a
+                highlight that has stopped highlighting anything. */}
             <h1>
-              Turn any topic into a <em>professional coding</em> video tutorial.
+              Turn a topic into a <em>finished</em> coding tutorial.
             </h1>
             <p className="landing-lede">
-              Give it a subject and it writes the code, runs it, explains each
-              line while the code types itself out on screen, narrates it, and
-              produces a finished MP4 with captions.
+              Give it a programming subject and it writes the lesson, runs the
+              code, explains each line in a natural voice, and hands you a
+              captioned MP4. Give it your own text instead and it reads that
+              aloud.
             </p>
             <div className="landing-actions">
               <Link className="landing-cta landing-cta-lg" href="/dashboard#create">
@@ -243,10 +338,10 @@ export default async function Landing() {
               <a className="landing-ghost landing-cta-lg" href="#how">See how it works</a>
             </div>
             <ul className="landing-checks">
-              <li>Generated code</li>
-              <li>Real execution</li>
+              <li>Runs the code</li>
+              <li>Natural narration</li>
               <li>Captions + SRT</li>
-              <li>MP4 output</li>
+              <li>Text to speech</li>
             </ul>
           </div>
 
@@ -276,19 +371,33 @@ export default async function Landing() {
 
       <section className="landing-wrap landing-features-wrap" id="features">
         <header className="landing-section-head">
-          <span className="landing-eyebrow landing-eyebrow-center">What it does</span>
-          <h2 className="landing-h2">Everything you need to create technical tutorials</h2>
-          <p className="landing-sub">From prompt to polished video.</p>
+          <span className="landing-eyebrow landing-eyebrow-center">What it makes</span>
+          <h2 className="landing-h2">Videos, and voice-overs.</h2>
+          <p className="landing-sub">
+            Give it a topic and it writes the lesson, runs the code, narrates it
+            and captions it. Give it your own text and it reads that aloud
+            instead.
+          </p>
         </header>
 
-        <div className="landing-features">
-          {FEATURES.map((feature) => (
-            <article className="landing-feature" key={feature.title}>
-              <span className="landing-feature-mark" aria-hidden>{feature.mark}</span>
-              <h3>{feature.title}</h3>
-              <p>{feature.body}</p>
-            </article>
-          ))}
+        <div className="landing-makers">
+          {MAKERS.map((maker) => {
+            const Shot = SHOTS[maker.kind];
+            return (
+              <article className="maker" key={maker.label}>
+                <h3 className="maker-label">{maker.label}</h3>
+                <div className="maker-shot">
+                  {/* The instruction, floated over the result: what you type
+                      sits on top of what comes back, which is the whole idea
+                      of the card. It is the one thing in here a screen reader
+                      should read -- the preview under it is a picture. */}
+                  <span className="maker-pill">{maker.pill}</span>
+                  <Shot />
+                </div>
+                <p className="maker-body">{maker.body}</p>
+              </article>
+            );
+          })}
         </div>
       </section>
 
@@ -372,8 +481,9 @@ export default async function Landing() {
             <span className="landing-eyebrow landing-eyebrow-center">Pricing</span>
             <h2 className="landing-h2">Start free. Pay when it earns it.</h2>
             <p className="landing-sub">
-              Every plan makes real videos. The paid ones make more of them,
-              bigger, and without a watermark.
+              Every plan makes finished videos with real narration. The paid
+              plans make more of them, in higher resolution, and without a
+              watermark.
             </p>
           </header>
 
@@ -407,8 +517,8 @@ export default async function Landing() {
       <section className="landing-wrap landing-final">
         <h2 className="landing-h2">Ready to create your first tutorial?</h2>
         <p className="landing-sub">
-          Give it a topic. It does the rest — code, execution, narration,
-          captions, and a video you can download.
+          Give it a topic, or give it a paragraph to read. Either way you get a
+          file back — a video, or a voice-over.
         </p>
         <Link className="landing-cta landing-cta-lg" href="/dashboard#create">
           Start for free
@@ -425,6 +535,7 @@ export default async function Landing() {
             <a href="#features">Features</a>
             <a href="#how">How it works</a>
             <a href="#examples">Examples</a>
+            <a href="#pricing">Pricing</a>
             <a href="/dashboard">Dashboard</a>
           </div>
         </div>

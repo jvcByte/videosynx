@@ -239,10 +239,14 @@ export interface Feature {
   joined: boolean;
 }
 
-/** One plan, as the landing page advertises it and the API enforces it. */
+/**
+ * One plan, as the landing page advertises it and the API enforces it.
+ *
+ * `id` is the tier's database name, not a label — `tierLabel` turns it into
+ * the one a visitor reads.
+ */
 export interface Plan {
   id: string;
-  name: string;
   price_usd: number;
   tagline: string;
   features: string[];
