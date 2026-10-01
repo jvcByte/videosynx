@@ -471,7 +471,7 @@ export function SpeechView() {
       // file nothing on the desktop will open.
       const link = document.createElement("a");
       link.href = absolute(url);
-      link.download = videoFilename(job.topic).replace(/\.mp4$/, ".mp3");
+      link.download = videoFilename(job.topic, "mp3");
       document.body.append(link);
       link.click();
       link.remove();
@@ -568,7 +568,8 @@ export function SpeechView() {
       )}
 
       {playing && (
-        <Player url={playing} title="Your audio" onClose={() => setPlaying(null)} />
+        <Player url={playing} title="Your audio" audio
+                onClose={() => setPlaying(null)} />
       )}
     </div>
   );

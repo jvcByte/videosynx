@@ -25,8 +25,8 @@ const WORKSPACE = "/dashboard";
 const at = (view: string) => `${WORKSPACE}#${view}`;
 
 /** Stand in for the worker's last step: upload, then mark the row. */
-function seed(jobId: string): void {
-  execFileSync(PYTHON, [path.resolve(REPO, "web/tests/helpers/seed.py"), DSN, ARTIFACTS, jobId], {
+function seed(jobId: string, suffix = ".mp4"): void {
+  execFileSync(PYTHON, [path.resolve(REPO, "web/tests/helpers/seed.py"), DSN, ARTIFACTS, jobId, suffix], {
     cwd: REPO,
     env: { ...process.env, PYTHONPATH: `${REPO}/engine/src:${REPO}/worker/src` },
   });
@@ -624,6 +624,36 @@ test("a video that outlived its file offers nothing it cannot do", async ({ page
   await expect(row.getByRole("button", { name: "Inspect" })).toBeVisible();
 });
 
+test("a clip plays as audio, and downloads as one", async ({ page }) => {
+  // A `<video>` element plays an mp3 perfectly well and shows a black
+  // rectangle the size of a film while it does it, which is what a
+  // voice-over was doing. The URL cannot say which it is -- a clip is stored
+  // and served under the same key shape as a video -- so the page has to.
+  const id = execFileSync("psql", [
+    DSN, "-t", "-A", "-q", "-c",
+    `insert into jobs (user_id, topic, tier, status, options)
+     values ('e2e-user', 'a clip that can be played', 'free', 'succeeded',
+             '{"kind": "speech"}'::jsonb) returning id`,
+  ], { encoding: "utf8" }).trim();
+  // As audio. A clip is stored under its own suffix, and seeding it as an
+  // mp4 would be testing a file the worker never writes.
+  seed(id, ".mp3");
+
+  await page.goto(at("speech"));
+  await page.locator(".clip").filter({ hasText: "a clip that can be played" })
+    .getByRole("button", { name: "Play" }).click();
+
+  const player = page.getByTestId("player");
+  await expect(player).toBeVisible();
+  // The element itself, not the class it carries.
+  expect(await player.evaluate((el) => el.tagName)).toBe("AUDIO");
+  expect(await player.getAttribute("src")).toContain(".mp3");
+
+  // And saving it does not hand somebody a file called .mp4 that is not one.
+  await expect(page.getByRole("link", { name: "Download" }))
+    .toHaveAttribute("download", /\.mp3$/);
+});
+
 test("a video that is still stored plays as it always did", async ({ page }) => {
   // The other half of the guard: the check must not take Watch away from
   // every row, which is the failure mode of getting availability wrong.
@@ -674,7 +704,21 @@ test("text can be queued to be read aloud, and a clip is not a video", async ({ 
 
   // Its own list, not the library: "Your Videos" containing something that is
   // not a video is the kind of small lie that cheapens every other label.
+  //
+  // Reloaded, not merely navigated to. `#speech` and `#videos` are the same
+  // document, so `goto` only changes the fragment and the workspace never
+  // refetches -- which is why this assertion used to pass while clips *were*
+  // listed here: the list it inspected was the one from before the clip
+  // existed. It took a reload to see that the filter was load-bearing.
+  //
+  // Waited on a row or the empty state before asserting the absence, because
+  // `toHaveCount(0)` is satisfied by a list that has not rendered. Not on
+  // "No videos yet": the tests above leave videos of their own behind, and
+  // how many is not this test's business.
   await page.goto(at("videos"));
+  await page.reload();
+  await expect(page.locator('[data-testid="job"], .library .empty').first())
+    .toBeVisible();
   await expect(page.locator(`[data-testid="job"]:has-text("${line}")`)).toHaveCount(0);
 });
 

@@ -7,7 +7,10 @@ so the browser test can exercise submit, poll and playback against the real
 API, real Postgres and real storage. Only the part that takes minutes is
 skipped.
 
-Usage: seed.py <dsn> <artifacts-root> <job_id>
+An artifact can be seeded as audio rather than video, because a clip is
+stored under its own suffix -- the third argument, ".mp4" unless given.
+
+Usage: seed.py <dsn> <artifacts-root> <job_id> [suffix]
 """
 
 from __future__ import annotations
@@ -27,10 +30,11 @@ FAKE_MP4 = b"\x00\x00\x00\x20ftypisom" + b"\x00" * 120
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 4:
+    if len(argv) not in (4, 5):
         print(__doc__, file=sys.stderr)
         return 2
     dsn, root, job_id = argv[1], argv[2], argv[3]
+    suffix = argv[4] if len(argv) == 5 else ".mp4"
 
     store = LocalStorage(Path(root))
     with psycopg.connect(dsn, row_factory=dict_row) as conn:
@@ -40,9 +44,9 @@ def main(argv: list[str]) -> int:
             return 1
         tier = row["tier"]
 
-        source = Path(root) / f"{job_id}.incoming.mp4"
+        source = Path(root) / f"{job_id}.incoming{suffix}"
         source.write_bytes(FAKE_MP4)
-        key = video_key(tier, job_id)
+        key = video_key(tier, job_id, suffix)
         store.put(key, source)
 
         # The plan the worker writes beside the video, in the same shape

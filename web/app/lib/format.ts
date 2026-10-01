@@ -86,13 +86,13 @@ export function hasCodeBlock(text: string): boolean {
  * a slash, a colon or a question mark in it cannot produce a path or a name
  * the filesystem refuses.
  */
-export function videoFilename(title: string): string {
+export function videoFilename(title: string, extension = "mp4"): string {
   const slug = title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
-  return `${slug || "videosynx"}.mp4`;
+  return `${slug || "videosynx"}.${extension}`;
 }
 
 /**

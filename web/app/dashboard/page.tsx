@@ -318,8 +318,13 @@ export default function Home() {
   // and every one of those handlers has to live up here: retrying rewrites
   // the shared list, and watching opens an overlay that outlives the view
   // that opened it.
+  //
+  // Videos only. A clip shares the queue and the row but is not one of these,
+  // and a list of "Your videos" that counts somebody's voice-overs is a count
+  // that is wrong about the thing it names. The clips have their own page,
+  // which fetches for itself.
   const list: VideoList = {
-    jobs,
+    jobs: jobs.filter((job) => job.kind !== "speech"),
     loaded,
     failed: listFailed,
     error: playError,
