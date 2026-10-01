@@ -123,3 +123,36 @@ def test_the_pause_is_actually_in_the_audio(tmp_path):
         for line in detected.splitlines() if "silence_duration:" in line
     )
     assert longest > 0.3, f"only {longest:.2f}s between the sentences"
+
+
+# ------------------------------------------------------------- the pace
+# Kokoro at its own rate reads about 165 words a minute, which is brisk for
+# someone explaining something. The difference between that and a voice that
+# sounds like it wants the video over with is a multiplier and some silence.
+
+from videosynx.providers import (  # noqa: E402
+    DEFAULT_PACE, KOKORO_SPEEDS, speed_for,
+)
+
+
+def test_the_calm_pace_is_slower_than_the_engines_own():
+    assert speed_for("calm") < speed_for("normal") < speed_for("fast")
+    assert speed_for("fast") == 1.0
+
+
+def test_an_unknown_pace_falls_back_rather_than_failing():
+    """A render should not die on a value somebody typed by hand."""
+    assert speed_for(None) == KOKORO_SPEEDS[DEFAULT_PACE]
+    assert speed_for("leisurely") == KOKORO_SPEEDS[DEFAULT_PACE]
+
+
+def test_the_default_is_the_calm_one():
+    assert DEFAULT_PACE == "calm"
+
+
+def test_a_full_stop_is_held_long_enough_to_read_as_one():
+    """Half a second is a comma with delusions. A reader holds nearer eight
+    tenths at a full stop and the ear is what decides it, so the floor is set
+    where a listener stops hearing a list and starts hearing sentences."""
+    assert SENTENCE_PAUSE_S >= 0.6
+    assert PARAGRAPH_PAUSE_S >= SENTENCE_PAUSE_S * 2

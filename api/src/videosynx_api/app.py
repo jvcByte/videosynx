@@ -576,11 +576,16 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
         it draws on the local renders -- which is exactly what `generation:
         local` already means to the quota.
         """
-        options: dict[str, object] = {
+        # Saved preferences first, then whatever this one request chose on top
+        # of them -- the same order a video submits in. A clip read at a
+        # different pace from the videos beside it is the account's settings
+        # being ignored, which is what this was doing.
+        options: dict[str, object] = load_settings(dsn, user.id).as_options()
+        options.update({
             "kind": "speech",
             "generation": "local",
             "text": body.text,
-        }
+        })
         if body.voice:
             options["voice"] = body.voice
 

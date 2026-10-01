@@ -101,6 +101,8 @@ export interface Settings {
   voice: string;
   captions: boolean;
   length: "short" | "medium" | "long";
+  /** How fast the narration reads. "calm" is about 140 words a minute. */
+  pace: "calm" | "normal" | "fast";
 }
 
 /**

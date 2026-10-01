@@ -101,3 +101,21 @@ def test_labels_take_the_first_line_that_says_something():
     assert label_for_speech("   \n\n") == "untitled"
     assert label_for_speech("One. Two. Three.") == "One."
     assert len(label_for_speech("word " * 200)) <= 120
+
+
+def test_the_saved_pace_is_carried_onto_the_job(client, auth):
+    """It is the account's, not the request's: a video and a clip made from
+    the same settings should read at the same speed."""
+    client.put("/me/settings", headers=auth, json={"pace": "fast"})
+    job_id = client.post("/speech", headers=auth, json={"text": "Say it."}).json()["id"]
+
+    from videosynx_worker.db import Queue
+
+    assert Queue(DSN).get(job_id)["options"]["pace"] == "fast"
+
+
+def test_the_default_pace_is_the_calm_one(client, auth):
+    from videosynx_api.settings import Settings
+
+    assert Settings().pace == "calm"
+    assert client.get("/me/settings", headers=auth).json()["pace"] == "calm"

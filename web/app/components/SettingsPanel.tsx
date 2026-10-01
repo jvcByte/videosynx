@@ -198,6 +198,23 @@ export function SettingsPanel({
             )}
 
             <label className="field">
+              <span className="field-label">Pace</span>
+              <select
+                aria-label="Pace"
+                value={settings.pace}
+                onChange={(e) => onEdit({ pace: e.target.value as Settings["pace"] })}
+              >
+                <option value="calm">Calm — unhurried, about 140 words a minute</option>
+                <option value="normal">Normal</option>
+                <option value="fast">Fast — the engine's own rate</option>
+              </select>
+            </label>
+            <p className="field-note">
+              Slower is not only slower: a voice that hurries sounds like it
+              wants the video over with.
+            </p>
+
+            <label className="field">
               <span className="field-label">Voice</span>
               <select
                 aria-label="Voice"

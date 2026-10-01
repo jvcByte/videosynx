@@ -308,7 +308,6 @@ class EngineRenderer:
         loop inside `synthesise`: a cancel that only lands at the end is not a
         cancel, and a bar that only moves at the end is not a bar.
         """
-        from videosynx.providers import KokoroSpeaker
         from videosynx.speech import synthesise
 
         text = str(job.options.get("text") or "").strip()
@@ -318,7 +317,8 @@ class EngineRenderer:
         out = self.output_dir / f"{job.id}.mp3"
         beat("speaking", 0.1)
         speaker = self._speaker(job.options.get("tts") or self.tts,
-                                job.options.get("voice"))
+                                job.options.get("voice"),
+                                job.options.get("pace"))
         try:
             # Both of these go into the synthesis loop, sentence by sentence.
             # Checking only before it starts means a cancel waits out the whole
@@ -351,7 +351,8 @@ class EngineRenderer:
         beat("done", 1.0)
         return key, seconds
 
-    def _speaker(self, tts: str | None = None, voice: str | None = None):
+    def _speaker(self, tts: str | None = None, voice: str | None = None,
+                 pace: str | None = None):
         import os
 
         from videosynx.providers import (
@@ -359,10 +360,13 @@ class EngineRenderer:
             ElevenLabsSpeaker,
             KokoroSpeaker,
             ProviderError,
+            speed_for,
         )
 
         choice = tts or self.tts
-        log.info("voice: %s (engine %s)", voice or "default", choice)
+        speed = speed_for(pace)
+        log.info("voice: %s (engine %s, pace %s)",
+                 voice or "default", choice, pace or "default")
         if choice == "elevenlabs":
             key = os.environ.get("ELEVENLABS_API_KEY", "")
             eleven_voice = os.environ.get("ELEVENLABS_VOICE_ID", "")
@@ -375,7 +379,11 @@ class EngineRenderer:
             try:
                 # The user picks a voice inside the engine the tier chose;
                 # KokoroSpeaker falls back to the default for an unknown name.
-                return KokoroSpeaker(voice=voice) if voice else KokoroSpeaker()
+                # The pace is theirs too, and it is what makes the difference
+                # between a voice reading a list and one telling you
+                # something.
+                return KokoroSpeaker(voice=voice or DEFAULT_KOKORO_VOICE,
+                                     speed=speed)
             except ProviderError:
                 return ESpeakSpeaker()
         return ESpeakSpeaker()
@@ -389,7 +397,7 @@ class EngineRenderer:
             lesson_from_text,
             load_lesson,
         )
-        from videosynx.providers import default_writer
+        from videosynx.providers import DEFAULT_KOKORO_VOICE, default_writer
         from videosynx.render import render_plan
         from videosynx.script import build_tutorial
         from videosynx.timeline import without_captions
@@ -436,7 +444,8 @@ class EngineRenderer:
             )
 
         beat("building", 0.1)
-        speaker = self._speaker(options.get("tts") or self.tts, options.get("voice"))
+        speaker = self._speaker(options.get("tts") or self.tts,
+                                options.get("voice"), options.get("pace"))
         # Only built when it could be used. Constructing one for a local job
         # would spend nothing, but it would still fail on a missing key for a
         # job that was never going to need one.

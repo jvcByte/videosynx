@@ -38,8 +38,12 @@ BITRATE = "96k"
 # breath. The video path never had this problem because its phrases are laid
 # out on a timeline with room between them; concatenating PCM directly is
 # what exposed it.
-SENTENCE_PAUSE_S = 0.45
-PARAGRAPH_PAUSE_S = 0.9
+# A reader holds roughly half a second at a full stop and more at a
+# paragraph. These were set to the low end of that and read as hurried --
+# with them the clip sounds like someone working through a list rather than
+# telling you something.
+SENTENCE_PAUSE_S = 0.75
+PARAGRAPH_PAUSE_S = 1.5
 
 
 def _segments(text: str) -> list[tuple[str, float]]:

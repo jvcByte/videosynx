@@ -500,6 +500,20 @@ KOKORO_MODEL = KOKORO_DIR / "kokoro-v1.0.onnx"
 KOKORO_VOICES = KOKORO_DIR / "voices-v1.0.bin"
 DEFAULT_KOKORO_VOICE = "af_heart"
 
+# How fast the narration reads, as a multiplier on Kokoro's own rate.
+#
+# Measured at the default: about 165 words a minute, which is brisk for an
+# explainer -- a warm one sits nearer 140, and the difference is most of why
+# a voice reads as hurried rather than as welcoming. The names are what a
+# person picks; the numbers are what it costs to sound like them.
+KOKORO_SPEEDS = {"calm": 0.8, "normal": 0.9, "fast": 1.0}
+DEFAULT_PACE = "calm"
+
+
+def speed_for(pace: str | None) -> float:
+    """The multiplier for a named pace, falling back to the calm one."""
+    return KOKORO_SPEEDS.get(pace or DEFAULT_PACE, KOKORO_SPEEDS[DEFAULT_PACE])
+
 
 def resample_to_timeline(samples: np.ndarray, source_rate: int) -> np.ndarray:
     """Convert float audio at *source_rate* to int16 PCM at the timeline's rate.
