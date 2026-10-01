@@ -190,6 +190,13 @@ test("the prices are in the page, not fetched after it", async ({ page, request 
   const section = page.locator("#pricing");
   await expect(section).toBeVisible();
   await expect(section.getByRole("listitem").filter({ hasText: "Free" })).toBeVisible();
+
+  // What a credit is worth, said in the unit it is sold in. This line is
+  // rendered from `credits_per_minute`, so an API that does not send it
+  // leaves the sentence off entirely rather than printing "undefined
+  // credits" -- which is what a stale server produced once, on the live page.
+  await expect(section.getByText(/one credit is one minute of video/i)).toBeVisible();
+  expect(html).not.toContain("undefined credits");
 });
 
 test("the prices sell the video, not the parts it is made from", async ({ page }) => {

@@ -542,14 +542,23 @@ export default async function Landing() {
           <div className="packs">
             <div className="packs-head">
               <h3>Credits</h3>
-              <p>
-                {/* By the minute, not by the video: a two-minute lesson and a
-                    ten-minute one are not the same amount of work, and a pack
-                    of a hundred is a hundred minutes of them. */}
-                {plans.credits_per_minute === 1
-                  ? "One credit is one minute of video, once the day's allowance is gone. A pack is that many minutes."
-                  : `${plans.credits_per_minute} credits are one minute of video, past the day's allowance.`}
-              </p>
+              {/* Only when the server has actually said what a credit is
+                  worth. This page is server-rendered against a response it
+                  does not control, so during a deploy -- or against an API
+                  that predates the field -- the rate arrives missing, and a
+                  sentence built from it reads "undefined credits are one
+                  minute of video". Saying nothing is the honest failure;
+                  inventing a number for a price is not. */}
+              {plans.credits_per_minute > 0 && (
+                <p>
+                  {/* By the minute, not by the video: a two-minute lesson and
+                      a ten-minute one are not the same amount of work, and a
+                      pack of a hundred is a hundred minutes of them. */}
+                  {plans.credits_per_minute === 1
+                    ? "One credit is one minute of video, once the day's allowance is gone. A pack is that many minutes."
+                    : `${plans.credits_per_minute} credits are one minute of video, past the day's allowance.`}
+                </p>
+              )}
             </div>
             <ul className="packs-row">
               {plans.credit_packs.map((pack) => (
