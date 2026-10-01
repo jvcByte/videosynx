@@ -2286,11 +2286,15 @@ input:disabled, textarea:disabled, select:disabled {
   gap: 7px;
 }
 
-/* Earned ones stop being dashed and pick up the gold. */
+/* Earned ones stop being dashed, and the frame takes the metal rather than
+   the accent. An accent-coloured card around a bronze medal was two colours
+   saying two different things -- and it is the metal that knows which badge
+   this is. What still says "earned" on its own is the line being solid
+   instead of dashed, and the dome on the medal. */
 .awards-row li.is-earned {
   border-style: solid;
-  border-color: var(--accent);
-  background: var(--wash);
+  border-color: color-mix(in srgb, var(--m) 60%, var(--line-strong));
+  background: color-mix(in srgb, var(--m) 7%, transparent);
 }
 
 /* A badge, drawn rather than posed. Every one is the same medal -- disc,
@@ -2298,21 +2302,39 @@ input:disabled, textarea:disabled, select:disabled {
    what separates earned from not is the metal, not a different glyph. It
    was a bare star beside a bare padlock, which is a legend for two icons
    rather than three badges and two gaps. */
+/* The four metals. A badge is struck in one, and which one is how hard the
+   badge is -- bronze for the first afternoon, legend for a month of them.
+   Three tones each, because a flat fill is a sticker: metal is a bright face
+   with a dark rim and a highlight that moves across it.
+
+   The rarity itself comes from the API, on the `li`. Nothing here decides
+   which badge is which. */
+.awards-row li {
+  --m-hi: var(--surface-3);
+  --m: var(--line-strong);
+  --m-lo: var(--line-strong);
+}
+
+.awards-row li[data-rarity="bronze"] { --m-hi: #e0a878; --m: #b87333; --m-lo: #74441a; }
+.awards-row li[data-rarity="silver"] { --m-hi: #f2f7fa; --m: #a8b4bc; --m-lo: #63707a; }
+.awards-row li[data-rarity="gold"]   { --m-hi: #ffe9a6; --m: #e0a92f; --m-lo: #96690f; }
+.awards-row li[data-rarity="legend"] { --m-hi: #e6cbff; --m: #b072f0; --m-lo: #6832b5; }
+
 .award-medal {
   position: relative;
-  width: 40px;
-  height: 40px;
+  width: 46px;
+  height: 46px;
   /* Room for the ribbon, which hangs below the disc and takes no space of
      its own. */
-  margin-bottom: 11px;
+  margin-bottom: 13px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 17px;
+  font-size: 19px;
   color: var(--fg-faint);
   background: var(--surface-3);
-  border: 2px solid var(--line-strong);
+  border: 2px solid var(--m);
 }
 
 /* The ribbon: a strip under the disc, notched at the foot. Below rather than
@@ -2324,20 +2346,66 @@ input:disabled, textarea:disabled, select:disabled {
   left: 50%;
   margin-top: -3px;
   transform: translateX(-50%);
-  width: 18px;
-  height: 12px;
+  width: 21px;
+  height: 14px;
   background: inherit;
   border: inherit;
   border-top: none;
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 62%, 0 100%);
 }
 
+/* Struck, and lit from the upper left.
+
+   Three passes: a highlight where the light lands, the metal across the face,
+   and the rim. Then the bevel -- a bright inner edge on top and a dark one
+   underneath, which is the whole of what makes a circle look domed rather
+   than round -- and a cast shadow, which is what lifts it off the card.
+
+   The star is stamped into it rather than drawn on: dark, with the light
+   catching the lower lip of the impression. Drawn on top it reads as a
+   sticker however good the metal is. */
 .awards-row li.is-earned .award-medal {
-  color: var(--accent-ink);
-  background: var(--accent);
-  border-color: var(--accent);
-  /* A struck medal has an edge to it; an unstruck one is flat. */
-  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.16);
+  color: rgba(0, 0, 0, 0.42);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+  background:
+    radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(155deg, var(--m-hi) 0%, var(--m) 46%, var(--m-lo) 100%);
+  border-color: var(--m-lo);
+  box-shadow:
+    inset 0 2px 2px rgba(255, 255, 255, 0.6),
+    inset 0 -4px 7px rgba(0, 0, 0, 0.4),
+    0 4px 10px rgba(0, 0, 0, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+/* The milled edge: a struck ring just inside the rim, brighter at its foot
+   because that is where the light has come round to. */
+.awards-row li.is-earned .award-medal::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-bottom-color: rgba(255, 255, 255, 0.42);
+}
+
+/* The ribbon is the same metal, flat rather than domed: it is a strip of
+   cloth, and the gradient is what makes the disc look like a disc. */
+.awards-row li.is-earned .award-medal::before {
+  background: var(--m);
+  border-color: var(--m-lo);
+}
+
+/* Unearned ones keep the metal they will be struck in, drained of it. A wall
+   of identical grey discs says nothing about which are worth chasing, and the
+   colour is the only thing on the card that answers that. */
+/* Drained, not erased. At nine tenths the gold and the legend badges were
+   the same grey as the bronze, which is the one question the colour is there
+   to answer -- what is worth chasing. The dome is what says earned, and it is
+   absent on these whatever their colour. */
+.awards-row li:not(.is-earned) .award-medal {
+  filter: grayscale(0.72) brightness(1.06);
+  opacity: 0.6;
 }
 
 .award-name { font-size: 13px; font-weight: 600; }

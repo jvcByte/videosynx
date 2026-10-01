@@ -298,6 +298,14 @@ export interface Achievement {
   id: string;
   name: string;
   requires: string;
+  /**
+   * How hard it is to get: "bronze", "silver", "gold" or "legend".
+   *
+   * The server's, not the page's. It is a fact about the badge, and the metal
+   * a badge is struck in is the only thing its colour says -- so a second
+   * list here would be a second thing to be wrong.
+   */
+  rarity: string;
   earned: boolean;
   earned_on: string | null;
 }

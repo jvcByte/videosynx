@@ -25,25 +25,34 @@ XP_PER_TUTORIAL = 100
 XP_PER_MINUTE = 10
 XP_PER_LEVEL = 500
 
+# How hard a badge is to get. This is the only thing its colour says, so it
+# has to be a fact about the badge rather than decoration -- which is why it
+# is here, next to the thing that decides it, and not in the stylesheet.
+#
+# Four metals, because a medal has a metal and this app already said so: what
+# separates a badge from a grey disc is the metal it is struck in, not a
+# different glyph. Bronze is the first afternoon, legend is a month.
+BRONZE, SILVER, GOLD, LEGEND = "bronze", "silver", "gold", "legend"
+
 # Milestones, roughly in the order they are earned. Each is a fact about the
 # account rather than a reward for using the page -- and each is a *different*
 # fact, because twelve ways of counting tutorials is one badge printed twelve
 # times. Between them they cover how much, how long, how big, how often, which
 # of the things you have used, and whether you came back after it broke.
-ACHIEVEMENTS: tuple[tuple[str, str, str], ...] = (
-    # id, name, what it takes
-    ("first", "First Tutorial", "rendered a tutorial"),
-    ("runner", "Code Runner", "five tutorials rendered"),
-    ("marathon", "Marathon", "an hour of video produced"),
-    ("scripted", "Own Script", "rendered a script you wrote"),
-    ("local", "Local Mode", "rendered without calling a model"),
-    ("epic", "Long-form", "a single video over ten minutes"),
-    ("voiced", "Voice-over", "made a speech clip"),
-    ("undeterred", "Undeterred", "a render that failed, and then worked"),
-    ("steady", "Steady", "seven days in a row"),
-    ("prolific", "Prolific", "twenty-five tutorials rendered"),
-    ("series", "Series", "five hours of video produced"),
-    ("devoted", "Devoted", "thirty days in a row"),
+ACHIEVEMENTS: tuple[tuple[str, str, str, str], ...] = (
+    # id, name, what it takes, how hard that is
+    ("first", "First Tutorial", "rendered a tutorial", BRONZE),
+    ("scripted", "Own Script", "rendered a script you wrote", BRONZE),
+    ("local", "Local Mode", "rendered without calling a model", BRONZE),
+    ("voiced", "Voice-over", "made a speech clip", BRONZE),
+    ("runner", "Code Runner", "five tutorials rendered", SILVER),
+    ("epic", "Long-form", "a single video over ten minutes", SILVER),
+    ("undeterred", "Undeterred", "a render that failed, and then worked", SILVER),
+    ("steady", "Steady", "seven days in a row", SILVER),
+    ("marathon", "Marathon", "an hour of video produced", GOLD),
+    ("prolific", "Prolific", "twenty-five tutorials rendered", GOLD),
+    ("series", "Series", "five hours of video produced", LEGEND),
+    ("devoted", "Devoted", "thirty days in a row", LEGEND),
 )
 
 
@@ -132,13 +141,17 @@ def achievements_for(*, rendered: int, minutes: float, streak: int,
             "id": key,
             "name": name,
             "requires": requires,
+            # How hard it is, which is what the metal means. Sent so the page
+            # does not keep its own list of which badge is which -- two lists
+            # is one of them being wrong eventually.
+            "rarity": rarity,
             "earned": earned[key],
             # Only ever a real date. A badge that appeared today says today;
             # one from before this was recorded says nothing rather than a
             # guess.
             "earned_on": earned_on.get(key) if earned[key] else None,
         }
-        for key, name, requires in ACHIEVEMENTS
+        for key, name, requires, rarity in ACHIEVEMENTS
     ]
 
 

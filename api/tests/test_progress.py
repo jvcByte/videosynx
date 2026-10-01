@@ -182,7 +182,31 @@ def test_every_badge_is_reachable_and_only_by_its_own_fact():
         "voiced": {"clips": 1},
         "undeterred": {"recovered": True},
     }
-    every = {key for key, _, _ in ACHIEVEMENTS}
+    every = {key for key, _, _, _ in ACHIEVEMENTS}
     assert set(reachable) == every, "a badge with no fact behind it"
     for key, facts in reachable.items():
         assert key in _earned(**facts), f"{key} cannot be earned"
+
+
+def test_every_badge_has_a_metal_and_the_hard_ones_have_the_rare_ones():
+    """The colour says how hard a badge is, so it has to be a fact about the
+    badge rather than a decoration applied in the stylesheet."""
+    from videosynx_api.progress import BRONZE, GOLD, LEGEND, SILVER
+
+    metals = {BRONZE, SILVER, GOLD, LEGEND}
+    by_id = {key: rarity for key, _, _, rarity in ACHIEVEMENTS}
+    assert set(by_id.values()) <= metals
+
+    # "One video" is not a legend, and "thirty days running" is not bronze.
+    assert by_id["first"] == BRONZE
+    assert by_id["devoted"] == LEGEND
+
+    # And the harder half is at least as rare as the easier half: a badge
+    # nobody can get should not be the common one.
+    order = {BRONZE: 0, SILVER: 1, GOLD: 2, LEGEND: 3}
+    assert order[by_id["series"]] > order[by_id["marathon"]]
+    assert order[by_id["prolific"]] > order[by_id["runner"]]
+    assert order[by_id["devoted"]] > order[by_id["steady"]]
+
+    for badge in achievements_for(rendered=0, minutes=0, streak=0, earned_on={}):
+        assert badge["rarity"] in metals, badge

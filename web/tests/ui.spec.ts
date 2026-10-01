@@ -722,6 +722,23 @@ test("text can be queued to be read aloud, and a clip is not a video", async ({ 
   await expect(page.locator(`[data-testid="job"]:has-text("${line}")`)).toHaveCount(0);
 });
 
+test("every badge says how hard it is, in metal", async ({ page, request }) => {
+  // The colour is the rarity, so the rarity has to be real and has to reach
+  // the page -- a stylesheet that decided which badge was gold would be a
+  // second list of the same facts, and one of them would rot.
+  await page.goto(at("achievements"));
+  const badges = page.locator(".awards-row li");
+  await expect(badges.first()).toBeVisible();
+
+  const metals = ["bronze", "silver", "gold", "legend"];
+  const shown = await badges.evaluateAll((els) =>
+    els.map((el) => el.getAttribute("data-rarity")));
+  expect(shown.length).toBeGreaterThan(5);
+  for (const metal of shown) expect(metals).toContain(metal);
+  // Not all one metal, which would make the colour say nothing.
+  expect(new Set(shown).size).toBeGreaterThan(1);
+});
+
 test("the voice engine is shown, and is the plan's to give", async ({ page }) => {
   // It is a fact about the account, not a preference -- narration on
   // ElevenLabs is roughly sixty cents a video against about one for the code

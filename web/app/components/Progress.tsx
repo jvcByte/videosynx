@@ -97,16 +97,19 @@ export function Achievements({ progress }: { progress: Progress | null }) {
 
       <ul className="awards-row">
         {progress.achievements.map((badge) => (
-          <li key={badge.id} className={badge.earned ? "is-earned" : ""}>
+          <li key={badge.id} data-rarity={badge.rarity}
+              className={badge.earned ? "is-earned" : ""}>
             {/* The same medal either way, so the row is a set you are
                 collecting rather than a legend of two icons. What tells them
-                apart is the metal, which a screen reader cannot see -- hence
-                the state in words beside the name. */}
+                apart is the metal -- which says how hard the badge is, and
+                which a screen reader cannot see. Hence both halves in words
+                beside the name. */}
             <span className="award-medal" aria-hidden>★</span>
             <span className="award-name">
               {badge.name}
               <span className="visually-hidden">
-                {badge.earned ? " — earned" : " — not earned yet"}
+                {badge.earned ? " — earned" : " — not earned yet"},
+                {" "}{badge.rarity}
               </span>
             </span>
             {/* What it takes, on every one. A greyed-out badge with no
