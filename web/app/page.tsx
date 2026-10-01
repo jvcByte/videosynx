@@ -110,12 +110,13 @@ function ShotCode() {
         <span>{"    "}<b className="k">return</b> <b className="f">sum</b>(prices)</span>
         <span><b className="d">print</b>(<b className="f">total</b>([<b className="n">2</b>, <b className="n">4</b>]))<b className="caret" /></span>
       </div>
+      {/* The caption band and the progress line along its foot: the two
+          things that say this is a frame of a video rather than a code
+          editor with a sentence bolted under it. */}
       <div className="shot-caption">
         A function takes a list. It gives back one number.
+        <span className="shot-scrub" />
       </div>
-      {/* The line that says this is a frame of a video rather than a code
-          editor with a caption bolted to it. */}
-      <div className="shot-scrub" />
     </div>
   );
 }

@@ -50,6 +50,32 @@
   /* A faint tint for cards that sit on a tinted surface -- the welcome
      banner and the sidebar's motivational block. */
   --wash: rgba(232, 176, 75, 0.07);
+
+  /* The video, as drawn on the landing page: a screen, its bands, and the
+     token colours the code is written in. Themed like everything else, so a
+     reader who asked for light gets a light editor rather than a dark panel
+     in the middle of a white card.
+
+     These belong in this block and not the bare `:root` further down. That
+     one comes after `[data-theme="light"]` and, at equal specificity, wins
+     over it -- which is exactly how the light theme ended up with dark
+     screens: the defaults were declared later than the thing overriding
+     them. */
+  --screen: #22302b;
+  --screen-band: #1a2622;
+  --screen-line: #2f403a;
+  --screen-ink: #e8f1ed;
+  --screen-soft: #a0b0aa;
+  --screen-fill: rgba(255, 255, 255, 0.08);
+  --screen-track: rgba(255, 255, 255, 0.1);
+  --screen-play: #dfe9e5;
+  --screen-ok: #2f8f6d;
+  --wave: #6aa88f;
+  /* VS Code Dark+, which is what the renderer paints with. */
+  --syn-keyword: #569cd6;
+  --syn-func: #dcdcaa;
+  --syn-decorator: #c586c0;
+  --syn-number: #b5cea8;
 }
 
 [data-theme="light"] {
@@ -76,6 +102,25 @@
 
   --shadow: 0 18px 48px rgba(11, 26, 21, 0.14);
   --wash: rgba(8, 108, 80, 0.06);
+
+  /* The screen, in light: an off-white page with the code in ink, which is
+     what a light editor is. VS Code Light+ token colours, for the same
+     reason the dark ones are Dark+ -- they are a real scheme rather than
+     four hues picked to look nice together. */
+  --screen: #e7efeb;
+  --screen-band: #dbe5e0;
+  --screen-line: #c6d5cf;
+  --screen-ink: #0b1a15;
+  --screen-soft: #55665f;
+  --screen-fill: rgba(11, 26, 21, 0.06);
+  --screen-track: rgba(11, 26, 21, 0.12);
+  --screen-play: #0b1a15;
+  --screen-ok: #0f7a56;
+  --wave: #2f8f6d;
+  --syn-keyword: #0550ae;
+  --syn-func: #8250df;
+  --syn-decorator: #953800;
+  --syn-number: #0b6b52;
 }
 
 :root {
@@ -1017,24 +1062,20 @@ input:disabled, textarea:disabled, select:disabled {
 .maker-wide { grid-column: span 2; }
 .maker-tall { grid-column: span 1; grid-row: span 2; }
 
-/* The card is the dark surface, not a white frame around a dark rectangle.
-   That frame was the thing not sitting right on a pale page: it left a
-   border of nothing around every preview and made four objects out of two.
-   Here the label, the pill, the preview and the sentence are all on one.
-
-   And it is the *site's* dark, not a neutral one. `#1a1a1a` is nobody's
-   colour: the app's dark palette is a green-black, and so is the band the
-   counts sit on, so a grey card on a green page read as a box carried in
-   from somewhere else. The card is chrome and wears the site's palette; the
-   screen inside it is the renderer's, which is a picture of the output and
-   has to keep the colours the output actually has. */
+/* The card is chrome, so it follows the theme like every other surface --
+   white on the light page, the app's own green-black on the dark one. The
+   earlier versions were pinned to one or the other: a white frame around a
+   dark rectangle, which left a border of nothing around every preview and
+   made four objects out of two, and then the reverse, a dark card that
+   stayed dark when the reader asked for light. */
 .maker {
   display: flex;
   flex-direction: column;
   padding: 16px 16px 18px;
+  border: 1px solid var(--line);
   border-radius: var(--r-lg);
   overflow: hidden;
-  background: #131e1a;
+  background: var(--surface-1);
 }
 
 /* The output's name, in the quietest type on the card. It is a label, not a
@@ -1045,10 +1086,10 @@ input:disabled, textarea:disabled, select:disabled {
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #8b9a95;
+  color: var(--fg-muted);
 }
 
-.maker-body { margin-top: 14px; font-size: 13.5px; color: #a3b0ac; }
+.maker-body { margin-top: 16px; font-size: 13.5px; color: var(--fg-muted); }
 
 .maker-shot {
   position: relative;
@@ -1079,29 +1120,22 @@ input:disabled, textarea:disabled, select:disabled {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
 }
 
-/* The renderer's own editor background, in both themes, drawn the same way
-   the editor in the hero is: `#1e1e1e` is what the video is actually painted
-   on, so a preview of the video should be painted on it too. It is lighter
-   than the card it sits in, which is what makes it read as a screen rather
-   than as a hole.
-
-   Everything inside is `aria-hidden` -- the pill above carries the meaning.
-   It grows to whatever the card was given, so the bento needs no per-card
-   sizing. */
+/* The screen. Its fill is fixed (see `--screen`) and everything else about
+   the card is not, which is the split that makes these read as pictures of
+   something rather than as four more panels of the page.
+ *
+ * Everything inside is `aria-hidden` -- the pill above carries the meaning.
+ * It grows to whatever the card was given, so the bento needs no per-card
+ * sizing. */
 .shot {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 168px;
-  border: 1px solid #2b2b2b;
   border-radius: var(--r-md);
   overflow: hidden;
-  background: #1e1e1e;
+  background: var(--screen);
 }
-
-/* A post is not the editor, so it gets the panel colour -- which also lets
-   the frame inside it read as the lighter thing. */
-.shot-post { background: #181818; }
 
 /* The top padding is the pill's: content starts below it rather than under
    it, and stays centred in what is left. */
@@ -1110,7 +1144,7 @@ input:disabled, textarea:disabled, select:disabled {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 44px 18px 16px;
+  padding: 42px 18px 16px;
 }
 
 .shot b { font-weight: inherit; }
@@ -1123,7 +1157,7 @@ input:disabled, textarea:disabled, select:disabled {
   height: 13px;
   margin-left: 2px;
   vertical-align: -2px;
-  background: #d4d4d4;
+  background: var(--screen-ink);
   animation: shot-caret 1.1s steps(1) infinite;
 }
 
@@ -1135,34 +1169,42 @@ input:disabled, textarea:disabled, select:disabled {
   font-family: var(--mono);
   font-size: 12.5px;
   line-height: 1.95;
-  color: #d4d4d4;
+  color: var(--screen-ink);
 }
 
 /* The indent is spaces, so they have to survive. */
 .shot-code .shot-body > span { white-space: pre; }
 
-.shot-code .k { color: #569cd6; }
-.shot-code .f { color: #dcdcaa; }
-.shot-code .d { color: #c586c0; }
-.shot-code .n { color: #b5cea8; }
+.shot-code .k { color: var(--syn-keyword); }
+.shot-code .f { color: var(--syn-func); }
+.shot-code .d { color: var(--syn-decorator); }
+.shot-code .n { color: var(--syn-number); }
 
 .shot-caption {
-  padding: 11px 18px;
-  border-top: 1px solid #2b2b2b;
-  background: rgba(0, 0, 0, 0.4);
-  color: #e6e6e6;
+  position: relative;
+  padding: 11px 18px 15px;
+  border-top: 1px solid var(--screen-line);
+  background: var(--screen-band);
+  color: var(--screen-ink);
   font-size: 12.5px;
   text-align: center;
 }
 
-.shot-scrub { position: relative; height: 3px; background: rgba(255, 255, 255, 0.12); }
+/* Along the foot of the caption band rather than under it: a progress line
+   is part of the frame it is a progress line for. */
+.shot-scrub {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3px;
+  background: var(--screen-track);
+}
 
 .shot-scrub::after {
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
   width: 38%;
-  background: #d4d4d4;
+  background: var(--screen-play);
 }
 
 .shot-voice .shot-body { align-items: center; }
@@ -1178,7 +1220,7 @@ input:disabled, textarea:disabled, select:disabled {
 .shot-wave i {
   width: 4px;
   border-radius: 2px;
-  background: #4f7d6b;
+  background: var(--wave);
 }
 
 .shot-meta {
@@ -1186,9 +1228,9 @@ input:disabled, textarea:disabled, select:disabled {
   align-items: center;
   gap: 10px;
   padding: 11px 18px;
-  border-top: 1px solid #2b2b2b;
-  background: #181818;
-  color: #b9c4c0;
+  border-top: 1px solid var(--screen-line);
+  background: var(--screen-band);
+  color: var(--screen-soft);
   font-size: 12px;
 }
 
@@ -1198,7 +1240,7 @@ input:disabled, textarea:disabled, select:disabled {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: #d4d4d4;
+  background: var(--screen-play);
 }
 
 .shot-play::after {
@@ -1206,7 +1248,7 @@ input:disabled, textarea:disabled, select:disabled {
   position: absolute;
   left: 9px;
   top: 6px;
-  border-left: 8px solid #181818;
+  border-left: 8px solid var(--screen-band);
   border-top: 5px solid transparent;
   border-bottom: 5px solid transparent;
 }
@@ -1215,31 +1257,31 @@ input:disabled, textarea:disabled, select:disabled {
   margin-left: auto;
   padding: 2px 9px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--screen-fill);
   font-size: 11px;
 }
 
 /* ------------------------------------------------------------ published */
 
-.shot-post .shot-body { justify-content: space-between; gap: 12px; padding-top: 42px; }
+.shot-post .shot-body { justify-content: space-between; gap: 12px; }
 
 .shot-post-head {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 12.5px;
-  color: #d4d4d4;
+  color: var(--screen-ink);
 }
 
 .shot-avatar {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #2f6b55, #4f9c78);
+  background: var(--screen-ok);
   flex: none;
 }
 
-.shot-post-when { margin-left: auto; color: #8a9a95; font-size: 11.5px; }
+.shot-post-when { margin-left: auto; color: var(--screen-soft); font-size: 11.5px; }
 
 /* The thumbnail, at the shape a feed actually shows it at -- portrait, which
    is what every channel this card names asks for. A landscape box here would
@@ -1250,8 +1292,10 @@ input:disabled, textarea:disabled, select:disabled {
   aspect-ratio: 4 / 5;
   padding: 16px 14px;
   border-radius: 8px;
-  background: #1e1e1e;
-  border: 1px solid #2b2b2b;
+  /* The one thing on any of these cards that keeps a fill of its own, and it
+     earns it: it is the video, and a video is an object. */
+  background: var(--screen-band);
+  border: 1px solid var(--screen-line);
   overflow: hidden;
 }
 
@@ -1268,16 +1312,16 @@ input:disabled, textarea:disabled, select:disabled {
   font-family: var(--mono);
   font-size: 11px;
   line-height: 1.95;
-  color: #d4d4d4;
+  color: var(--screen-ink);
   white-space: pre;
 }
 
 .shot-post-mini span { display: block; }
 .shot-post-mini b { font-weight: inherit; }
-.shot-post-mini .k { color: #569cd6; }
-.shot-post-mini .f { color: #dcdcaa; }
-.shot-post-mini .d { color: #c586c0; }
-.shot-post-mini .n { color: #b5cea8; }
+.shot-post-mini .k { color: var(--syn-keyword); }
+.shot-post-mini .f { color: var(--syn-func); }
+.shot-post-mini .d { color: var(--syn-decorator); }
+.shot-post-mini .n { color: var(--syn-number); }
 
 /* The line being read, burned into the foot of the frame, which is where the
    renderer puts it and where a feed shows it. */
@@ -1288,23 +1332,23 @@ input:disabled, textarea:disabled, select:disabled {
   bottom: 10px;
   padding: 6px 8px;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #e6e6e6;
+  background: var(--screen-fill);
+  color: var(--screen-ink);
   font-size: 11px;
   line-height: 1.4;
   text-align: center;
 }
 
-.shot-post-title { font-size: 13px; color: #e6e6e6; line-height: 1.4; }
+.shot-post-title { font-size: 13px; color: var(--screen-ink); line-height: 1.4; }
 
 .shot-channels { display: flex; flex-wrap: wrap; gap: 6px; }
 
 .shot-channels span {
   padding: 3px 9px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--screen-fill);
   font-size: 11px;
-  color: #c8d2ce;
+  color: var(--screen-soft);
 }
 
 /* A tick rather than a word, in the one colour that means finished. */
@@ -1314,7 +1358,7 @@ input:disabled, textarea:disabled, select:disabled {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #2f6b55;
+  background: var(--screen-ok);
 }
 
 .shot-check::after {
@@ -1324,7 +1368,9 @@ input:disabled, textarea:disabled, select:disabled {
   top: 3px;
   width: 4px;
   height: 8px;
-  border: solid #cdf0dd;
+  /* White in both themes, because it is a tick on a green disc rather than
+     text on a surface: the disc is the part that means something. */
+  border: solid #ffffff;
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
@@ -1335,7 +1381,7 @@ input:disabled, textarea:disabled, select:disabled {
   gap: 8px;
   font-size: 12.5px;
   line-height: 1.5;
-  color: #d4d4d4;
+  color: var(--screen-ink);
 }
 
 .landing-band {
