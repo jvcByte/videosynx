@@ -204,9 +204,9 @@ export function SettingsPanel({
                 value={settings.pace}
                 onChange={(e) => onEdit({ pace: e.target.value as Settings["pace"] })}
               >
-                <option value="calm">Calm — unhurried, about 140 words a minute</option>
-                <option value="normal">Normal</option>
-                <option value="fast">Fast — the engine's own rate</option>
+                <option value="calm">Calm — about 154 words a minute</option>
+                <option value="normal">Normal — about 178 words a minute</option>
+                <option value="fast">Fast — about 192 words a minute</option>
               </select>
             </label>
             <p className="field-note">

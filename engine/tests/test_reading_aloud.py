@@ -146,8 +146,11 @@ def test_an_unknown_pace_falls_back_rather_than_failing():
     assert speed_for("leisurely") == KOKORO_SPEEDS[DEFAULT_PACE]
 
 
-def test_the_default_is_the_calm_one():
-    assert DEFAULT_PACE == "calm"
+def test_the_default_is_the_middle_of_the_three():
+    """The two complaints met here: the fastest reads as hurried and the
+    slowest reads as slow, so the default is neither."""
+    assert speed_for("calm") < speed_for(None) < speed_for("fast")
+    assert DEFAULT_PACE == "normal"
 
 
 def test_a_full_stop_is_held_long_enough_to_read_as_one():

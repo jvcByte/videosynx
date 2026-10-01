@@ -502,16 +502,29 @@ DEFAULT_KOKORO_VOICE = "af_heart"
 
 # How fast the narration reads, as a multiplier on Kokoro's own rate.
 #
-# Measured at the default: about 165 words a minute, which is brisk for an
-# explainer -- a warm one sits nearer 140, and the difference is most of why
-# a voice reads as hurried rather than as welcoming. The names are what a
-# person picks; the numbers are what it costs to sound like them.
+# Measured over five readings of the same forty-nine words, counting the
+# speech and not the pauses between sentences:
+#
+#     0.8   154 wpm      0.95  186 wpm
+#     0.85  170 wpm      1.0   192 wpm
+#     0.9   178 wpm
+#
+# The names are what a person picks; the numbers are what it costs to sound
+# like them. Kokoro's own rate is the fast one, and it is brisk for an
+# explainer -- the difference is most of why a voice reads as hurried rather
+# than as welcoming.
+#
+# The default is the middle of the three, which is where the two complaints
+# met: 1.0 was too fast to sound calm, and 0.8 was slow enough to notice. The
+# same passage runs 17.5s at the top of the scale, 18.7s here and 21.3s at the
+# bottom, so the whole distance between too-fast and too-slow is under four
+# seconds of a half-minute.
 KOKORO_SPEEDS = {"calm": 0.8, "normal": 0.9, "fast": 1.0}
-DEFAULT_PACE = "calm"
+DEFAULT_PACE = "normal"
 
 
 def speed_for(pace: str | None) -> float:
-    """The multiplier for a named pace, falling back to the calm one."""
+    """The multiplier for a named pace, falling back to the default one."""
     return KOKORO_SPEEDS.get(pace or DEFAULT_PACE, KOKORO_SPEEDS[DEFAULT_PACE])
 
 

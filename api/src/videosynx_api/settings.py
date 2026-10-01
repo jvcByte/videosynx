@@ -42,11 +42,11 @@ class Settings(BaseModel):
                                    "failing the render.")
     captions: bool = True
     length: Literal["short", "medium", "long"] = "medium"
-    # How fast the narration reads. Kokoro at its own rate is about 165 words
-    # a minute, which is brisk for someone explaining something; the default
-    # is the calm one, because a voice that hurries sounds like it wants the
-    # video over with.
-    pace: Literal["calm", "normal", "fast"] = "calm"
+    # How fast the narration reads. The default is the middle of the three:
+    # the fastest sounds like the voice wants the video over with, and the
+    # slowest is slow enough to notice. `providers.KOKORO_SPEEDS` has what
+    # each one measures at -- 154, 178 and 192 words a minute.
+    pace: Literal["calm", "normal", "fast"] = "normal"
 
     def as_options(self) -> dict:
         """The subset that belongs on a job, in the worker's vocabulary."""

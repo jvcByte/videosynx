@@ -114,8 +114,18 @@ def test_the_saved_pace_is_carried_onto_the_job(client, auth):
     assert Queue(DSN).get(job_id)["options"]["pace"] == "fast"
 
 
-def test_the_default_pace_is_the_calm_one(client, auth):
+def test_the_default_pace_is_the_middle_one(client, auth):
+    """Not the fast one, which sounds like the voice wants the video over
+    with, and not the slow one, which is slow enough to notice."""
     from videosynx_api.settings import Settings
 
-    assert Settings().pace == "calm"
-    assert client.get("/me/settings", headers=auth).json()["pace"] == "calm"
+    assert Settings().pace == "normal"
+    assert client.get("/me/settings", headers=auth).json()["pace"] == "normal"
+
+    # And it reaches the job without anyone choosing it, which is the part
+    # that would break quietly: the default is only worth anything if a
+    # submission that never mentions pace still carries it.
+    from videosynx_worker.db import Queue
+
+    job_id = client.post("/speech", headers=auth, json={"text": "Say it."}).json()["id"]
+    assert Queue(DSN).get(job_id)["options"]["pace"] == "normal"
