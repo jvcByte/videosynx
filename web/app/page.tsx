@@ -682,14 +682,21 @@ export default async function Landing() {
           <h2 className="landing-h2">The things people ask first</h2>
         </header>
 
-        <dl className="faq">
+        {/* `<details>` rather than a disclosure built out of state: it is
+            keyboard-operable and announced correctly without a line of ARIA,
+            it works before hydration, and -- the reason it is this one and
+            not a component that renders the answer on click -- the answer is
+            in the HTML either way. The FAQPage above is only a legitimate
+            description of this section while the answers are actually on the
+            page for something that does not run JavaScript to find. */}
+        <div className="faq">
           {FAQ.map((item) => (
-            <div key={item.q}>
-              <dt>{item.q}</dt>
-              <dd>{item.a}</dd>
-            </div>
+            <details className="faq-item" key={item.q}>
+              <summary>{item.q}</summary>
+              <p>{item.a}</p>
+            </details>
           ))}
-        </dl>
+        </div>
       </section>
 
       <section className="landing-wrap landing-final">

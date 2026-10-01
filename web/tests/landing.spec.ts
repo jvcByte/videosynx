@@ -272,13 +272,31 @@ test("every question the markup claims is one a reader can see", async ({ page }
   // is and search engines treat it as one. The two are built from one list --
   // this is what says they still are.
   await page.goto("/");
-  const asked = await page.locator(".faq dt").allTextContents();
-  expect(asked.length).toBeGreaterThan(3);
+  const asked = await page.locator(".faq-item").count();
+  expect(asked).toBeGreaterThan(3);
 
-  const html = await page.content();
-  for (const question of asked) {
-    expect(html, `"${question}" is marked up but not shown`).toContain(question);
-    expect(html).toContain(question.replace(/"/g, '\\"'));
+  // Read from the response, and from the section, because the point is what a
+  // crawler that runs no JavaScript receives. An answer rendered on click
+  // would be live in the browser and absent there, and the markup would then
+  // be describing a page nobody can be shown.
+  //
+  // Scoped to the section rather than the whole document, and that is not
+  // tidiness: every answer is *also* in the JSON-LD, so a check against the
+  // whole page would pass on the structured data alone even if the visible
+  // half had stopped being rendered.
+  const html = await (await page.request.get("/")).text();
+  const from = html.indexOf('class="faq"');
+  const to = html.indexOf("landing-final", from);
+  expect(from, "the FAQ section is not in the HTML").toBeGreaterThan(0);
+  const section = html.slice(from, to > 0 ? to : from + 20000);
+
+  for (const item of await page.locator(".faq-item").all()) {
+    const question = await item.locator("summary").textContent();
+    const answer = await item.locator("p").textContent();
+    expect(section, `"${question}" is marked up but not in the HTML`)
+      .toContain(question!.slice(0, 40));
+    expect(section, "an answer is not in the HTML")
+      .toContain(answer!.slice(0, 60));
   }
 });
 

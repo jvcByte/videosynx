@@ -1643,24 +1643,76 @@ input:disabled, textarea:disabled, select:disabled {
 .landing-faq { padding-top: 76px; }
 
 .faq {
-  margin: 0;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 30px 44px;
+  gap: 0 44px;
+  /* Two columns of an accordion, so the rule under each row is the row's
+     own height. `align-items: start` keeps a short one from stretching to
+     match the tall one beside it and dragging its border down with it. */
+  align-items: start;
 }
 
-.faq dt {
+.faq-item {
+  border-bottom: 1px solid var(--line);
+}
+
+.faq summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 0;
+  cursor: pointer;
   font-size: 15.5px;
   font-weight: 650;
   letter-spacing: -0.01em;
   color: var(--fg);
+  /* The list has its own marker and its own layout; the one below is the
+     only one that reads as a control at this size. */
+  list-style: none;
 }
 
-.faq dd {
-  margin: 9px 0 0;
+.faq summary::-webkit-details-marker { display: none; }
+
+/* The chevron, turned rather than swapped, so the two states are visibly
+   the same mark -- a plus that becomes a minus is a different glyph and
+   reads as the row having changed rather than opened. */
+.faq summary::after {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-right: 3px;
+  border-right: 2px solid var(--fg-faint);
+  border-bottom: 2px solid var(--fg-faint);
+  transform: rotate(45deg) translate(-2px, -2px);
+  transition: transform 140ms ease;
+}
+
+.faq-item[open] summary::after {
+  transform: rotate(-135deg) translate(-2px, -2px);
+}
+
+.faq summary:hover { color: var(--accent); }
+.faq summary:hover::after { border-color: var(--accent); }
+
+/* Focus is a keyboard affordance, not a mouse one: `:focus-visible` so
+   clicking a summary does not leave a ring on it. */
+.faq summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+.faq-item p {
+  margin: 0 0 16px;
   font-size: 14.5px;
   line-height: 1.6;
   color: var(--fg-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .faq summary::after { transition: none; }
 }
 
 @media (max-width: 720px) {
