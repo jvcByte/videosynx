@@ -254,6 +254,40 @@ h1, h2, h3, p { margin: 0; }
 .signin .field:first-of-type { margin-top: 18px; }
 .signin .compose-actions { margin-top: 22px; }
 
+/* The two providers, stacked and full width like the control below them:
+   they are the same kind of thing, an action, and a narrower one would read
+   as a footnote to the form rather than an alternative to it. */
+.signin-providers {
+  margin-top: 18px;
+  display: grid;
+  gap: 10px;
+}
+
+.signin-providers button { width: 100%; }
+
+/* The rule through "or", which is doing real work: it says the things above
+   and the things below are alternatives rather than steps, so nobody fills
+   the form in after pressing a provider. */
+.signin-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+.signin-or::before,
+.signin-or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
 /* -------------------------------------------------------------------- card */
 
 .card {

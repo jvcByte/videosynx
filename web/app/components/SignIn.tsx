@@ -14,6 +14,20 @@ import { supabase } from "../lib/supabase";
  * having two screens would mean an account-less visitor choosing a door before
  * they know which one they want.
  */
+/**
+ * Where a provider sends somebody back to.
+ *
+ * The project's Site URL is a single value, so dev and a deployment cannot
+ * both be right -- and whichever is set, the other gets a link to the wrong
+ * host. Naming the origin here means both work, as long as both are in the
+ * project's Redirect URLs.
+ *
+ * `/dashboard` rather than `/`: it is the only page that builds the Supabase
+ * client, and reading the token out of the URL is something the client has to
+ * be there to do.
+ */
+const backTo = () => `${window.location.origin}/dashboard`;
+
 export function SignIn() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -21,6 +35,29 @@ export function SignIn() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+
+  /**
+   * Hand off to GitHub or Google.
+   *
+   * Nothing here handles a successful return: the browser leaves for the
+   * provider, and comes back to `/dashboard` with a session the client reads
+   * out of the URL. Only a failure comes back to this line.
+   */
+  async function withProvider(provider: "github" | "google") {
+    if (!supabase) return;
+    setBusy(true);
+    setError(null);
+
+    const { error: failure } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: { redirectTo: backTo() },
+    });
+
+    if (failure) {
+      setError(failure.message);
+      setBusy(false);
+    }
+  }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -32,16 +69,7 @@ export function SignIn() {
       ? await supabase.auth.signUp({
           email,
           password,
-          // Where the confirmation link lands. Without it Supabase sends people
-          // to the project's Site URL, which is a single value -- so dev and a
-          // deployment cannot both be right, and whichever is set the other
-          // gets a link to the wrong host. Naming the origin here means both
-          // work, as long as both are in the project's Redirect URLs.
-          //
-          // `/dashboard` rather than `/`: it is the only page that builds the
-          // Supabase client, and reading the token out of the URL is something
-          // the client has to be there to do.
-          options: { emailRedirectTo: `${window.location.origin}/dashboard` },
+          options: { emailRedirectTo: backTo() },
         })
       : await supabase.auth.signInWithPassword({ email, password });
 
@@ -79,6 +107,29 @@ export function SignIn() {
   return (
     <form className="card signin" onSubmit={onSubmit}>
       <h2>{creating ? "Create an account" : "Sign in"}</h2>
+
+      {/* The providers first, because for most people they are the faster
+          door: one is where the code already is and the other is where the
+          email already is, and neither asks for a password.
+
+          Named in words rather than marked with logos, which is the one place
+          this page does not do the conventional thing. Both providers require
+          their *official* mark, unmodified -- Google's in its own four
+          colours -- and a hand-drawn approximation of either is a brand
+          violation that also looks broken. The label says the same thing
+          without pretending to be a logo. */}
+      <div className="signin-providers">
+        <button type="button" className="ghost" disabled={busy}
+                onClick={() => withProvider("github")}>
+          Continue with GitHub
+        </button>
+        <button type="button" className="ghost" disabled={busy}
+                onClick={() => withProvider("google")}>
+          Continue with Google
+        </button>
+      </div>
+
+      <p className="signin-or">or</p>
 
       <div className="field">
         <label htmlFor="email">Email</label>
