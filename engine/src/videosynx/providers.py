@@ -212,13 +212,15 @@ class GeminiWriter:
 # path: Gemini's is twenty requests per model per day. Everything here is a
 # fallback for when that is gone.
 #
-# Groq, Hugging Face's router and OpenRouter all speak the same OpenAI chat
-# API, so one class covers three free tiers rather than three classes covering
-# one each. Nothing new is installed for it -- a completion is one HTTPS POST.
+# Groq, Hugging Face's router, OpenRouter and DeepSeek all speak the same
+# OpenAI chat API, so one class covers four backends rather than four classes
+# covering one each. Nothing new is installed for any of them -- a completion
+# is one HTTPS POST.
 
 GROQ_URL = "https://api.groq.com/openai/v1"
 HUGGINGFACE_URL = "https://router.huggingface.co/v1"
 OPENROUTER_URL = "https://openrouter.ai/api/v1"
+DEEPSEEK_URL = "https://api.deepseek.com/v1"
 
 # Free-tier model ids, checked against each service rather than remembered --
 # every one of these was wrong when first written. Free tiers retire and
@@ -227,6 +229,16 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1"
 GROQ_MODELS = ("openai/gpt-oss-120b", "openai/gpt-oss-20b")
 HUGGINGFACE_MODELS = ("meta-llama/Llama-3.3-70B-Instruct",)
 OPENROUTER_MODELS = ("nvidia/nemotron-3.5-lightning:free", "qwen/qwen3.8-27b:free")
+
+# DeepSeek is the one that costs money per token rather than being a free
+# tier, and it is the cheapest of anything here that is reliably good at
+# writing code: about four-tenths of a cent for the lesson behind one video,
+# against roughly sixty cents for the narration that reads it. The pricing
+# has an off-peak half -- 01:00-04:00 and 06:00-10:00 UTC on weekdays are
+# double -- which is why `deepseek-chat` is the safe default rather than a
+# reasoning model: thinking tokens bill as output, and output is the column
+# that costs anything.
+DEEPSEEK_MODELS = ("deepseek-flash",)
 
 
 # Every provider here sits behind Cloudflare, which answers a request with no
@@ -375,6 +387,13 @@ def default_writer() -> Writer:
     if gemini:
         entries.append(("gemini", GeminiWriter(gemini)))
 
+    deepseek = os.environ.get("DEEPSEEK_API_KEY", "")
+    if deepseek:
+        models = _models_from_env("DEEPSEEK_MODELS", DEEPSEEK_MODELS)
+        entries.append(("deepseek", OpenAICompatWriter(
+            deepseek, models[0], base_url=DEEPSEEK_URL, fallbacks=models[1:],
+            label="deepseek")))
+
     groq = os.environ.get("GROQ_API_KEY", "")
     if groq:
         models = _models_from_env("GROQ_MODELS", GROQ_MODELS)
@@ -397,8 +416,9 @@ def default_writer() -> Writer:
 
     if not entries:
         raise ProviderError(
-            "no model key is configured. Set GEMINI_API_KEY, or GROQ_API_KEY, "
-            "HF_TOKEN or OPENROUTER_API_KEY for a free fallback."
+            "no model key is configured. Set DEEPSEEK_API_KEY, or "
+            "GEMINI_API_KEY, GROQ_API_KEY, HF_TOKEN or OPENROUTER_API_KEY for "
+            "a free fallback."
         )
     return entries[0][1] if len(entries) == 1 else ChainWriter(entries)
 

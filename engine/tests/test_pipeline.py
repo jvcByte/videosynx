@@ -797,7 +797,21 @@ def test_the_order_is_gemini_first(no_keys, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "o")
     monkeypatch.setenv("GROQ_API_KEY", "g")
     monkeypatch.setenv("GEMINI_API_KEY", "x")
-    assert default_writer().names == ["gemini", "groq", "openrouter"]
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "d")
+    assert default_writer().names == ["gemini", "deepseek", "groq", "openrouter"]
+
+
+def test_deepseek_is_reachable_on_its_own(no_keys, monkeypatch):
+    """It is the only backend here that is paid rather than a free tier, and
+    it speaks the same API as the free ones -- which is why it is a line in
+    the chain rather than a fourth writer class."""
+    from videosynx.providers import OpenAICompatWriter, default_writer
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "d")
+    writer = default_writer()
+    assert isinstance(writer, OpenAICompatWriter)
+    assert writer.name == "deepseek"
+    assert writer._url == "https://api.deepseek.com/v1/chat/completions"
 
 
 def test_hugging_face_answers_to_either_name(no_keys, monkeypatch):
