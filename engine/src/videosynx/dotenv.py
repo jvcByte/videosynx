@@ -36,8 +36,23 @@ def parse(text: str) -> dict[str, str]:
     return values
 
 
+def _beside_the_source() -> Path | None:
+    """The .env of the checkout this package was imported from, or None.
+
+    Works because the engine is installed editable from `<repo>/engine/src`,
+    so `__file__` is inside the repository and walking up finds its `.git`.
+    Installed from a wheel instead -- in site-packages -- there is no
+    repository above it and this returns nothing rather than guessing.
+    """
+    for parent in Path(__file__).resolve().parents:
+        if (parent / ".git").exists():
+            candidate = parent / ".env"
+            return candidate if candidate.is_file() else None
+    return None
+
+
 def find(start: Path | None = None) -> Path | None:
-    """The nearest .env at or above *start*, or None.
+    """The nearest .env at or above *start*, or the one beside the source.
 
     A .env that only loads when the process happens to have been started in
     the directory holding it is a trap. Nothing fails at startup: the key is
@@ -48,6 +63,17 @@ def find(start: Path | None = None) -> Path | None:
 
     The walk stops at the repository root when there is one, so a .env beside
     an unrelated checkout higher up is not picked up by accident.
+
+    And when the walk finds nothing at all -- because the working directory
+    is nowhere near the project -- it falls back to the checkout the engine
+    was imported from. That is not hypothetical: a shell whose directory is
+    deleted falls back to `$HOME`, and a service started with no working
+    directory does the same thing, so an API started by absolute path from
+    the wrong place came up with no credentials and served 503s to every
+    request with nothing in the log saying why.
+
+    A *start* given explicitly skips the fallback: the caller has said where
+    to look, and answering from somewhere else would be ignoring them.
     """
     here = (start or Path.cwd()).resolve()
     for directory in (here, *here.parents):
@@ -56,7 +82,7 @@ def find(start: Path | None = None) -> Path | None:
             return candidate
         if (directory / ".git").exists():
             break
-    return None
+    return None if start is not None else _beside_the_source()
 
 
 def load(path: Path | str | None = None, *, override: bool = False) -> list[str]:

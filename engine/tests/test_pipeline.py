@@ -955,3 +955,54 @@ def test_a_failed_closing_card_does_not_lose_the_whole_video():
     assert spans[0].state.title is not None
     assert any(span.state.code for span in tutorial.plan.spans)
     assert tutorial.plan.captions
+
+
+def test_the_env_is_found_when_the_working_directory_is_nowhere_near_it(
+        tmp_path, monkeypatch):
+    """The working directory can be somewhere the project has never been.
+
+    A shell whose directory is deleted falls back to `$HOME` -- which is what
+    a terminal sitting in this repository did when the repository was
+    renamed -- and a service started with no working directory does the same.
+    The API came up that way, found no credentials, answered 503 to every
+    request, and said nothing at startup about why.
+    """
+    from videosynx import dotenv
+
+    repo = tmp_path / "checkout"
+    (repo / ".git").mkdir(parents=True)
+    (repo / ".env").write_text("FOUND=1\n")
+    # Where the engine would be if it were this checkout's.
+    module = repo / "engine" / "src" / "videosynx" / "dotenv.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("")
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    monkeypatch.setattr(dotenv, "__file__", str(module))
+
+    assert dotenv.find() == repo / ".env"
+
+    # An explicit start is still obeyed rather than answered from the source:
+    # the caller has said where to look.
+    assert dotenv.find(elsewhere) is None
+
+
+def test_a_checkout_with_no_env_beside_it_falls_back_to_nothing(
+        tmp_path, monkeypatch):
+    """Nothing above the working directory, and no .env in the source either."""
+    from videosynx import dotenv
+
+    repo = tmp_path / "checkout"
+    (repo / ".git").mkdir(parents=True)
+    module = repo / "engine" / "src" / "videosynx" / "dotenv.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("")
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    monkeypatch.setattr(dotenv, "__file__", str(module))
+
+    assert dotenv.find() is None
