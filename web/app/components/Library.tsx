@@ -49,7 +49,12 @@ export function Library({
   onCancel: (job: Job) => void;
 }) {
   return (
-    <section className="library">
+    // Named so it is a landmark rather than just a box. A bare <section>
+    // gets the `region` role only once it has an accessible name, and a
+    // heading inside it does not supply one -- so until this was here the
+    // list could not be reached or referred to as a thing on the page, by a
+    // screen reader or by anything else. PlanPanel already does the same.
+    <section className="library" aria-label={title}>
       <div className="section-head">
         <h2>{title}</h2>
         {loaded && jobs.length > 0 && count !== null && (

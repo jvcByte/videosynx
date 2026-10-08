@@ -490,6 +490,35 @@ test("a rejected submission explains itself", async ({ page }) => {
   await expect(alert).toContainText("quota_exceeded");
 });
 
+test("your videos sit beside the box the next one comes from", async ({ page }) => {
+  // The rail exists so that asking for a video and finding out whether it
+  // worked are one place instead of two. The assertion that matters is the
+  // second half: the list is populated while still on the create view, with
+  // nothing navigated to get there.
+  //
+  // Seeded rather than submitted. Submitting here would spend one of the
+  // three the account has, and one of the tests in this file deliberately
+  // spends all of them -- so which ran first would decide whether this one
+  // passed. It passed alone and failed in the suite before this was changed.
+  const id = "22222222-2222-4222-8222-222222222222";
+  execFileSync("psql", [DSN, "-q", "-c",
+    `insert into jobs (id, user_id, topic, tier, status, options, artifact_key,
+                       duration_s, progress, finished_at)
+     values ('${id}', 'e2e-user', 'Something made earlier', 'free', 'succeeded',
+             '{"mode": "both"}', 'artifacts/free/${id}.mp4', 90, 1, now())`]);
+  // After the row: seed() looks the job up and writes the artifact at the key
+  // the row names, so it has nothing to write until the row exists.
+  seed(id);
+
+  await page.goto(at("create"));
+
+  const rail = page.getByRole("region", { name: "What you have made" });
+  await expect(rail.getByText("Something made earlier")).toBeVisible();
+  // Still the create view, composer and all.
+  expect(page.url()).toContain("#create");
+  await expect(page.getByRole("heading", { name: "New video" })).toBeVisible();
+});
+
 test("lesson JSON that cannot render is refused before it is queued", async ({ page }) => {
   // Pasted lesson JSON is rendered exactly as written, so a broken one used to
   // be accepted, counted against the day's allowance, and then fail in the

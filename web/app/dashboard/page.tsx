@@ -389,6 +389,7 @@ export default function Home() {
           {view === "videos" && <VideosView list={list} />}
           {view === "create" && (
             <CreateView
+              list={list}
               settings={settings}
               quota={quota}
               credits={plan?.credits ?? null}

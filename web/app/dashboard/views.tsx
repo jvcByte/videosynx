@@ -31,6 +31,16 @@ const POLL_MS = 2000;
 const RECENT = 5;
 
 /**
+ * How many the create view shows beside the composer.
+ *
+ * Fewer, because these sit in the 320px rail rather than across the page, so
+ * three cards is already most of a screen. The link underneath says how many
+ * there really are -- the same arrangement the overview uses, for the same
+ * reason: a slice cannot state a total without lying about it.
+ */
+const RAIL_RECENT = 3;
+
+/**
  * Everything a list of videos needs, passed as one piece.
  *
  * The overview and Your Videos both draw the same rows with the same
@@ -195,9 +205,10 @@ export function VideosView({ list }: { list: VideoList }) {
  * failed.
  */
 export function CreateView({
-  settings, quota, credits, topic, onTopic, script, onScript, mode, onMode,
-  onSubmitted,
+  list, settings, quota, credits, topic, onTopic, script, onScript, mode,
+  onMode, onSubmitted,
 }: {
+  list: VideoList;
   settings: Settings | null;
   quota: Quota | null;
   credits: number | null;
@@ -251,24 +262,63 @@ export function CreateView({
     }
   }
 
+  // What you have already made, beside the box you make the next one in.
+  //
+  // Asking for a video and then navigating away to find out whether it worked
+  // is two places for one thought. The list was always there; it was just on
+  // another view. It is the same component the overview and Your Videos use,
+  // so the three cannot disagree about what a job looks like.
+  const recent = list.jobs.slice(0, RAIL_RECENT);
+
   return (
-    <div className="view-narrow">
-      <Composer
-        topic={topic}
-        onTopic={onTopic}
-        script={script}
-        onScript={onScript}
-        mode={mode}
-        onMode={onMode}
-        onSubmit={onSubmit}
-        submitting={submitting}
-        error={error}
-        onDismissError={() => setError(null)}
-        generation={settings?.generation ?? "auto"}
-        quota={quota}
-        credits={credits}
-      />
-    </div>
+    <>
+      <RowError list={list} />
+
+      <div className="dash-grid">
+        <div className="dash-main">
+          <div className="view-narrow">
+            <Composer
+              topic={topic}
+              onTopic={onTopic}
+              script={script}
+              onScript={onScript}
+              mode={mode}
+              onMode={onMode}
+              onSubmit={onSubmit}
+              submitting={submitting}
+              error={error}
+              onDismissError={() => setError(null)}
+              generation={settings?.generation ?? "auto"}
+              quota={quota}
+              credits={credits}
+            />
+          </div>
+        </div>
+
+        <aside className="dash-rail">
+          <Library
+            jobs={recent}
+            loaded={list.loaded}
+            failed={list.failed}
+            title="What you have made"
+            // A slice has no honest count, and the real total would read as
+            // three recent ones. The link below carries it instead.
+            count={null}
+            onPlay={list.onPlay}
+            onDownload={list.onDownload}
+            onRetry={list.onRetry}
+            onRerun={list.onRerun}
+            onInspect={list.onInspect}
+            onCancel={list.onCancel}
+          />
+          {list.jobs.length > RAIL_RECENT && (
+            <a className="see-all" href="#videos" onClick={() => window.scrollTo(0, 0)}>
+              See all {list.jobs.length} videos →
+            </a>
+          )}
+        </aside>
+      </div>
+    </>
   );
 }
 
