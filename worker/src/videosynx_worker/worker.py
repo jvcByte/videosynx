@@ -87,6 +87,47 @@ def retry_description(seconds: float | None) -> str:
     return f"retrying in {seconds / 3600:.0f}h"
 
 
+def failure_message(exc: Exception) -> str:
+    """What the person who asked for this video is told.
+
+    ``str(exc)`` is written for whoever is reading a log, and it says things
+    no submitter should ever see. It names the model providers and quotes
+    their error bodies, request ids and all; it names the models themselves;
+    and when there is no credential it lists the environment variables to set.
+    All of that is right for an operator and wrong for a customer -- it tells
+    them which suppliers this runs on and what state our accounts are in.
+
+    So the job row gets a sentence, and the detail stays in the log, which is
+    where it was going anyway. Both are derived from the same exception, so
+    the message and `failure_code` cannot disagree about what happened.
+
+    This is the one place a failure becomes something a person reads. Fixing
+    it anywhere else would leave the next provider free to leak.
+    """
+    from videosynx.providers import ProviderError
+
+    # Already written for this reader, and losing them to a generic sentence
+    # would make room for a leak by making the product worse: `Refused` says
+    # what local mode will and will not do, and a malformed lesson names the
+    # section that is wrong.
+    if isinstance(exc, (Refused, ValueError)):
+        return str(exc)
+
+    if isinstance(exc, ProviderError):
+        if exc.reason == "quota":
+            return ("The service this needs has reached its limit for now. "
+                    "It will be tried again automatically.")
+        if exc.reason == "payment":
+            # Ours to fix. Saying so is honest and says nothing else.
+            return ("This is unavailable while we sort something out at our "
+                    "end. It will be tried again automatically.")
+        return ("The service this needs is busy right now. It will be tried "
+                "again automatically.")
+
+    return ("Something went wrong while making this video. It will be tried "
+            "again automatically.")
+
+
 def failure_code(exc: Exception) -> str:
     """A short tag for the job row, saying whose problem the failure is.
 
@@ -256,8 +297,8 @@ class Worker:
             delay = retry_delay(code, job.attempt)
             log.exception("job %s failed (%s), %s",
                           job.id, code, retry_description(delay))
-            self.queue.fail(job.id, self.owner, code=code, message=str(exc),
-                            delay_seconds=delay)
+            self.queue.fail(job.id, self.owner, code=code,
+                            message=failure_message(exc), delay_seconds=delay)
         finally:
             self._current = None
             self._beat_stop.set()
@@ -492,7 +533,10 @@ class EngineRenderer:
         # running out is the ordinary way this runs -- twenty requests per
         # model per day -- so one provider is not enough to keep a queue
         # moving, and the fallback costs nothing to have.
-        writer = None if generation == "local" else default_writer()
+        # The plan decides whether a paid provider is even a candidate, so the
+        # tier travels with the job rather than being read off the process.
+        writer = (None if generation == "local"
+                  else default_writer(tier=job.tier))
 
         if script:
             lesson = lesson_from_text(script, writer=writer,

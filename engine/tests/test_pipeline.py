@@ -795,14 +795,34 @@ def test_a_lone_provider_needs_no_chain_around_it(no_keys, monkeypatch):
     assert writer.name == "groq"
 
 
-def test_the_order_is_gemini_first(no_keys, monkeypatch):
-    from videosynx.providers import ChainWriter, default_writer
+def test_the_free_providers_are_tried_in_their_order(no_keys, monkeypatch):
+    from videosynx.providers import default_writer
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "o")
     monkeypatch.setenv("GROQ_API_KEY", "g")
     monkeypatch.setenv("GEMINI_API_KEY", "x")
+    assert default_writer(tier="paid").names == ["gemini", "groq", "openrouter"]
+
+
+def test_the_paid_provider_is_last_and_only_for_a_paying_plan(no_keys, monkeypatch):
+    """Two rules, and both are about money.
+
+    It is last because every free allowance being spent is the ordinary way a
+    day goes -- reaching for the provider that bills, while one that does not
+    still answers, spends for nothing. And it is for paid plans only, because
+    a free account must not be able to spend our money by being unlucky.
+    """
+    from videosynx.providers import default_writer
+
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    monkeypatch.setenv("GROQ_API_KEY", "g")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "d")
-    assert default_writer().names == ["gemini", "deepseek", "groq", "openrouter"]
+
+    assert default_writer(tier="paid").names == ["gemini", "groq", "deepseek"]
+    assert default_writer(tier="byok").names == ["gemini", "groq", "deepseek"]
+    assert default_writer(tier="free").names == ["gemini", "groq"]
+    # A tier nobody has classified does not get to spend.
+    assert default_writer(tier="something-new").names == ["gemini", "groq"]
 
 
 def test_deepseek_is_reachable_on_its_own(no_keys, monkeypatch):
@@ -812,10 +832,24 @@ def test_deepseek_is_reachable_on_its_own(no_keys, monkeypatch):
     from videosynx.providers import OpenAICompatWriter, default_writer
 
     monkeypatch.setenv("DEEPSEEK_API_KEY", "d")
-    writer = default_writer()
+    writer = default_writer(tier="paid")
     assert isinstance(writer, OpenAICompatWriter)
     assert writer.name == "deepseek"
     assert writer._url == "https://api.deepseek.com/v1/chat/completions"
+    # The cheapest model they publish -- reached rarely, so it should cost as
+    # little as possible when it is. Checked against their own docs, which say
+    # "use deepseek-flash as the model name"; the older identifiers still
+    # resolve but are retired.
+    assert writer._models[0] == "deepseek-flash"
+
+
+def test_a_free_plan_with_only_a_paid_key_says_which_plan_it_is(no_keys, monkeypatch):
+    """The one configuration where the gate is the reason nothing ran."""
+    from videosynx.providers import ProviderError, default_writer
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "d")
+    with pytest.raises(ProviderError, match="for this plan"):
+        default_writer(tier="free")
 
 
 def test_hugging_face_answers_to_either_name(no_keys, monkeypatch):

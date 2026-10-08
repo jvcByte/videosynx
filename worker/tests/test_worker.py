@@ -28,6 +28,9 @@ class FakeQueue:
         # Kept beside `failed` rather than widening its tuples, because that
         # list is asserted on by exact equality.
         self.delays: list[tuple[str, float | None]] = []
+        # Same reason again: the sentence the row is given, which is the one
+        # thing here a person actually reads.
+        self.messages: list[str] = []
         self.heartbeats = 0
 
     def claim(self, owner):
@@ -47,6 +50,7 @@ class FakeQueue:
     def fail(self, job_id, owner, *, code, message, delay_seconds=None):
         self.failed.append((job_id, code))
         self.delays.append((job_id, delay_seconds))
+        self.messages.append(message)
         return True
 
 
@@ -177,7 +181,7 @@ def test_a_job_that_needs_writing_goes_through_the_chain(tmp_path, monkeypatch):
             seen.append(prompt)
             raise ProviderError("reached the chain")
 
-    monkeypatch.setattr(providers, "default_writer", lambda: Reached())
+    monkeypatch.setattr(providers, "default_writer", lambda **kw: Reached())
     monkeypatch.setattr(render, "render_plan", lambda *a, **k: None)
 
     renderer = EngineRenderer(tmp_path)
@@ -330,3 +334,140 @@ def test_a_lesson_object_with_nothing_in_it_is_refused(tmp_path, monkeypatch):
                        "lesson": {"title": "No sections"}})
     with pytest.raises(Refused, match="sections"):
         renderer(job, lambda stage, progress: None)
+
+
+# --------------------------------------------- what a failure may say out loud
+# The job row's error_message is rendered verbatim in the library, and it has
+# leaked three separate times: a provider's raw error body with its request id,
+# the names of the models, and -- worst of the three -- the list of environment
+# variables to set when a credential is missing. Every one was found on screen,
+# by the person using the product. This is the single place a failure becomes
+# something a reader sees, so this is where it is held to.
+
+# Words that must never reach a submitter: who we buy from, which models we
+# run, what our environment is called, and the shape of a vendor's error.
+LEAKS = (
+    "elevenlabs", "gemini", "groq", "deepseek", "openrouter", "hugging",
+    "GEMINI_API_KEY", "GROQ_API_KEY", "HF_TOKEN", "OPENROUTER_API_KEY",
+    "DEEPSEEK_API_KEY", "ELEVENLABS_API_KEY", "SUPABASE", "STRIPE",
+    "gemini-", "gpt-oss", "llama", "nemotron", "kokoro", "espeak",
+    "quota_exceeded", "RESOURCE_EXHAUSTED", "request_id", "429",
+    "{", "}",
+)
+
+
+def test_what_a_failure_is_allowed_to_say():
+    """Every one of these was read off the library by the person who asked."""
+    from videosynx.providers import ProviderError
+    from videosynx_worker.worker import failure_message
+
+    seen_in_production = [
+        # Straight from the database, request id and all.
+        ProviderError(
+            "ElevenLabs quota exhausted: {'detail': {'type': 'invalid_request', "
+            "'code': 'quota_exceeded', 'message': 'This request exceeds your "
+            "quota of 10000. You have 19 credits remaining, while 102 credits "
+            "are required for this request.', 'status': 'quota_exceeded', "
+            "'request_id': 'b6174811927f91c5007d2d1b4b5fba07'}}",
+            reason="quota"),
+        # Also straight from the database: the variables to set.
+        ProviderError(
+            "no model key is configured. Set GEMINI_API_KEY, or GROQ_API_KEY, "
+            "HF_TOKEN or OPENROUTER_API_KEY for a free fallback."),
+        ProviderError(
+            "every model failed -- gemini-3.8-flash: daily quota exhausted "
+            "(429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': "
+            "'You exceeded your current quota'}})", reason="quota"),
+        ProviderError('out of credit: {"error":{"message":"Insufficient Balance"}}',
+                      reason="payment"),
+        # Not a provider at all: a bug, a socket, a database.
+        RuntimeError("connection to server at \"localhost\", port 5432 failed"),
+        ProviderError("the model returned nothing"),
+    ]
+
+    for exc in seen_in_production:
+        said = failure_message(exc)
+        for leak in LEAKS:
+            assert leak.lower() not in said.lower(), (
+                f"{leak!r} would reach the job row: {said!r}")
+        # And it is still worth reading -- not blanked to nothing.
+        assert len(said) > 30, said
+        assert said[0].isupper() and said.rstrip().endswith("."), said
+
+
+def test_a_failure_that_is_already_written_for_the_reader_passes_through():
+    """Sanitising these would make room for a leak by making the product worse.
+
+    A bad lesson names the section that is wrong, and a refusal says what
+    local mode will and will not do. Neither is ours to rewrite.
+    """
+    from videosynx_worker.worker import Refused, failure_message
+
+    refusal = Refused("local mode works from content you supply and never "
+                      "calls a model, so it cannot write a tutorial from a topic.")
+    assert failure_message(refusal) == str(refusal)
+
+    lesson = ValueError("section 2: an explanation needs narration")
+    assert failure_message(lesson) == str(lesson)
+
+
+def test_the_row_is_given_the_sentence_and_not_the_exception():
+    """The wiring, which the tests above do not cover.
+
+    Those check `failure_message` on its own. This is what says the worker
+    calls it -- without it, putting `str(exc)` back at the call site would
+    leave every other test passing and the provider's error body back on the
+    library page, which is exactly how this leaked three times.
+    """
+    from videosynx.providers import ProviderError
+
+    def renderer(job, beat, should_stop=None):
+        raise ProviderError(
+            "ElevenLabs quota exhausted: {'detail': {'request_id': "
+            "'b6174811927f91c5007d2d1b4b5fba07'}}", reason="quota")
+
+    queue = FakeQueue(jobs=1)
+    Worker(queue, renderer, owner="w0").run_once()
+
+    assert queue.failed == [("job-0", "provider_quota")]
+    said = queue.messages[0]
+    for leak in ("ElevenLabs", "request_id", "b6174811", "{", "quota"):
+        assert leak.lower() not in said.lower(), said
+
+
+def test_the_plan_travels_to_the_writer(tmp_path, monkeypatch):
+    """The gate is only real if the tier reaches it.
+
+    `default_writer` keeps the paid provider away from a free plan, and the
+    tests for that are in the engine. This is what says the worker tells it
+    which plan it is serving -- without it every job would look free, or every
+    job paid, and those tests would still pass either way.
+    """
+    import videosynx.providers as providers
+    import videosynx.render as render
+    from videosynx.providers import ProviderError
+    from videosynx_worker.worker import EngineRenderer
+
+    asked: list[str] = []
+
+    class Reached:
+        def write(self, prompt):
+            raise ProviderError("reached the chain")
+
+    def writer_for(*, tier: str = "free"):
+        asked.append(tier)
+        return Reached()
+
+    monkeypatch.setattr(providers, "default_writer", writer_for)
+    monkeypatch.setattr(render, "render_plan", lambda *a, **k: None)
+
+    renderer = EngineRenderer(tmp_path)
+    monkeypatch.setattr(renderer, "_speaker", lambda *a, **k: None)
+
+    for tier in ("free", "byok", "paid"):
+        job = Job(id=f"tier-{tier}", user_id="u", topic="Python decorators",
+                  tier=tier, attempt=1, max_attempts=1, options={"tts": "espeak"})
+        with pytest.raises(ProviderError, match="reached the chain"):
+            renderer(job, lambda stage, progress: None)
+
+    assert asked == ["free", "byok", "paid"]

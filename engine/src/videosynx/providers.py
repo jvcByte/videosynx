@@ -399,25 +399,32 @@ def _models_from_env(var: str, defaults: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(part.strip() for part in raw.split(",") if part.strip()) or defaults
 
 
-def default_writer() -> Writer:
+# Plans that may fall back to a provider that costs money.
+#
+# Listed rather than derived from "not free", so that adding a tier is a
+# decision about spending rather than an accident of what it is called: a tier
+# nobody has thought about does not get to spend.
+PAID_TIERS = frozenset({"byok", "paid"})
+
+
+def default_writer(*, tier: str = "free") -> Writer:
     """Every provider that has a key, in the order they are tried.
 
     Gemini first because it writes this kind of prompt best. The others are
     the answer to a spent allowance, which on a twenty-a-day limit is a
     normal thing to hit rather than an exceptional one.
+
+    The one paid provider is last, and only on a paid plan. Every free
+    allowance being spent is the ordinary way a day goes, so a paying
+    customer should keep working through it -- but a free account must not be
+    able to spend our money by being unlucky, and nobody should reach the
+    paid provider while a free one still answers.
     """
     entries: list[tuple[str, Writer]] = []
 
     gemini = os.environ.get("GEMINI_API_KEY", "")
     if gemini:
         entries.append(("gemini", GeminiWriter(gemini)))
-
-    deepseek = os.environ.get("DEEPSEEK_API_KEY", "")
-    if deepseek:
-        models = _models_from_env("DEEPSEEK_MODELS", DEEPSEEK_MODELS)
-        entries.append(("deepseek", OpenAICompatWriter(
-            deepseek, models[0], base_url=DEEPSEEK_URL, fallbacks=models[1:],
-            label="deepseek")))
 
     groq = os.environ.get("GROQ_API_KEY", "")
     if groq:
@@ -439,11 +446,22 @@ def default_writer() -> Writer:
             openrouter, models[0], base_url=OPENROUTER_URL, fallbacks=models[1:],
             label="openrouter")))
 
+    # Last, and only for a plan that pays. `deepseek-flash` is the cheapest
+    # model they publish, which is the one to want for a fallback: it is
+    # reached rarely and should cost as little as possible when it is.
+    deepseek = os.environ.get("DEEPSEEK_API_KEY", "")
+    if deepseek and tier in PAID_TIERS:
+        models = _models_from_env("DEEPSEEK_MODELS", DEEPSEEK_MODELS)
+        entries.append(("deepseek", OpenAICompatWriter(
+            deepseek, models[0], base_url=DEEPSEEK_URL, fallbacks=models[1:],
+            label="deepseek")))
+
     if not entries:
         raise ProviderError(
-            "no model key is configured. Set DEEPSEEK_API_KEY, or "
-            "GEMINI_API_KEY, GROQ_API_KEY, HF_TOKEN or OPENROUTER_API_KEY for "
-            "a free fallback."
+            "no model key is configured for this plan. Set GEMINI_API_KEY, "
+            "GROQ_API_KEY, HF_TOKEN or OPENROUTER_API_KEY for a free fallback"
+            + (", or DEEPSEEK_API_KEY for the paid one."
+               if tier in PAID_TIERS else ".")
         )
     return entries[0][1] if len(entries) == 1 else ChainWriter(entries)
 
