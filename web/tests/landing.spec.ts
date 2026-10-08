@@ -55,7 +55,14 @@ test("the landing page leads to the composer", async ({ page }) => {
   // The create view, not the bare workspace: someone who pressed "Get
   // started" has said what they came to do, and the address carries that
   // through a sign-in rather than dropping them on an overview afterwards.
-  await expect(page).toHaveURL(/\/dashboard#create$/);
+  //
+  // The timeout is raised because this is the first test in the file to go
+  // to /dashboard, and the dev server compiles a route the first time it is
+  // asked for one. The claim here is where the link leads; how long a cold
+  // compile takes is not part of it, and at the default 5s it was: this
+  // failed once per run, always on the first navigation, and passed on every
+  // repeat after the route was warm.
+  await expect(page).toHaveURL(/\/dashboard#create$/, { timeout: 30_000 });
   await expect(page.getByRole("button", { name: "Generate" })).toBeVisible();
 });
 
