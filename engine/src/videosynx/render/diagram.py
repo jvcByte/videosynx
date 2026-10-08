@@ -394,38 +394,6 @@ def place_edge_label(text: str, font, ends, boxes: dict, occupied: list,
     return mx, my, rect
 
 
-def _arrowhead(pen: Pen, start, tip, ink: str) -> None:
-    angle = math.atan2(tip[1] - start[1], tip[0] - start[0])
-    size = pen.width * 5.5
-    for spread in (math.radians(150), math.radians(-150)):
-        pen.stroke(
-            [tip, (tip[0] + size * math.cos(angle + spread),
-                   tip[1] + size * math.sin(angle + spread))],
-            ink=ink, passes=1,
-        )
-
-
-def _edge_ends(a, b) -> tuple[tuple[float, float], tuple[float, float]]:
-    """Where an arrow leaves *a* and lands on *b*.
-
-    It attaches to whichever pair of facing sides the two shapes actually
-    share, so the arrow meets an edge rather than a centre.
-    """
-    ax, ay = _centre(a)
-    bx, by = _centre(b)
-    dx, dy = bx - ax, by - ay
-    if abs(dx) >= abs(dy):
-        return (a[2] if dx > 0 else a[0], ay), (b[0] if dx > 0 else b[2], by)
-    return (ax, a[3] if dy > 0 else a[1]), (bx, b[1] if dy > 0 else b[3])
-
-
-def _draw_edge(pen: Pen, ends, ink: str) -> None:
-    start, tip = ends
-    pen.stroke([start, tip], ink=ink)
-    _arrowhead(pen, start, tip, ink)
-
-
-
 # -------------------------------------------------------------------- public
 
 def render_diagram(
