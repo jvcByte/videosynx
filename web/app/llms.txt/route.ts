@@ -78,6 +78,44 @@ them:
 4. Frames are drawn and encoded; nothing is screen-recorded.
 5. The file is served from storage on a signed link.
 
+## Submitting a lesson yourself
+
+\`POST /jobs\` takes a \`lesson\` object, or the same JSON as text in \`script\`.
+Either way it is rendered exactly as written -- nothing rewrites it and no
+model is called for it, so it costs no allowance beyond the render. This is
+how to draw a diagram rather than describe one to be drawn.
+
+A lesson is a title and a list of sections. A section is either \`code\` with
+narration anchored to fragments of it, or \`explain\` -- a narrated slide:
+
+    {
+      "title": "How a loop runs",
+      "sections": [{
+        "name": "One pass",
+        "explain": {
+          "heading": "Around the loop",
+          "diagram": {
+            "layout": "cycle",
+            "nodes": [{"id": "i", "label": "next item"},
+                      {"id": "b", "label": "body"}],
+            "edges": [["i", "b"], ["b", "i"]]
+          },
+          "sequence": ["i", "b"]
+        },
+        "narration": ["Take the next item.", "Run the body.", "Round again."]
+      }]
+    }
+
+A slide shows a \`diagram\`, or \`columns\` of text, or a \`sequence\` row. One
+narrated sentence reveals the next piece of it, in the order given: for a
+diagram that is one node per sentence, and the arrows into a new node are
+drawn in as that sentence is spoken. Shapes are box, round, cylinder, cloud,
+document, person and stack; layouts are row, column, grid, cycle, tree and
+stack.
+
+Any of it that is wrong is refused with a 422 naming the part, before the job
+is queued and before the allowance is touched.
+
 ## Facts
 
 - Pricing: free to start, with paid plans and credit packs below.
