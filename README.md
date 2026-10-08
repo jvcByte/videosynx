@@ -66,12 +66,15 @@ curl -LO https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-fil
 
 ```bash
 createdb videosynx
-pip install -e engine/ -e worker/ -e api/
+pip install -e engine/ -e worker/ -e api/ -e agent/
 
 python -m videosynx_api --port 8000          # the API
 python -m videosynx_worker --once            # a worker (drop --once to loop)
 cd web && npm install && npm run dev        # the UI on :3000
 ```
+
+`agent/` is only needed to drive the service from an assistant rather than
+the UI — see "Driving it from an assistant" in `usage.md`.
 
 With `GEMINI_API_KEY` set, a job with no `lesson` generates its code from the
 topic. With `R2_BUCKET` set, artifacts go to object storage instead of disk.
@@ -231,13 +234,16 @@ declined in exactly the same way.
 engine/     the renderer, timeline, sandbox and generation pipeline
 worker/     the Postgres queue, storage backends, and the worker loop
 api/        FastAPI: submit, status, quota, billing, video delivery
+agent/      MCP server: an assistant submits and reads back over the API
 web/        Next.js frontend
 lessons/    hand-written lesson JSON, checked by the test suite
 ```
 
-Two rules hold the boundaries: the API imports the worker (shared data layer)
-and never the reverse, and storage lives with the worker so the dependency runs
-one way.
+Three rules hold the boundaries: the API imports the worker (shared data layer)
+and never the reverse, storage lives with the worker so the dependency runs one
+way, and `agent/` imports none of them — it is an HTTP client of the API, which
+is what stops it from becoming a second place where quota and credits are
+decided.
 
 ## Requirements
 
@@ -251,7 +257,7 @@ one way.
 ## Development
 
 ```bash
-pip install -e "engine[dev]" -e worker/ -e api/
-pytest                      # from the repository root: 359 tests
-cd web && npx playwright test   # 26 browser tests, needs videosynx_e2e
+pip install -e "engine[dev]" -e worker/ -e api/ -e "agent[dev]"
+pytest                      # from the repository root: 459 tests
+cd web && npx playwright test   # needs videosynx_e2e
 ```

@@ -398,10 +398,93 @@ offer a voice that dies at synthesis.
 
 ---
 
-## 3. Tests
+## 3. Driving it from an assistant
+
+The service is also an MCP server, so an assistant that speaks MCP — Claude
+Code, Claude Desktop, anything else — can submit renders, watch them, read
+back what a video says and fetch the file, without anyone writing the calls.
 
 ```bash
-$VIDEOSYNX/.venv/bin/pytest                  # 359 tests
+pip install -e agent/
+.venv/bin/videosynx-mcp --check     # can it reach the API, and as whom
+```
+
+`--check` is the thing to run when a client lists no tools and it is not
+obvious why. It prints the URL it resolved, which variable the credential
+came from, and what the API said back. It exits non-zero when it cannot
+sign in, so it works in a script.
+
+The ten tools are all wrappers over routes that already exist:
+
+| tool | does |
+|---|---|
+| `my_account` | tier, jobs left today, credit balance, minutes rendered |
+| `create_video` | queue a video from a topic or a script; returns a job id |
+| `make_voiceover` | queue audio alone, no video |
+| `video_status` | status, stage and progress for one job |
+| `list_videos` | recent jobs, videos and clips |
+| `read_script` | the narration and diagrams a render actually produced |
+| `download_video` | a time-limited URL for a finished file |
+| `list_voices` | the voices a narration can use |
+| `cancel_video` | stop a job that has not finished — free |
+| `retry_video` | requeue a job that failed — no extra allowance or credit |
+
+Two things are worth knowing about the shape of them. Nothing is decided on
+the client: quota, credits and ownership are the API's, so an agent holding
+an account can do exactly what that account can do and the rules live in one
+place. And `create_video` returns as soon as the work is queued — a render
+takes minutes, so the assistant polls `video_status` rather than waiting.
+
+### Configuring a client
+
+`agent/` ships with a server called `videosynx`. Point a client at the
+installed entry point:
+
+```json
+{
+  "mcpServers": {
+    "videosynx": {
+      "command": "/path/to/videosynx/.venv/bin/videosynx-mcp",
+      "env": { "VIDEOSYNX_TOKEN": "…" }
+    }
+  }
+}
+```
+
+`VIDEOSYNX_TOKEN` is a Supabase access token for the account it should act
+as. With no token, a local server that has no sign-in configured accepts
+`VIDEOSYNX_DEV_USER` (`<id>` or `<id>:<tier>`) instead — the same header
+`curl` uses above, and it stops working the moment real auth is configured.
+`VIDEOSYNX_API_URL` says where the API is, defaulting to
+`http://localhost:8000`.
+
+This repository has a `.mcp.json` at its root doing exactly that, so
+`claude` started here already has the tools.
+
+### What an assistant cannot do
+
+Reach anything the account behind it could not. There is no route here that
+the UI does not also call, no direct database access, and no bypass of the
+quota or the credit charge. An agent that spends is an account that spends.
+
+That is also why the MCP server is not a paid feature. It runs on whoever's
+machine asked for it, using their own assistant and their own token, and
+the only thing it can spend is the account's own allowance — which is
+already metered wherever it is spent from. Charging for it would be
+charging twice for one thing.
+
+An assistant running *inside* the product is the opposite case and is not
+built. It would spend on videosynx's own model budget rather than the
+account's, and it is the one thing here that a conversation, rather than a
+video, is what costs — so neither `jobs_per_day` nor the credit balance
+would be counting it.
+
+---
+
+## 4. Tests
+
+```bash
+$VIDEOSYNX/.venv/bin/pytest                  # 459 tests
 cd $VIDEOSYNX/web && npx playwright test     # 3 browser tests
 ```
 
@@ -455,6 +538,14 @@ lesson** (4,000 characters). Your ElevenLabs allowance is 10,000 characters per
 period — under three lessons — so `auto` uses Kokoro instead. Ask for
 `--tts elevenlabs` when the allowance covers it and you want the better voice.
 
+Setting `DEEPSEEK_API_KEY` makes the writing paid, and is the one place
+where that is worth being precise about: about **four-tenths of a cent per
+video** at the token counts this prompt actually produces, against
+sixty-odd cents for one ElevenLabs narration of the same video. The voice
+costs a hundred and fifty times what the script does, which is why the
+chain is arranged around the free tiers and this sits behind them rather
+than in front.
+
 Cloudflare R2 has no egress fees but bills for storage; the local backend
 (`VIDEOSYNX_ARTIFACTS`, default `/tmp/videosynx/artifacts`) is used when
 `R2_BUCKET` is unset.
@@ -483,6 +574,7 @@ override it rather than waiting for a release.
 | variable | needed for |
 |---|---|
 | `GEMINI_API_KEY` | `--topic` runs (not `--demo` or `--lesson`). Tried first |
+| `DEEPSEEK_API_KEY` | the same runs, on a paid key instead of a free tier. Tried second, and skipped entirely unless set |
 | `GROQ_API_KEY`, `HF_TOKEN`, `OPENROUTER_API_KEY` | free fallbacks for when Gemini's daily allowance is spent |
 | `GROQ_MODELS`, `HF_MODELS`, `OPENROUTER_MODELS` | override that provider's model list, comma-separated |
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | `--tts elevenlabs` |
@@ -493,6 +585,9 @@ override it rather than waiting for a release.
 | `SUPABASE_JWT_SECRET` | the same, for a project older than asymmetric keys |
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | sign-in in the web app |
 | `CORS_ORIGINS` | allowed browser origins, default `localhost:3000` |
+| `VIDEOSYNX_TOKEN` | an MCP client acting as a signed-in account |
+| `VIDEOSYNX_DEV_USER` | the same, on a local server with no sign-in configured |
+| `VIDEOSYNX_API_URL` | where an MCP client sends its requests, default `http://localhost:8000` |
 
 ---
 

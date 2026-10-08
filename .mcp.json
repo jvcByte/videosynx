@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "videosynx": {
+      "command": ".venv/bin/videosynx-mcp",
+      "env": {
+        "VIDEOSYNX_API_URL": "${VIDEOSYNX_API_URL}",
+        "VIDEOSYNX_TOKEN": "${VIDEOSYNX_TOKEN}",
+        "VIDEOSYNX_DEV_USER": "${VIDEOSYNX_DEV_USER}"
+      }
+    }
+  }
+}

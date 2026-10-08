@@ -9,9 +9,13 @@
 # package, so `pytest` from here collected the wrong code and `import videosynx`
 # gave you the wrong module. That engine now lives on the `legacy-engine` branch.
 
+# `agent/` rather than `mcp/`, because MCP is only the first binding of the
+# tool layer inside it -- the product's own agent pane will want the same
+# tools against the same rules. A directory named for its protocol would
+# need renaming the day a second one appears.
 [tool.pytest.ini_options]
-testpaths = ["engine/tests", "worker/tests", "api/tests"]
-pythonpath = ["engine/src", "worker/src", "api/src"]
+testpaths = ["engine/tests", "worker/tests", "api/tests", "agent/tests"]
+pythonpath = ["engine/src", "worker/src", "api/src", "agent/src"]
 
 [tool.ruff]
 line-length = 100
