@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import re
 
-from .timeline import parse_diagram
+from .timeline import parse_diagram, parse_steps
 
 MARKER = "@@"
 
@@ -186,6 +186,39 @@ Return JSON: {slide_range} slides, as a list of objects in exactly this shape:
 - add `"repeat": 3` to a node for "a lot of these" (2 to 5 stacked copies)
 - use `stack` for layers, `cycle` for a loop, `tree` for one-to-many
 
+**When the idea changes, show it changing.** A diagram does not have to only
+add shapes. If the subject of a slide is not static -- a machine filling up, a
+cache going cold, a queue draining, something being scaled out, anything that
+gets worse or better -- the slide can report on shapes that are already there
+instead of drawing new ones. This is how a slide *demonstrates* rather than
+describes: the sentence says what happened and the picture does it, while the
+sentence is being spoken.
+
+Give such a diagram `"steps"`: one object per sentence after the heading, in
+the same order as the narration.
+
+    "steps": [
+      {{"show": ["users", "machine", "db"], "pill": "1,000 users - CPU 12%"}},
+      {{"pill": "10,000 users - CPU 74%", "tone": "busy"}},
+      {{"status": {{"machine": "busy"}}, "pill": "struggling", "tone": "busy"}},
+      {{"status": {{"machine": "failed"}}, "pill": "overloaded", "tone": "failed"}}
+    ]
+
+- `show`: the shape ids on screen by the end of that step. Cumulative -- name
+  each one once and it stays. Left out altogether, shapes arrive one per
+  sentence as they otherwise do. Name them when the picture should be whole
+  from the start and only change afterwards, which is what makes a change
+  read as a change rather than as another box appearing.
+- `status`: which shapes are `"ok"`, `"busy"` or `"failed"`. A shape keeps the
+  state you last gave it, so mention one only when it changes.
+- `pill`: a short reading in a box above the diagram -- a number, or two
+  words, under twenty characters. It stays until you replace it, and `""`
+  takes it away.
+- `tone`: what colour that pill is: `"ok"`, `"busy"` or `"failed"`.
+
+Use steps only when something genuinely changes. A diagram of parts that
+simply sit there, or one that only ever gains shapes, is better without them.
+
 **Instructions:**
 1. The first slide answers "what is this?" in plain language, for someone who
    has never met the idea. Do not mention the scenario or any real system yet.
@@ -201,10 +234,11 @@ Return JSON: {slide_range} slides, as a list of objects in exactly this shape:
 5. Three to five shapes per diagram, or two to three columns of text. Keep
    every label and every line under forty characters.
 6. `narration` must hold exactly one sentence more than there are things to
-   reveal -- nodes for a diagram, columns for a text slide. The first is spoken
-   over the heading alone, then one per shape as it appears, then a closing
-   sentence. Three nodes need five sentences; the diagram example above has
-   exactly that.
+   reveal -- `steps` if the diagram has them, otherwise nodes for a diagram or
+   columns for a text slide. The first is spoken over the heading alone, then
+   one per step or shape, then a closing sentence. Three nodes need five
+   sentences; the diagram example above has exactly that, and the steps
+   example needs five for its four steps.
 7. Each sentence is under twenty words, and must not read the labels back word
    for word -- say it in speech, not as a caption.
 8. The note is one sentence: what to remember from that slide.
@@ -372,6 +406,10 @@ def parse_slides(text: str, limit: int = MAX_SLIDES) -> list[dict]:
             "heading": str(item["heading"]),
             "columns": tuple(columns),
             "diagram": diagram,
+            # Validated here, beside the diagram, so what comes back is a
+            # shape the rest of the pipeline can use rather than raw model
+            # output it has to defend against a second time.
+            "steps": parse_steps(item.get("steps"), diagram),
             "note": str(item.get("note", "")),
             "narration": narration,
         })

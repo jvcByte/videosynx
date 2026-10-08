@@ -113,6 +113,26 @@ drawn in as that sentence is spoken. Shapes are box, round, cylinder, cloud,
 document, person and stack; layouts are row, column, grid, cycle, tree and
 stack.
 
+### Showing something change
+
+A diagram can also report on the shapes that are already there, which is how a
+slide demonstrates rather than describes: the sentence says what happened and
+the picture does it, while the sentence is spoken. Give the diagram
+\`"steps"\`, one per sentence after the heading:
+
+    "steps": [
+      {"show": ["users", "machine", "db"], "pill": "1,000 users"},
+      {"pill": "100,000 users", "tone": "busy"},
+      {"status": {"machine": "busy"}, "pill": "struggling", "tone": "busy"},
+      {"status": {"machine": "failed"}, "pill": "overloaded", "tone": "failed"}
+    ]
+
+\`show\` names the shapes on screen, cumulatively -- use it when the picture
+should be whole from the start and only change afterwards. \`status\` marks a
+shape \`ok\`, \`busy\` or \`failed\`, and it stays until something changes it.
+\`pill\` is a short reading in a box above the diagram, coloured by \`tone\`.
+The narration then needs one sentence more than there are steps.
+
 Any of it that is wrong is refused with a 422 naming the part, before the job
 is queued and before the allowance is touched.
 

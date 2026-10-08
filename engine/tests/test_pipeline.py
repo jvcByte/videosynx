@@ -29,7 +29,14 @@ from videosynx.prompts import (
 from videosynx.providers import ProviderError, ScriptedWriter
 from videosynx.render import render_plan
 from videosynx.script import SLIDE_PLAN, build_tutorial, resolve_marker, speak_anchored
-from videosynx.timeline import SR, Explanation, Phrase, Snippet
+from videosynx.timeline import (
+    SR,
+    Explanation,
+    Phrase,
+    Slide,
+    Snippet,
+    plan_explanation,
+)
 
 CODE = (
     "total = 0\n"
@@ -1157,3 +1164,79 @@ def test_every_voice_failing_keeps_the_reason_that_decides_a_retry():
     with pytest.raises(ProviderError) as failed:
         speaker.say("One line.")
     assert failed.value.reason == "busy", "the last reason is the current one"
+
+
+# ------------------------------------------ a slide that shows, not just tells
+# The prompt now asks for `steps`, and a step is what lets a diagram report on
+# shapes that are already there instead of only adding new ones. This is the
+# whole path a model's answer takes: prompt, response, parser, planner,
+# renderer.
+
+CHANGING_SLIDE = json.dumps([{
+    "heading": "When one machine is not enough",
+    "diagram": {
+        "layout": "row",
+        "nodes": [{"id": "u", "label": "users", "shape": "person"},
+                  {"id": "m", "label": "one machine"},
+                  {"id": "db", "label": "database", "shape": "cylinder"}],
+        "edges": [["u", "m"], ["m", "db"]],
+    },
+    "steps": [
+        {"show": ["u", "m", "db"], "pill": "1,000 users"},
+        {"pill": "100,000 users", "tone": "busy"},
+        {"status": {"m": "busy"}, "pill": "struggling", "tone": "busy"},
+        {"status": {"m": "failed"}, "pill": "overloaded", "tone": "failed"},
+    ],
+    "note": "One machine only goes so far.",
+    "narration": ["Start small.", "A thousand is fine.", "A hundred thousand is not.",
+                  "It fills up.", "Then it gives up."],
+}])
+
+
+def test_the_prompt_asks_for_a_picture_that_can_change():
+    """A capability nothing is asked for is a capability that never appears."""
+    prompt = concept_prompt("python generators", "")
+    for word in ("steps", "show", "status", "pill", "tone"):
+        assert word in prompt, f"the prompt never mentions {word!r}"
+    # And it *shows* the shape rather than only naming the fields. A model
+    # copies the example it is handed, and a list of names with nothing to
+    # copy is how a field gets invented rather than used -- which is why the
+    # first version of this test, checking only the words, passed against an
+    # example whose keys had been renamed out from under it.
+    for written in ('"steps": [', '"show": [', '"status": {', '"pill": "'):
+        assert written in prompt, f"the prompt never shows {written!r}"
+    # And it says when *not* to use them, or every diagram gets them.
+    assert "better without them" in prompt
+
+
+def test_a_slide_that_changes_survives_the_parser():
+    """`parse_slides` returns an explicit dict, so a key it forgets is a key
+    the rest of the pipeline never sees -- which is what nearly happened."""
+    slides = parse_slides(CHANGING_SLIDE)
+    assert len(slides) == 1
+    assert len(slides[0]["steps"]) == 4
+    assert slides[0]["steps"][0].show == ("u", "m", "db")
+
+
+def test_a_model_answer_becomes_a_demonstration():
+    """End to end: the answer the prompt describes, drawn as the plan."""
+    slides = parse_slides(CHANGING_SLIDE)
+    raw = slides[0]
+    slide = Slide(heading=raw["heading"], columns=raw["columns"],
+                  diagram=raw["diagram"], steps=raw["steps"], note=raw["note"])
+    phrases = tuple(Phrase(s, np.zeros(int(1.5 * SR), dtype=np.float32))
+                    for s in raw["narration"])
+    spans, _, _, _ = plan_explanation(Explanation(slide=slide, phrases=phrases))
+
+    seen = []
+    for span in spans:
+        state = span.state.slide
+        if state is None or (seen and seen[-1][0] == state.revealed):
+            continue
+        seen.append((state.revealed, dict(state.states).get("m", "ok"),
+                     state.pill, state.tone))
+
+    assert [s[1] for s in seen] == ["ok", "ok", "ok", "busy", "failed"]
+    assert [s[2] for s in seen] == ["", "1,000 users", "100,000 users",
+                                    "struggling", "overloaded"]
+    assert [s[3] for s in seen] == ["ok", "ok", "busy", "busy", "failed"]

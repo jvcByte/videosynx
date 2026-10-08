@@ -119,7 +119,7 @@ def concept_slides(
             Explanation(
                 slide=Slide(heading=raw["heading"], columns=raw["columns"],
                             diagram=raw.get("diagram"),
-                            steps=parse_steps(raw.get("steps"), raw.get("diagram")),
+                            steps=raw["steps"],
                             note=raw["note"]),
                 phrases=phrases,
             )
