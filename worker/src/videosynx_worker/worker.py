@@ -422,6 +422,7 @@ class EngineRenderer:
 
         from videosynx.lesson import (
             build_lesson,
+            lesson_from_object,
             lesson_from_text,
             load_lesson,
         )
@@ -453,10 +454,19 @@ class EngineRenderer:
         log.info("mode: %s, style: %s, %sx%s, watermark: %s",
                  mode, style, width, height, bool(watermark))
 
-        # Three ways in, in order of how much the caller has already decided:
-        # their own script, a lesson file on this machine, or just a topic.
+        # Four ways in, in order of how much the caller has already decided:
+        # their own script, a lesson object, a lesson file on this machine, or
+        # just a topic.
+        #
+        # `lesson` is either an object or a path, and the two are told apart by
+        # type rather than by a flag. A string can only be a path: an object
+        # sent as text has always gone through `script`, which already reads
+        # lesson JSON, and keeping one way in for that is why this stays a
+        # two-line branch.
         script = options.get("script")
-        lesson_path = options.get("lesson")
+        lesson_source = options.get("lesson")
+        lesson_object = lesson_source if isinstance(lesson_source, dict) else None
+        lesson_path = lesson_source if isinstance(lesson_source, str) else None
         generation = options.get("generation") or "auto"
 
         # Decided before anything is constructed. The API refuses this before
@@ -464,7 +474,7 @@ class EngineRenderer:
         # mode's whole promise is that nothing is spent -- so it is not left to
         # one caller to keep. Prose counts as needing a model, because it has
         # to be structured first; lesson JSON does not.
-        if generation == "local" and not (script or lesson_path):
+        if generation == "local" and not (script or lesson_source):
             raise Refused(
                 "local mode works from content you supply and never calls a "
                 "model, so it cannot write a tutorial from a topic. Paste a "
@@ -487,6 +497,15 @@ class EngineRenderer:
         if script:
             lesson = lesson_from_text(script, writer=writer,
                                       local=generation == "local")
+            tutorial = build_lesson(lesson, speaker=speaker, execute=self.execute)
+        elif lesson_object is not None:
+            # The API checks this before it is queued, but the queue can be
+            # written to directly, so it is checked here too -- and None means
+            # the object has no sections, which is a refusal rather than a
+            # render of nothing.
+            lesson = lesson_from_object(lesson_object)
+            if lesson is None:
+                raise Refused("the submitted lesson has no `sections`")
             tutorial = build_lesson(lesson, speaker=speaker, execute=self.execute)
         elif lesson_path:
             tutorial = build_lesson(load_lesson(lesson_path), speaker=speaker,

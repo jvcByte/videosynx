@@ -130,6 +130,35 @@ def test_create_video_leaves_out_what_was_not_asked_for(monkeypatch):
         "script": "### Heading\n\nProse.", "generation": "local"}
 
 
+def test_a_lesson_object_is_passed_through_untouched(monkeypatch):
+    """An agent authoring a diagram sends structure, not escaped JSON.
+
+    The tool must not reshape it on the way: the shapes, the arrows and the
+    reveal order are the whole content, and a wrapper that "helpfully"
+    normalised any of them would be redrawing someone else's diagram.
+    """
+    seen = fake_api(monkeypatch, ok({"id": JOB, "status": "queued"}),
+                    VIDEOSYNX_TOKEN="tok")
+    lesson = {
+        "title": "How a loop runs",
+        "sections": [{
+            "name": "Cycle",
+            "explain": {
+                "heading": "One pass round the loop",
+                "diagram": {
+                    "layout": "cycle",
+                    "nodes": [{"id": "i", "label": "item"}, {"id": "b", "label": "body"}],
+                    "edges": [["i", "b"], ["b", "i"]],
+                },
+                "sequence": ["i", "b"],
+            },
+            "narration": ["Take the next item.", "Run the body."],
+        }],
+    }
+    tool("create_video", {"lesson": lesson})
+    assert json.loads(seen[0].content) == {"lesson": lesson}
+
+
 def test_a_refusal_is_reported_in_the_services_own_words(monkeypatch):
     """The quota refusal carries the numbers, and the model needs them."""
 

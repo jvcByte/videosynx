@@ -25,7 +25,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import psycopg
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
@@ -122,10 +122,14 @@ class SubmitRequest(BaseModel):
                     "you supply -- lesson JSON, or prose it structures on this "
                     "machine -- so a bare topic is refused rather than "
                     "quietly spending.")
-    lesson: str | None = Field(
+    lesson: str | dict[str, Any] | None = Field(
         default=None,
-        description="Path to a lesson JSON on the worker's machine. Kept for "
-                    "local runs; a hosted job should send `script` instead.",
+        description="A lesson to render exactly as given -- the shapes, the "
+                    "arrows, the reveal order. Send an object, or send the "
+                    "same JSON as text in `script`; both are rendered "
+                    "verbatim rather than rewritten. A *string* is instead a "
+                    "path on the worker's machine, which only means anything "
+                    "when the caller and the worker share a disk.",
     )
 
     @model_validator(mode="after")
@@ -135,6 +139,75 @@ class SubmitRequest(BaseModel):
         if self.topic.strip() and len(self.topic.strip()) < 3:
             raise ValueError("topic must be at least 3 characters")
         return self
+
+
+def submitted_lesson(body: SubmitRequest):
+    """The lesson this request carries, or None if it carries prose instead.
+
+    Two ways in and one answer: an object in `lesson`, or the same JSON sent
+    as text in `script`. The second is not a special case -- it is what the
+    composer has always done, and what its own placeholder tells people to do
+    -- but until now nothing on this side knew it was a lesson rather than
+    prose, so nothing could check it before the worker tried to render it.
+
+    Raises ValueError when the content is a lesson and is malformed. That is
+    deliberate: "this is not lesson JSON" and "this lesson JSON is broken"
+    need different answers, and only the second is worth a message naming a
+    section.
+    """
+    from videosynx.lesson import lesson_from_json, lesson_from_object
+
+    if isinstance(body.lesson, dict):
+        return lesson_from_object(body.lesson)
+    text = (body.script or "").strip()
+    if not _means_to_be_json(text):
+        return None
+    return lesson_from_json(text)
+
+
+def _means_to_be_json(text: str) -> bool:
+    """Whether a script is *meant* to be lesson JSON.
+
+    Judged by how it starts rather than by whether it parses, because those
+    differ in the case that matters. A truncated lesson object parses as
+    nothing at all, so read as prose it would spend a model call
+    restructuring a broken blob and then render something nobody wrote --
+    and the caller would be billed an allowance for it.
+    """
+    stripped = text.lstrip()
+    if stripped.startswith("```"):
+        _, _, rest = stripped.partition("\n")
+        stripped = rest.lstrip()
+    return stripped.startswith("{")
+
+
+def check_lesson(body: SubmitRequest) -> None:
+    """Refuse a lesson that cannot render, while refusing is still free.
+
+    Lesson JSON is drawn exactly as written. Nothing rewrites it and nothing
+    re-checks it, so a typo in one used to be a job that was accepted, counted
+    against the day's allowance, queued, and then failed in the worker -- the
+    caller paying a job for a message they could have had immediately.
+
+    Raising ValueError is the contract: the route maps that to a 422.
+    """
+    if isinstance(body.lesson, dict):
+        if submitted_lesson(body) is None:
+            raise ValueError(
+                "a submitted lesson needs a `sections` list. There is an "
+                "example of the shape at /llms.txt."
+            )
+        return
+
+    text = (body.script or "").strip()
+    if not _means_to_be_json(text):
+        return  # prose, which a model structures -- a different path entirely
+
+    if submitted_lesson(body) is None:
+        raise ValueError(
+            "this script starts like lesson JSON but is not a lesson object "
+            "with a `sections` list. Send prose, or fix the JSON."
+        )
 
 
 def can_render_locally(body: SubmitRequest) -> bool:
@@ -156,6 +229,23 @@ def job_label(body: SubmitRequest) -> str:
     script with "dictionary in python" still in the topic box produced a row
     labelled "dictionary in python" containing the fine-tuning lesson.
     """
+    # A lesson knows what it is called. Without this the label for lesson JSON
+    # is whatever the first line of the JSON happens to be -- `{`, or a
+    # fragment like `"title": "How a loop runs",` -- because that is what the
+    # line loop below is looking at.
+    #
+    # It must not raise. Naming a job is not a place to reject one, and a
+    # parse that raises here would make this a second gate -- so removing
+    # check_lesson would change nothing observable, which is how a check goes
+    # missing without anybody noticing. check_lesson is the only gate; this
+    # only fails to find a name.
+    try:
+        lesson = submitted_lesson(body)
+    except ValueError:
+        lesson = None
+    if lesson is not None and lesson.title.strip():
+        return lesson.title.strip()[:120]
+
     for line in (body.script or "").splitlines():
         stripped = line.strip().lstrip("#").strip()
         if stripped:
@@ -1017,6 +1107,10 @@ def create_app(dsn: str | None = None, storage: Storage | None = None) -> FastAP
             options["lesson"] = body.lesson
 
         try:
+            # Before the quota is spent and before anything is written. A
+            # lesson that cannot render is worth a 422 now rather than a job
+            # the day's allowance has paid for and the worker will fail.
+            check_lesson(body)
             job_id, tier = submit_within_quota(
                 dsn,
                 user_id=user.id,

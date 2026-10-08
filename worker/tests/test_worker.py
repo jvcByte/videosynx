@@ -267,3 +267,66 @@ def test_each_job_gets_its_own_heartbeat():
 
     # One beat from the renderer per job, plus at least the initial one.
     assert queue.heartbeats >= 3
+
+
+def test_a_lesson_object_renders_without_being_written_to_disk(tmp_path, monkeypatch):
+    """The whole point of sending a lesson as an object rather than as a path.
+
+    A path only means anything when the caller and the worker share a disk,
+    which a client of a hosted service does not. This renders from the object
+    itself, and refuses a provider the same way local mode does -- a lesson
+    that is already written needs nothing written for it.
+    """
+    import json
+
+    import numpy as np
+    import videosynx.providers as providers
+    import videosynx.render as render
+    from videosynx.timeline import SR
+    from videosynx_worker.worker import EngineRenderer
+
+    def refuse():
+        raise AssertionError("a submitted lesson must not build a provider")
+
+    monkeypatch.setattr(providers, "default_writer", refuse)
+    monkeypatch.setattr(render, "render_plan", lambda *a, **k: None)
+
+    class Silent:
+        def say(self, text, *, previous="", following=""):
+            return np.full(SR // 4, 4000, dtype=np.int16)
+
+    renderer = EngineRenderer(tmp_path)
+    monkeypatch.setattr(renderer, "_speaker", lambda *a, **k: Silent())
+
+    authored = json.loads(
+        (Path(__file__).resolve().parents[2] / "lessons"
+         / "15-1-when-to-fine-tune.json").read_text())
+
+    job = Job(id="obj-1", user_id="u", topic="", tier="free", attempt=1,
+              max_attempts=1,
+              options={"generation": "local", "tts": "espeak", "lesson": authored})
+    _, duration = renderer(job, lambda stage, progress: None)
+
+    assert duration > 0, "nothing was rendered"
+    # The lesson that was submitted is the lesson that was rendered. The
+    # export has no title of its own, so the heading is what says so.
+    saved = json.loads((tmp_path / "obj-1.script.json").read_text())
+    assert len(saved["sections"]) == len(authored["sections"])
+    assert saved["sections"][0]["heading"] == authored["sections"][0]["explain"]["heading"]
+
+
+def test_a_lesson_object_with_nothing_in_it_is_refused(tmp_path, monkeypatch):
+    """`lesson` carrying an object that is not a lesson is a refusal, not a
+    render of nothing. The API refuses it earlier, but the queue can be
+    written to directly."""
+    import videosynx.render as render
+    from videosynx_worker.worker import EngineRenderer, Refused
+
+    monkeypatch.setattr(render, "render_plan", lambda *a, **k: None)
+    renderer = EngineRenderer(tmp_path)
+    job = Job(id="obj-2", user_id="u", topic="", tier="free", attempt=1,
+              max_attempts=1,
+              options={"generation": "local", "tts": "espeak",
+                       "lesson": {"title": "No sections"}})
+    with pytest.raises(Refused, match="sections"):
+        renderer(job, lambda stage, progress: None)

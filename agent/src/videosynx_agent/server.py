@@ -127,7 +127,18 @@ def build() -> MCPServer:
             Field(description="A finished narration script to render, used "
                               "verbatim in place of anything a model would "
                               "write. This is how to keep control of the "
-                              "wording."),
+                              "wording. May also be lesson JSON as text -- a "
+                              "JSON object with a `sections` list -- which is "
+                              "rendered exactly as written."),
+        ] = None,
+        lesson: Annotated[
+            dict | None,
+            Field(description="A lesson to render exactly as given: the shapes, "
+                              "the arrows, the reveal order, and what is said "
+                              "over each part. This is how to draw a diagram "
+                              "rather than describe one. Rendered verbatim, "
+                              "and it never calls a model, so it costs no "
+                              "allowance beyond the render."),
         ] = None,
         mode: Annotated[
             Literal["both", "coding", "illustration"] | None,
@@ -157,6 +168,8 @@ def build() -> MCPServer:
             body["topic"] = topic.strip()
         if script:
             body["script"] = script
+        if lesson:
+            body["lesson"] = lesson
         if mode:
             body["mode"] = mode
         if generation:

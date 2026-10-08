@@ -490,6 +490,28 @@ test("a rejected submission explains itself", async ({ page }) => {
   await expect(alert).toContainText("quota_exceeded");
 });
 
+test("lesson JSON that cannot render is refused before it is queued", async ({ page }) => {
+  // Pasted lesson JSON is rendered exactly as written, so a broken one used to
+  // be accepted, counted against the day's allowance, and then fail in the
+  // worker -- the composer paying a job for a message it could have had at
+  // once. An explanation with nothing said over it is the simplest such case.
+  await page.goto(at("create"));
+  await page.locator("#script").fill(JSON.stringify({
+    title: "Broken",
+    sections: [{ name: "s", explain: { heading: "H" }, narration: [] }],
+  }));
+  await page.getByRole("button", { name: "Generate" }).click();
+
+  // The server's own complaint, naming the part that is wrong rather than
+  // reporting that something, somewhere, was not recognised.
+  const alert = page.getByTestId("error");
+  await expect(alert).toBeVisible();
+  await expect(alert).toContainText("narration");
+
+  // Still on the composer, with the text intact: nothing was queued.
+  await expect(page.locator("#script")).toHaveValue(/Broken/);
+});
+
 test("the sidebar swaps views, and the address carries them", async ({ page }) => {
   await page.goto(WORKSPACE);
   // Nothing after the address means the overview, and the overview is where

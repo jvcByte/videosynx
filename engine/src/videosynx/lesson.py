@@ -156,6 +156,30 @@ def load_lesson(path: Path | str) -> Lesson:
     return parse_lesson(data, source=str(path))
 
 
+def lesson_from_object(data, source: str = "the submitted lesson") -> Lesson | None:
+    """The lesson a decoded object is, or None if it is not one.
+
+    Returns None for a dict that is simply not a lesson -- prose that happens
+    to contain braces, say. Raises ValueError for one that *is* a lesson and
+    is malformed, which is a different thing and the more useful answer: the
+    caller wants to know which section is broken, not that it is unrecognised.
+    """
+    if isinstance(data, dict) and data.get("sections"):
+        return parse_lesson(data, source=source)
+    return None
+
+
+def lesson_from_json(text: str) -> Lesson | None:
+    """The lesson a blob of text carries, or None if it carries none.
+
+    The first thing :func:`lesson_from_text` does, on its own. Split out so
+    the API can check what the worker is about to render without a writer or
+    a speaker to hand, and so that both agree on what counts as lesson JSON
+    -- the way to guarantee that is for there to be one answer.
+    """
+    return lesson_from_object(parse_json_object(text), "the submitted script")
+
+
 def lesson_from_text(text: str, *, writer: Writer | None = None,
                      local: bool = False) -> Lesson:
     """Turn submitted script text into a lesson.
@@ -168,10 +192,10 @@ def lesson_from_text(text: str, *, writer: Writer | None = None,
     allowance -- it is parsed mechanically instead, which is what lets local
     mode take pasted text at all.
     """
-    data = parse_json_object(text)
-    if isinstance(data, dict) and data.get("sections"):
+    lesson = lesson_from_json(text)
+    if lesson is not None:
         _console.log("[blue]Rendering the submitted lesson[/blue]")
-        return parse_lesson(data, source="the submitted script")
+        return lesson
 
     if local:
         from .prose import lesson_from_prose  # circular at module level

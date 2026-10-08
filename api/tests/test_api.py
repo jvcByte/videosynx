@@ -20,9 +20,11 @@ from psycopg.types.json import Json
 from videosynx_api.app import (
     Mode,
     SubmitRequest,
+    check_lesson,
     create_app,
     can_render_locally,
     job_label,
+    submitted_lesson,
 )
 from videosynx_api.quota import TIERS, QuotaExceeded, submit_within_quota, used_today
 from videosynx_api.settings import KOKORO_VOICES as KOKORO_VOICE_IDS
@@ -1195,3 +1197,93 @@ def test_the_badges_are_earned_by_the_work_that_names_them(client):
     assert earned == {"first", "epic", "scripted", "local", "undeterred"}, earned
     # The failed row is enormous and must not have counted toward the hour.
     assert progress["xp"] == 2 * 100 + int(710 / 60) * 10
+
+
+# ------------------------------------------------ structured lesson validation
+# Lesson JSON is rendered exactly as written, so it is the one input where this
+# side can tell, before anything is queued, whether the render will succeed.
+# A broken lesson used to be accepted with a 202, counted against the day's
+# allowance and then failed in the worker -- the caller paying a job for a
+# message they could have had immediately.
+
+def broken_lesson() -> str:
+    """A lesson that starts right and is wrong further in: an explanation with
+    nothing said over it."""
+    return json.dumps({
+        "title": "Broken",
+        "sections": [{"name": "s", "explain": {"heading": "H"}, "narration": []}],
+    })
+
+
+def test_prose_is_not_mistaken_for_lesson_json():
+    """Most scripts are prose, and prose is structured by a model downstream.
+    Refusing it here would refuse the ordinary case."""
+    assert submitted_lesson(SubmitRequest(script="Scene 1. A manager speaks.")) is None
+
+
+def test_lesson_json_sent_as_text_is_recognised():
+    lesson = submitted_lesson(SubmitRequest(script=LESSON_JSON))
+    assert lesson is not None and lesson.title == "Authored"
+
+
+def test_a_lesson_object_is_recognised():
+    lesson = submitted_lesson(SubmitRequest(lesson=json.loads(LESSON_JSON)))
+    assert lesson is not None and lesson.title == "Authored"
+
+
+def test_a_lesson_with_no_sections_is_refused():
+    with pytest.raises(ValueError, match="sections"):
+        check_lesson(SubmitRequest(lesson={"title": "Nothing here"}))
+
+
+def test_a_truncated_lesson_is_refused_rather_than_read_as_prose():
+    """The case the startswith check exists for.
+
+    A truncated object parses as nothing at all, so read as prose it would
+    spend a model call restructuring a broken blob and then render something
+    the caller never wrote.
+    """
+    with pytest.raises(ValueError, match="starts like lesson JSON"):
+        check_lesson(SubmitRequest(script='{"title": "Half", "sections": ['))
+
+
+def test_a_lesson_that_parses_but_is_unusable_names_the_problem():
+    """Not "unrecognised". The caller wants to know which part is wrong, and
+    parse_lesson already knows."""
+    with pytest.raises(ValueError, match="narration"):
+        check_lesson(SubmitRequest(script=broken_lesson()))
+
+
+def test_prose_that_merely_contains_braces_is_still_prose():
+    """It does not start with one, so it is not treated as a broken lesson."""
+    check_lesson(SubmitRequest(script="Use a dict, like {'a': 1}, to map keys."))
+
+
+def test_the_job_is_named_after_the_lesson_and_not_its_first_line():
+    """Otherwise the library entry for lesson JSON is called `{`."""
+    assert job_label(SubmitRequest(lesson=json.loads(LESSON_JSON))) == "Authored"
+    assert job_label(SubmitRequest(script=LESSON_JSON)) == "Authored"
+
+
+@requires_db
+def test_a_broken_lesson_is_refused_before_it_is_counted(client):
+    before = client.get("/me/quota", headers=auth()).json()["used_today"]
+
+    response = client.post("/jobs", headers=auth(), json={"script": broken_lesson()})
+
+    assert response.status_code == 422
+    assert "narration" in response.json()["detail"]
+    # Nothing was queued, so the allowance is untouched -- which is the whole
+    # point of checking here rather than in the worker.
+    assert client.get("/me/quota", headers=auth()).json()["used_today"] == before
+
+
+@requires_db
+def test_a_lesson_object_rides_with_the_job(client):
+    response = client.post("/jobs", headers=auth(),
+                           json={"lesson": json.loads(LESSON_JSON)})
+
+    assert response.status_code == 202
+    stored = stored_options(response.json()["id"])["lesson"]
+    assert stored["title"] == "Authored"
+    assert stored["sections"][0]["explain"]["columns"] == [["A", ["a"]]]
