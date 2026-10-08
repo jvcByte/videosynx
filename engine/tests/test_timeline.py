@@ -17,6 +17,8 @@ import pytest
 from videosynx.render import render_plan
 from videosynx.timeline import (
     FPS,
+    MAX_GAP_FRAMES,
+    MIN_GAP_FRAMES,
     SPF,
     SR,
     Card,
@@ -259,9 +261,12 @@ def test_close_anchors_queue_instead_of_slowing_the_video():
     natural = sum(typing_weights(code)) * FRAMES_PER_WEIGHT
     assert typing <= natural * 1.5, "typing ballooned to fit the narration"
 
-    # Queued phrases sit end to end, so the audio is exactly as long as the
-    # three of them and nothing was dropped or laid on top of anything else.
-    assert len(plan.narrations[0].samples) == sum(p.n_frames for p in phrases) * SPF
+    # Queued phrases sit a beat apart: never laid on top of one another, and
+    # never dropped. So the audio is the three of them plus the two beats
+    # between -- which is what makes them three sentences and not one run-on.
+    beats = (len(phrases) - 1) * MIN_GAP_FRAMES
+    assert len(plan.narrations[0].samples) == (
+        sum(p.n_frames for p in phrases) + beats) * SPF
 
 
 def test_narration_follows_the_code_it_describes():
@@ -679,3 +684,60 @@ def test_a_short_line_is_left_alone():
     # where the cursor sits, which is what visible_lines has always returned.
     assert all(number is not None for _, number, _, _ in rows)
     assert [text for text, _, _, _ in rows][:2] == ["x = 1", "y = 2"]
+
+
+def longest_silence(plan) -> int:
+    """The longest stretch of narration with nothing said, in frames.
+
+    Frame RMS, not a per-sample test: a tone crosses zero constantly and would
+    count thousands of false gaps. This is what a viewer actually experiences
+    -- how long the video goes without a voice -- so it is the thing worth
+    asserting on rather than the arithmetic that produced it.
+    """
+    worst = 0
+    for narration in plan.narrations:
+        samples = narration.samples.astype(np.float32)
+        frames = len(samples) // SPF
+        rms = np.sqrt((samples[: frames * SPF].reshape(frames, SPF) ** 2).mean(axis=1))
+        run = 0
+        for value in rms:
+            run = run + 1 if value <= 500 else 0
+            worst = max(worst, run)
+    return worst
+
+
+def test_a_sentence_never_waits_long_for_a_distant_anchor():
+    """The reported problem: a real render was 28% silent, one stretch 38s.
+
+    The anchors are a model's guess at which line a sentence is about, and a
+    guess can land a long way ahead of where the previous sentence finished.
+    A sentence that waits for it is silence with a picture moving in it. On
+    that render, one snippet had four waits past the cap and the worst was
+    10.3 seconds -- and two snippets like it were 34 of the video's 38 silent
+    seconds.
+
+    `MAX_GAP_FRAMES` was already defined, already documented as the limit on
+    exactly this, and referenced nowhere.
+    """
+    code = "x = 1\n" * 40
+    phrases = (
+        Phrase("The first thing.", _tone(2.0, 400), anchor=0),
+        # A long way ahead: the previous sentence finishes at about a tenth of
+        # the code, and this one is anchored at the very end.
+        Phrase("The second thing.", _tone(2.0, 600), anchor=len(code) - 3),
+    )
+    plan = build_plan([Snippet(code=code, phrases=phrases)])
+
+    heard = longest_silence(plan)
+    assert heard <= MAX_GAP_FRAMES + 1, (
+        f"the video goes {heard / FPS:.1f}s without a voice; the cap is "
+        f"{MAX_GAP_FRAMES / FPS:.1f}s")
+
+
+def test_the_first_sentence_does_not_wait_for_its_anchor_either():
+    """An opening anchored deep in the code must not open on silence."""
+    code = "x = 1\n" * 40
+    plan = build_plan([Snippet(
+        code=code, phrases=(Phrase("Everything.", _tone(2.0, 400), anchor=len(code) - 3),))])
+
+    assert longest_silence(plan) <= MAX_GAP_FRAMES + 1

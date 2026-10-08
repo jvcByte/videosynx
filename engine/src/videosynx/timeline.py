@@ -52,6 +52,12 @@ CAPTION_MAX_CHARS = 42
 CAPTION_MAX_WORDS = 8
 # A pause between sentences reads as thinking; a long one reads as a stall.
 MAX_GAP_FRAMES = 45  # 1.5 s
+# The shortest break between two spoken sentences. Each is synthesised apart
+# and trimmed of its own silence, so without this they are laid down
+# sample-contiguous and two sentences run together as one. A fifth of a second
+# is below what anyone hears as a pause and is the difference between speech
+# and a run-on.
+MIN_GAP_FRAMES = 6
 
 
 @dataclass(frozen=True)
@@ -386,6 +392,31 @@ def chunk_caption_text(text: str) -> list[str]:
     return chunks
 
 
+def phrase_captions(
+    phrases: tuple[Phrase, ...], starts, lengths
+) -> list[Caption]:
+    """Captions for a run of sentences, with the beat between them closed.
+
+    Sentences are laid down a beat apart -- see MIN_GAP_FRAMES -- and a
+    caption that stopped for the beat and started again would blink once per
+    sentence. The last caption of each sentence is held to the start of the
+    next one instead, which is what a subtitle does with a pause.
+
+    Written once because it is done in three places, and captions that tile
+    on a slide but not over code is a difference nobody would see until they
+    watched a video.
+    """
+    out: list[Caption] = []
+    for i, (phrase, start, length) in enumerate(zip(phrases, starts, lengths)):
+        made = time_captions(phrase.text, int(start), int(start + length))
+        if not made:
+            continue
+        if i + 1 < len(starts):
+            made[-1] = replace(made[-1], end_frame=int(starts[i + 1]))
+        out.extend(made)
+    return out
+
+
 def time_captions(text: str, start_frame: int, end_frame: int) -> list[Caption]:
     """Spread one sentence's words across the frames it was spoken over.
 
@@ -533,27 +564,29 @@ def typing_total_for(
     Sentences are *not* forced to finish before the next anchor is reached --
     doing that drags typing down to a crawl whenever a sentence is longer than
     its stretch of code (measured at 4.5 chars/sec). Instead a sentence may
-    overrun, and the next one starts a beat late. The only adjustment is
-    enough slack for the final sentence to fit, so the voice is not still
-    talking over a finished screen.
+    overrun, and the next one starts a beat late.
+
+    The rule is that typing ends when the voice does. Both halves of that
+    matter and only one of them used to hold: narration was stretched to fit
+    the typing, never the other way, so a snippet whose narration was shorter
+    than its code kept typing after the voice stopped.
+
+    Solved by settling rather than by formula, because `place_phrases` caps
+    how long a sentence will wait for its anchor and that cap breaks the
+    straight-line relation a formula assumes. Typing longer pushes the
+    anchors later, which pushes the voice later, and the two meet at
+    `last_end == target`; four rounds is far more than it needs, and it stops
+    as soon as it stops moving.
     """
-    total_weight = cum_weights[-1] or 1.0
     target = min(max(natural, floor), ceiling)
 
-    if phrases:
-        fraction = cum_weights[anchors[-1]] / total_weight
-        if fraction < 1:
-            # The last sentence starts when typing reaches its anchor and must
-            # still have time to play: T >= T*fraction + duration.
-            needed = phrases[-1].n_frames / (1 - fraction)
-            target = min(max(target, needed), ceiling)
-
-    for _ in range(3):
+    for _ in range(4):
         starts, lengths = place_phrases(phrases, anchors, cum_weights, int(round(target)))
         last_end = max((s + l for s, l in zip(starts, lengths)), default=0)
-        if last_end <= target or target >= ceiling:
-            break
-        target = min(last_end, ceiling)
+        settled = min(max(float(last_end), floor), ceiling)
+        if abs(settled - target) < 2:
+            return int(round(settled))
+        target = settled
     return int(round(target))
 
 
@@ -563,18 +596,41 @@ def place_phrases(
 ) -> tuple[list[int], list[int]]:
     """Where each phrase starts, in frames.
 
-    A phrase starts when typing reaches its anchor, or as soon as the previous
-    one finishes -- whichever is later. That non-overlap rule is what makes a
-    sentence that overruns push the next one rather than talk over it.
+    A phrase starts when typing reaches its anchor, or a beat after the
+    previous one finishes -- whichever is later. That non-overlap rule is what
+    makes a sentence that overruns push the next one rather than talk over it.
+
+    The beat is the point of it. Without one a pushed sentence starts on the
+    exact frame the previous ends, and since each is synthesised separately
+    and trimmed, two sentences land sample-contiguous and are heard as one.
+    That used to be rare because typing was always long enough to keep the
+    anchors apart; it is not rare now that typing is fitted to the voice.
     """
     lengths = [p.n_frames for p in phrases]
     starts: list[int] = []
     previous_end = 0
     for i in range(len(phrases)):
         desired = anchor_frame(anchors[i], cum_weights, typing_total)
-        start = max(desired, previous_end)
+        # A sentence waits for its anchor, but not past MAX_GAP_FRAMES.
+        #
+        # The anchors are a model's guess at which line a sentence is about,
+        # and a guess can land a long way ahead of where the previous
+        # sentence finished. Waiting for it is silence with a picture moving
+        # in it: measured on a real render, one snippet had four waits over
+        # the cap, the worst of them 10.3 seconds, and the two that did it
+        # accounted for 34 of the video's 38 silent seconds. The sentence
+        # starts late instead of never -- it plays over code that is a little
+        # further behind than it describes, which is much the smaller loss.
+        #
+        # The cap bounds the *silence*, and `previous_end` already carries the
+        # beat, so the beat comes back off: waiting MAX_GAP_FRAMES past the
+        # beat would be a 1.7s gap for a constant documented as 1.5.
+        earliest = 0 if i == 0 else previous_end
+        latest = (MAX_GAP_FRAMES if i == 0
+                  else previous_end - MIN_GAP_FRAMES + MAX_GAP_FRAMES)
+        start = max(min(desired, latest), earliest)
         starts.append(start)
-        previous_end = start + lengths[i]
+        previous_end = start + lengths[i] + MIN_GAP_FRAMES
     return starts, lengths
 
 
@@ -622,11 +678,7 @@ def plan_card(
     audio, starts, lengths = lay_out_phrases(
         intro.phrases, [0] * len(intro.phrases), [0.0, 1.0], 0
     )
-    captions = [
-        caption
-        for phrase, start, length in zip(intro.phrases, starts, lengths)
-        for caption in time_captions(phrase.text, start, start + length)
-    ]
+    captions = phrase_captions(intro.phrases, starts, lengths)
     total = sum(lengths) + tail_frames
 
     edges = sorted({0, total} | {c.start_frame for c in captions}
@@ -695,11 +747,7 @@ def plan_explanation(
     audio, starts, lengths = lay_out_phrases(
         phrases, [0] * len(phrases), [0.0, 1.0], 0
     )
-    captions = [
-        caption
-        for phrase, start, length in zip(phrases, starts, lengths)
-        for caption in time_captions(phrase.text, start, start + length)
-    ]
+    captions = phrase_captions(phrases, starts, lengths)
     total = sum(lengths) + tail_frames
     pieces = explanation.pieces
 
@@ -815,11 +863,7 @@ def plan_snippet(
     )
     spoken_end = max((s + l for s, l in zip(starts, lengths)), default=0)
 
-    captions = [
-        caption
-        for phrase, start, length in zip(snippet.phrases, starts, lengths)
-        for caption in time_captions(phrase.text, start, start + length)
-    ]
+    captions = phrase_captions(snippet.phrases, starts, lengths)
 
     start_frame = 0 if (anchored or narration_type == "parallel") else body_frames
     # The segment must outlast whichever finishes later: the code, or the voice.
