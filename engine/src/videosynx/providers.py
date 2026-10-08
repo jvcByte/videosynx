@@ -19,7 +19,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Protocol
+from typing import Callable, Protocol, Sequence
 
 import numpy as np
 from rich.console import Console
@@ -704,6 +704,74 @@ class ESpeakSpeaker:
                 capture_output=True, check=True,
             ).stdout
         return np.frombuffer(raw, dtype=np.int16).copy()
+
+
+class FallbackSpeaker:
+    """One voice standing in for another that will not speak.
+
+    Narration is synthesised a sentence at a time and kept as it is made, so
+    which engine reads a line cannot be decided in advance: the first one is
+    not known to be unusable until it refuses. When it does, the line that
+    failed is read by the next engine rather than the job failing. For a plan
+    that pays for a better voice the choice is a video whose voice changes
+    part-way, or no video at all, and the second is worse.
+
+    In the ordinary case nothing changes mid-video. A spent allowance refuses
+    the *first* line rather than the fifth, because what is too large is the
+    request against what is left -- so the fallback takes over before any
+    audio has been kept, and the whole video is read in one voice.
+
+    Once it has moved on it stays moved: the engine that just refused is not
+    going to accept the next sentence either, and re-trying it per sentence
+    would pay the round trip every time.
+
+    Each entry is a way to *make* a speaker rather than a speaker, so the
+    second one is not built until it is wanted. Opening a voice model costs
+    seconds and memory, and paying that on every job so that it can sit
+    unused would make the fallback more expensive than the thing it guards
+    against. The same callable covers a voice that cannot be opened at all --
+    no model file, no key -- which is a different failure with the same
+    answer.
+    """
+
+    def __init__(self, makers: Sequence[Callable[[], Speaker]]):
+        if not makers:
+            raise ProviderError("no voice was configured")
+        self._makers = list(makers)
+        self._index = 0
+        self._speaker: Speaker | None = None
+
+    @property
+    def switched(self) -> bool:
+        """Whether this has given up on the first voice."""
+        return self._index > 0
+
+    def say(self, text: str, *, previous: str = "", following: str = "") -> np.ndarray:
+        last: ProviderError | None = None
+        while self._index < len(self._makers):
+            try:
+                if self._speaker is None:
+                    self._speaker = self._makers[self._index]()
+                return self._speaker.say(text, previous=previous, following=following)
+            except ProviderError as exc:
+                last = exc
+                # Whatever went wrong -- refused, or would not open -- this
+                # one is done, and is not asked again.
+                self._speaker = None
+                self._index += 1
+                if self._index < len(self._makers):
+                    _console.log(
+                        f"[yellow]voice {self._index} unavailable "
+                        f"({exc.reason}), falling back to "
+                        f"{self._index + 1}[/yellow]"
+                    )
+        # Every voice failed. The last reason is the one worth keeping: it
+        # says whether this is an allowance or a fault, which is what decides
+        # whether the job is retried.
+        raise ProviderError(
+            f"every voice failed, {len(self._makers)} tried",
+            reason=last.reason if last else "error",
+        )
 
 
 class ToneSpeaker:

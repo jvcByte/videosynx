@@ -471,3 +471,143 @@ def test_the_plan_travels_to_the_writer(tmp_path, monkeypatch):
             renderer(job, lambda stage, progress: None)
 
     assert asked == ["free", "byok", "paid"]
+
+
+def test_the_paid_voice_falls_back_to_the_best_local_one(tmp_path, monkeypatch):
+    """Narration is the one part of a paid render that can run out mid-job.
+
+    ElevenLabs bills per character against an allowance, so it refuses at the
+    first line that does not fit -- and this used to fail the whole job there,
+    having already spent the writing. A local voice is worse and is not
+    nothing.
+    """
+    import numpy as np
+    import videosynx.providers as providers
+    from videosynx.providers import FallbackSpeaker, ProviderError
+    from videosynx.timeline import SR
+    from videosynx_worker.worker import EngineRenderer
+
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "k")
+    monkeypatch.setenv("ELEVENLABS_VOICE_ID", "eleven-voice-id")
+
+    asked_for: list[str] = []
+
+    class FakeKokoro:
+        def __init__(self, voice=None, speed=None):
+            asked_for.append(voice)
+
+        def say(self, text, *, previous="", following=""):
+            return np.full(SR // 4, 900, dtype=np.int16)
+
+    class Spent:
+        def __init__(self, *a, **k):
+            pass
+
+        def say(self, text, *, previous="", following=""):
+            raise ProviderError("spent", reason="quota")
+
+    monkeypatch.setattr(providers, "KokoroSpeaker", FakeKokoro)
+    monkeypatch.setattr(providers, "ElevenLabsSpeaker", Spent)
+
+    speaker = EngineRenderer(tmp_path)._speaker(
+        "elevenlabs", "a-voice-the-user-picked", "normal")
+
+    assert isinstance(speaker, FallbackSpeaker)
+    # Not built yet: the paid voice has not been tried.
+    assert asked_for == []
+
+    speaker.say("One line.")
+
+    # The saved voice is an identifier *for the paid engine*, so handing it to
+    # the local one would mean nothing. The best local voice is asked for by
+    # name instead.
+    assert asked_for == [providers.DEFAULT_KOKORO_VOICE]
+
+
+def test_the_local_voice_is_never_built_when_the_paid_one_works(tmp_path, monkeypatch):
+    """It opens a model. Paying for that on every paid job, for a fallback
+    that is almost never reached, costs more than the fallback is worth."""
+    import numpy as np
+    import videosynx.providers as providers
+    from videosynx.timeline import SR
+    from videosynx_worker.worker import EngineRenderer
+
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "k")
+    monkeypatch.setenv("ELEVENLABS_VOICE_ID", "eleven-voice-id")
+
+    built: list[str] = []
+
+    class FakeKokoro:
+        def __init__(self, **kwargs):
+            built.append("kokoro")
+
+    class Working:
+        def __init__(self, *a, **k):
+            pass
+
+        def say(self, text, *, previous="", following=""):
+            return np.full(SR // 4, 900, dtype=np.int16)
+
+    monkeypatch.setattr(providers, "KokoroSpeaker", FakeKokoro)
+    monkeypatch.setattr(providers, "ElevenLabsSpeaker", Working)
+
+    speaker = EngineRenderer(tmp_path)._speaker("elevenlabs", "v", "normal")
+    for line in ("One.", "Two."):
+        speaker.say(line)
+
+    assert built == [], "the local voice was loaded for nothing"
+    assert not speaker.switched
+
+
+def test_a_local_voice_is_chosen_when_none_was_asked_for(tmp_path):
+    """A job with no voice in its options used to take the worker down.
+
+    `DEFAULT_KOKORO_VOICE` was imported into `__call__` and used in
+    `_speaker`, where it is not in scope -- and `voice or DEFAULT_KOKORO_VOICE`
+    hid it, because a job that named a voice never evaluated the name. A job
+    that did not, which is every clip asked for without picking one, raised
+    NameError. Nothing caught it because `Settings.voice` has a default, so
+    almost every job arrived with a voice already.
+    """
+    from videosynx.providers import KokoroSpeaker
+    from videosynx_worker.worker import EngineRenderer
+
+    renderer = EngineRenderer(tmp_path)
+    for missing in (None, ""):
+        speaker = renderer._speaker("kokoro", missing, "normal")
+        assert isinstance(speaker, KokoroSpeaker)
+
+
+def test_a_clip_asked_for_without_a_voice_renders(tmp_path, monkeypatch):
+    """The path the NameError actually took, and no test walked it.
+
+    The speech feature is tested up to the queue and no further: the API tests
+    check that a clip is queued, labelled and carries no model call, and none
+    of them renders one. So the renderer was never handed a clip without a
+    voice, which is every clip asked for without picking one.
+    """
+    import videosynx.speech as speech
+    import videosynx_worker.worker as worker_module
+    from videosynx_worker.worker import EngineRenderer
+
+    heard: list[str] = []
+
+    def fake_synthesise(text, speaker, out, **kwargs):
+        heard.append(type(speaker).__name__)
+        out.write_bytes(b"mp3")
+        return 1.0
+
+    monkeypatch.setattr(speech, "synthesise", fake_synthesise)
+    monkeypatch.setattr(worker_module, "synthesise", fake_synthesise, raising=False)
+
+    job = Job(id="clip-1", user_id="u", topic="Hello there",
+              tier="free", attempt=1, max_attempts=1,
+              # No "voice" and no "tts": what the route builds when the caller
+              # does not choose, and both used to be the bug.
+              options={"kind": "speech", "generation": "local", "text": "Hello there."})
+
+    renderer = EngineRenderer(tmp_path)
+    _, seconds = renderer._speak(job, lambda stage, progress: None, lambda: None)
+
+    assert seconds == 1.0
+    assert heard, "nothing was synthesised"

@@ -425,8 +425,10 @@ class EngineRenderer:
         import os
 
         from videosynx.providers import (
+            DEFAULT_KOKORO_VOICE,
             ESpeakSpeaker,
             ElevenLabsSpeaker,
+            FallbackSpeaker,
             KokoroSpeaker,
             ProviderError,
             speed_for,
@@ -436,11 +438,37 @@ class EngineRenderer:
         speed = speed_for(pace)
         log.info("voice: %s (engine %s, pace %s)",
                  voice or "default", choice, pace or "default")
+
+        def local():
+            """The best this machine has, for when the paid voice will not.
+
+            Not the caller's saved voice: on this tier that setting is an
+            identifier for the paid engine, and handing it to Kokoro would
+            only fall back to the default anyway. The point of the fallback
+            is the best local voice, so it is asked for by name.
+            """
+            try:
+                return KokoroSpeaker(voice=DEFAULT_KOKORO_VOICE, speed=speed)
+            except ProviderError:
+                return ESpeakSpeaker()
+
         if choice == "elevenlabs":
             key = os.environ.get("ELEVENLABS_API_KEY", "")
             eleven_voice = os.environ.get("ELEVENLABS_VOICE_ID", "")
             if key and eleven_voice:
-                return ElevenLabsSpeaker(key, eleven_voice)
+                # A key that is present is not a key that works. The paid
+                # allowance is spent from the first line that does not fit,
+                # and a video read by a local voice beats no video -- which is
+                # what this used to be, because it failed the whole job.
+                #
+                # Both are handed over as ways to build a voice, not voices:
+                # the local one loads a model, and loading it on every job for
+                # a fallback that usually is not needed costs more than the
+                # fallback is worth.
+                return FallbackSpeaker([
+                    lambda: ElevenLabsSpeaker(key, eleven_voice),
+                    local,
+                ])
             # Paid tier with no key configured: better a good local voice than
             # a failed job.
             choice = "kokoro"
@@ -467,7 +495,7 @@ class EngineRenderer:
             lesson_from_text,
             load_lesson,
         )
-        from videosynx.providers import DEFAULT_KOKORO_VOICE, default_writer
+        from videosynx.providers import default_writer
         from videosynx.render import render_plan
         from videosynx.script import build_tutorial
         from videosynx.timeline import without_captions

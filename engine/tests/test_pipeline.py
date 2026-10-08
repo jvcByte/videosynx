@@ -1058,3 +1058,102 @@ def test_a_checkout_with_no_env_beside_it_falls_back_to_nothing(
     monkeypatch.setattr(dotenv, "__file__", str(module))
 
     assert dotenv.find() is None
+
+
+# ------------------------------------------------- a voice that will not speak
+# A paid voice that refuses used to fail the whole job. These are the rules
+# that replaced that: the next voice reads the line, it is only built if it is
+# needed, and it is not asked twice.
+
+class _Refusing:
+    def __init__(self, reason: str = "quota"):
+        self.reason = reason
+        self.calls = 0
+
+    def say(self, text, *, previous="", following=""):
+        self.calls += 1
+        raise ProviderError("refused", reason=self.reason)
+
+
+class _Speaking:
+    def __init__(self, tone: int = 1000):
+        self.said: list[str] = []
+        self.tone = tone
+
+    def say(self, text, *, previous="", following=""):
+        self.said.append(text)
+        return np.full(SR // 4, self.tone, dtype=np.int16)
+
+
+def test_a_refused_line_is_read_by_the_next_voice():
+    from videosynx.providers import FallbackSpeaker
+
+    refused, understudy = _Refusing(), _Speaking(tone=2000)
+    speaker = FallbackSpeaker([lambda: refused, lambda: understudy])
+
+    audio = speaker.say("One line.")
+
+    assert understudy.said == ["One line."]
+    assert audio[0] == 2000, "the fallback's audio was not the one returned"
+    assert speaker.switched
+
+
+def test_a_refused_voice_is_not_asked_again():
+    """Retrying per sentence would pay the round trip for every line."""
+    from videosynx.providers import FallbackSpeaker
+
+    refused, understudy = _Refusing(), _Speaking()
+    speaker = FallbackSpeaker([lambda: refused, lambda: understudy])
+    for line in ("One.", "Two.", "Three."):
+        speaker.say(line)
+
+    assert refused.calls == 1, "the spent voice was tried more than once"
+    assert understudy.said == ["One.", "Two.", "Three."]
+
+
+def test_the_fallback_voice_is_not_built_until_it_is_wanted():
+    """Opening a voice model costs seconds. Paying it on every job so it can
+    sit unused would cost more than the fallback is worth."""
+    from videosynx.providers import FallbackSpeaker
+
+    built: list[str] = []
+    speaker = FallbackSpeaker([
+        lambda: (built.append("first"), _Speaking())[1],
+        lambda: (built.append("second"), _Speaking())[1],
+    ])
+
+    speaker.say("One line.")
+    assert built == ["first"], "the fallback was built before it was needed"
+
+    speaker = FallbackSpeaker([
+        lambda: (built.append("a"), _Refusing())[1],
+        lambda: (built.append("b"), _Speaking())[1],
+    ])
+    built.clear()
+    speaker.say("One line.")
+    assert built == ["a", "b"]
+
+
+def test_a_voice_that_cannot_even_be_opened_is_passed_over():
+    """No model file and no key are different failures with the same answer."""
+    from videosynx.providers import FallbackSpeaker
+
+    def cannot_open():
+        raise ProviderError("model file missing")
+
+    understudy = _Speaking(tone=3000)
+    speaker = FallbackSpeaker([cannot_open, lambda: understudy])
+
+    assert speaker.say("One line.")[0] == 3000
+    assert understudy.said == ["One line."]
+
+
+def test_every_voice_failing_keeps_the_reason_that_decides_a_retry():
+    """Whether this is an allowance or a fault is what says try again."""
+    from videosynx.providers import FallbackSpeaker
+
+    speaker = FallbackSpeaker([lambda: _Refusing("quota"),
+                               lambda: _Refusing("busy")])
+    with pytest.raises(ProviderError) as failed:
+        speaker.say("One line.")
+    assert failed.value.reason == "busy", "the last reason is the current one"
