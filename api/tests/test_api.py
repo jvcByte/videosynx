@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
+from pathlib import Path
 
 import psycopg
 import pytest
@@ -1287,3 +1289,28 @@ def test_a_lesson_object_rides_with_the_job(client):
     stored = stored_options(response.json()["id"])["lesson"]
     assert stored["title"] == "Authored"
     assert stored["sections"][0]["explain"]["columns"] == [["A", ["a"]]]
+
+
+def test_the_lesson_example_the_error_points_at_is_a_lesson():
+    """The 422 for a malformed lesson tells the caller to look at /llms.txt.
+
+    An error message that names a document is making a promise about what is
+    in it, and a worked example inside prose is the thing most likely to rot
+    quietly -- nothing reads it, so nothing notices when the shape moves
+    underneath it. This runs the one in llms.txt through the same parser a
+    submitted request would go through, which is the only claim that matters:
+    that an agent can copy it and have it work.
+    """
+    source = (Path(__file__).resolve().parents[2]
+              / "web" / "app" / "llms.txt" / "route.ts").read_text()
+
+    block = re.search(r'^    (\{\n      "title".*?\n    \})$', source, re.M | re.S)
+    assert block, "the worked lesson example is gone from llms.txt"
+
+    example = json.loads(block.group(1))
+    check_lesson(SubmitRequest(lesson=example))
+    lesson = submitted_lesson(SubmitRequest(lesson=example))
+    assert lesson.title == "How a loop runs"
+    # The arrows are the reason the section is there at all.
+    assert lesson.sections[0].slide.diagram.edges
+    assert lesson.sections[0].slide.pieces == 2
