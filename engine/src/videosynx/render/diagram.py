@@ -20,7 +20,7 @@ from random import Random
 
 from PIL import Image, ImageDraw, ImageFont
 
-from ..timeline import LAYOUTS, SHAPES, Diagram, Edge, Node
+from ..timeline import DRAW_STEPS, LAYOUTS, SHAPES, Diagram, Edge, Node
 from .style import Style
 
 # Drawn at this multiple and scaled back down, to antialias the geometry.
@@ -309,10 +309,25 @@ def _edge_ends(a, b) -> tuple[tuple[float, float], tuple[float, float]]:
     return (ax, a[3] if dy > 0 else a[1]), (bx, b[1] if dy > 0 else b[3])
 
 
-def _draw_edge(pen: Pen, ends, ink: str) -> None:
+def _draw_edge(pen: Pen, ends, ink: str, progress: float = 1.0) -> None:
+    """A line leaving *start* toward *tip*, *progress* of the way there.
+
+    The arrowhead is deliberately the last thing to arrive. Putting it on a
+    line that has not reached the shape it points at reads as a mistake
+    rather than as motion, and there is no way to draw half a head.
+
+    The wobble stays stable across sub-steps for free: the pen is seeded per
+    edge and consumes the same random draws for the same number of points, so
+    every sub-step jitters the two ends identically and the line simply
+    extends. Worth knowing before "simplifying" this into a fresh pen.
+    """
     start, tip = ends
+    if progress < 1.0:
+        tip = (start[0] + (tip[0] - start[0]) * progress,
+               start[1] + (tip[1] - start[1]) * progress)
     pen.stroke([start, tip], ink=ink)
-    _arrowhead(pen, start, tip, ink)
+    if progress >= 1.0:
+        _arrowhead(pen, start, tip, ink)
 
 
 def _text_rect(text: str, font, x: float, y: float, pad: float = 0.0):
@@ -404,12 +419,17 @@ def render_diagram(
     style: Style,
     revealed: int,
     font_path: str,
+    step: int = DRAW_STEPS - 1,
 ) -> Image.Image:
     """Draw *diagram* at *size*, with the first *revealed* nodes shown.
 
     Returns an RGB image at exactly *size*, ready to paste onto the canvas.
     Nodes past the reveal are drawn as empty outlines, the same way a column
     that has not been narrated yet shows its shape without its contents.
+
+    *step* is how far the piece this sentence revealed has drawn itself in,
+    0..DRAW_STEPS-1. It defaults to the settled value, so a caller that only
+    wants a still gets one.
     """
     width, height = size
     layer = Image.new("RGB", (width * SCALE, height * SCALE), style.paper)
@@ -435,6 +455,13 @@ def render_diagram(
 
     shown = {node.id for i, node in enumerate(diagram.nodes) if i < revealed}
 
+    # Which node is mid-arrival, if any. Sentence *i* is what reveals piece
+    # *i*, so the piece drawing itself in is always `revealed - 1`. A settled
+    # step means nothing is moving and every arrow is simply drawn.
+    growing = None
+    if step < DRAW_STEPS - 1 and 1 <= revealed <= len(diagram.nodes):
+        growing = diagram.nodes[revealed - 1].id
+
     # Three passes, and the order is the whole point: lines first so a shape
     # covers the line that meets it, shapes next, and edge labels last so a
     # shape can never be drawn over the label of the arrow pointing at it.
@@ -446,8 +473,15 @@ def render_diagram(
             continue
         pen = Pen(draw, style, seed_for(f"{key}|{edge.source}->{edge.target}"), SCALE)
         ends = _edge_ends(boxes[edge.source], boxes[edge.target])
-        _draw_edge(pen, ends, style.ink)
-        if edge.label:
+        # Only arrows touching the arriving node are mid-draw. An arrow
+        # between two older nodes was drawn in when the later of them
+        # arrived, and must not redraw itself now.
+        grown = (step + 1) / DRAW_STEPS if growing in (edge.source, edge.target) else 1.0
+        _draw_edge(pen, ends, style.ink, grown)
+        # A label waits for its arrow for the same reason the head does: it
+        # is placed at the midpoint, so at half progress it would sit off the
+        # end of the line it names.
+        if edge.label and grown >= 1.0:
             labelled.append((pen, ends, edge))
 
     for i, node in enumerate(diagram.nodes):

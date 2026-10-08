@@ -36,6 +36,17 @@ CARD_TAIL_FRAMES = 45        # 1.5 s on the title card after the voice stops
 
 OUT_LINE_FRAMES = 4  # 133 ms per output line revealed
 POST_PAD_FRAMES = 30  # 1 s of breathing room after each snippet
+
+# How many sub-steps a newly revealed arrow takes to draw itself.
+#
+# The reveal counter is otherwise one step per narrated sentence, which means
+# a whole arrow appears between two frames. The renderer never sees a frame
+# index -- it is handed a state and asked to draw it -- so motion has to be
+# spelled as a run of *distinct states*, and this is how many a sentence is
+# divided into. Eight is about a quarter second at 30fps: long enough to read
+# as movement, short enough not to lag the voice. The cost is real and is the
+# reason this is not larger -- each sub-step is one more full slide repaint.
+DRAW_STEPS = 8
 MIN_HOLD_FRAMES = 1  # a span is never zero-length
 CAPTION_MAX_CHARS = 42
 CAPTION_MAX_WORDS = 8
@@ -184,6 +195,12 @@ class Slide:
     diagram: Diagram | None = None
     note: str = ""
     revealed: int = 0  # how many pieces are on screen so far
+    # How far through its own reveal this sentence is, 0..DRAW_STEPS-1, where
+    # the last value means settled. Only the piece this sentence revealed is
+    # drawn partially; everything older is complete. Defaulting to settled
+    # keeps a hand-built Slide -- and every test that makes one -- behaving
+    # exactly as it did before there was animation.
+    step: int = DRAW_STEPS - 1
 
     @property
     def pieces(self) -> int:
@@ -642,6 +659,26 @@ class Explanation:
         return self.slide.pieces
 
 
+def _has_an_arrow(diagram: Diagram | None, index: int) -> bool:
+    """Whether node *index* has an arrow to something already on screen.
+
+    Only such a node has anything to draw itself in with. Without this check
+    the sub-steps still produce distinct states and the renderer still
+    repaints once per state -- for a difference nobody can see. A slide whose
+    pieces are all isolated would pay eight repaints a sentence, and eight
+    encoded frames rather than one, to animate nothing.
+    """
+    if diagram is None or not 0 <= index < len(diagram.nodes):
+        return False
+    me = diagram.nodes[index].id
+    earlier = {node.id for node in diagram.nodes[:index]}
+    return any(
+        (edge.source == me and edge.target in earlier)
+        or (edge.target == me and edge.source in earlier)
+        for edge in diagram.edges
+    )
+
+
 def plan_explanation(
     explanation: Explanation, tail_frames: int = POST_PAD_FRAMES
 ) -> tuple[list[Span], Narration | None, list[Caption], int]:
@@ -666,7 +703,25 @@ def plan_explanation(
     total = sum(lengths) + tail_frames
     pieces = explanation.pieces
 
-    edges = sorted({0, total} | {c.start_frame for c in captions}
+    # A sentence that draws an arrow in is cut at each sub-step, so the arrow
+    # grows across the sentence rather than jumping at the end of it. Caption
+    # boundaries alone give about one span per sentence -- and a sentence
+    # spoken as a single caption is exactly one span, which would render as a
+    # two-frame pop with a held frame either side of it. Motion needs
+    # boundaries to happen at, so they are added here.
+    #
+    # The boundary for sub-step s is rounded *up*, to land on the first frame
+    # at which the step below computes to s. Rounding down instead -- the
+    # obvious `length * s // DRAW_STEPS` -- puts the first boundary a frame or
+    # two before its step has actually advanced, so every sentence opens with
+    # two spans that both say step 0 and the arrow sits still before it moves.
+    drawn_in = {
+        int(starts[k]) + (int(lengths[k]) * s + DRAW_STEPS - 1) // DRAW_STEPS
+        for k in range(1, min(len(starts), pieces + 1))
+        if _has_an_arrow(explanation.slide.diagram, k - 1)
+        for s in range(1, DRAW_STEPS)
+    }
+    edges = sorted({0, total} | drawn_in | {c.start_frame for c in captions}
                    | {c.end_frame for c in captions})
     spans: list[Span] = []
     for start, end in zip(edges, edges[1:]):
@@ -684,7 +739,24 @@ def plan_explanation(
                 index = i
                 break
         revealed = min(index, pieces)
-        slide = replace(explanation.slide, revealed=revealed)
+        # Sentence *i* is what reveals piece *i*, so the piece drawing itself
+        # in is always `revealed - 1`. Sentence 0 reveals nothing, and any
+        # sentence past the last piece has nothing new to show: both settle
+        # immediately, which is what stops the final arrow redrawing itself
+        # under every remaining sentence.
+        # `index` counts the sentences already finished, so the sentence we
+        # are inside is number `index` -- sentence k is what reveals piece
+        # k - 1. Measuring from starts[index - 1] instead would take the
+        # *previous* sentence's clock and clamp every span to settled, which
+        # is a still picture that reports itself as animated.
+        if (1 <= index <= pieces and index < len(starts)
+                and _has_an_arrow(explanation.slide.diagram, index - 1)):
+            sentence_len = max(1, int(lengths[index]))
+            elapsed = max(0, start - int(starts[index]))
+            step = min(DRAW_STEPS - 1, (elapsed * DRAW_STEPS) // sentence_len)
+        else:
+            step = DRAW_STEPS - 1
+        slide = replace(explanation.slide, revealed=revealed, step=step)
         spans.append(Span(VisualState("", caption=caption, slide=slide), end - start))
 
     return spans, Narration(audio, 0), captions, total

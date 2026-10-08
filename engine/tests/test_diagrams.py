@@ -28,7 +28,20 @@ from videosynx.render.diagram import (
     render_diagram,
 )
 from videosynx.render.style import CLEAN, SKETCH, style_for
-from videosynx.timeline import LAYOUTS, SHAPES, Diagram, Edge, Node, parse_diagram
+from videosynx.timeline import (
+    DRAW_STEPS,
+    SPF,
+    LAYOUTS,
+    SHAPES,
+    Diagram,
+    Edge,
+    Explanation,
+    Node,
+    Phrase,
+    Slide,
+    parse_diagram,
+    plan_explanation,
+)
 
 SIZE = (600, 200)
 FONT = find_font()
@@ -42,9 +55,10 @@ def flow() -> Diagram:
     ), edges=(Edge("a", "b", "enqueue"), Edge("b", "c")))
 
 
-def draw(diagram: Diagram | None = None, revealed: int = 3, style=SKETCH) -> Image.Image:
+def draw(diagram: Diagram | None = None, revealed: int = 3, style=SKETCH,
+         step: int = DRAW_STEPS - 1) -> Image.Image:
     return render_diagram(diagram or flow(), SIZE, key="k", style=style,
-                          revealed=revealed, font_path=FONT)
+                          revealed=revealed, font_path=FONT, step=step)
 
 
 # ------------------------------------------------------------------- parsing
@@ -458,3 +472,85 @@ def test_a_chain_of_two_shapes_is_left_alone():
     # Every label still inside the layer, and none on another.
     assert not _collisions(occupied)
     assert all(0 <= r[1] and r[3] <= SLIDE[1] * 2 for r in occupied)
+
+
+# ------------------------------------------------------------------ animation
+# A newly revealed arrow draws itself in over DRAW_STEPS sub-steps. The
+# renderer never sees a frame index -- it is handed a state and asked to draw
+# it -- so motion has to be spelled as a run of *distinct* states. That is
+# what makes the failure mode here specific and silent: a sub-step that
+# renders identically to its neighbour costs a repaint and an encoded frame
+# while showing the viewer nothing at all. The picture stands still and every
+# counter says it is moving.
+
+
+def test_every_sub_step_looks_different():
+    """Eight states, eight pictures. If two coincide, the motion has a stall."""
+    frames = {draw(revealed=2, step=s).tobytes() for s in range(DRAW_STEPS)}
+    assert len(frames) == DRAW_STEPS
+
+
+def test_an_arrow_grows_rather_than_shrinking():
+    drawn = [count_near(draw(revealed=2, step=s), SKETCH.ink)
+             for s in range(DRAW_STEPS)]
+    assert drawn == sorted(drawn), "the arrow lost ink as it was drawn"
+    assert drawn[0] < drawn[-1], "the first sub-step already drew the whole arrow"
+
+
+def test_a_settled_step_is_the_default():
+    """Every caller that wants a still, and every test above, still gets one."""
+    assert draw(revealed=2).tobytes() == draw(revealed=2, step=DRAW_STEPS - 1).tobytes()
+
+
+def test_a_node_with_nothing_to_point_at_does_not_animate():
+    """The first node has no earlier shape to be joined to.
+
+    At revealed=1 the arriving node is "a", whose only edge goes *forward* to
+    a node that is not on screen yet. There is nothing to draw, so the steps
+    must render identically -- the renderer honouring the same rule the plan
+    uses when it decides not to animate.
+    """
+    assert draw(revealed=1, step=0).tobytes() == draw(revealed=1, step=DRAW_STEPS - 1).tobytes()
+
+
+def phrase(text: str, frames: int = 45) -> Phrase:
+    """A sentence with silent audio of a known length."""
+    return Phrase(text, np.zeros(frames * SPF, dtype=np.float32))
+
+
+def steps_of(diagram: Diagram | None, sentences: tuple[str, ...]) -> list[int]:
+    spans, _, _, _ = plan_explanation(Explanation(
+        slide=Slide(heading="Flow", diagram=diagram),
+        phrases=tuple(phrase(s) for s in sentences),
+    ))
+    return [s.state.slide.step for s in spans if s.state.slide is not None]
+
+
+def test_a_new_arrow_walks_the_whole_ramp_once():
+    """The plan is what produces the motion; the renderer only follows it.
+
+    Asserted as the full ramp rather than as "more than one value", which a
+    two-state pop would also satisfy. Sentence 1 settles (the first node has
+    nothing behind it to be joined to), then each of the two sentences that
+    reveals a node walks 0..7 in order, and the trailing silence holds.
+
+    This is the assertion that caught a rounding bug: the sub-step boundaries
+    were floored while the step itself was floored separately, so both landed
+    on step 0 and the ramp read 0, 0, 1, 2... -- a still frame at the start of
+    every sentence, which "more than one distinct step" never noticed.
+    """
+    steps = steps_of(flow(), ("Heading.", "A.", "B.", "C."))
+    # Collapse runs: consecutive spans sharing a step are one visible moment.
+    ramp = [s for i, s in enumerate(steps) if i == 0 or steps[i - 1] != s]
+    assert ramp == [DRAW_STEPS - 1] + list(range(DRAW_STEPS)) * 2
+
+
+def test_a_diagram_with_no_arrows_asks_for_no_animation():
+    """Nothing to draw means nothing to repaint.
+
+    Eight sub-steps here would be eight full repaints and eight encoded
+    frames per sentence, all rendering identically.
+    """
+    lone = Diagram(layout="row", nodes=(Node("a", "A"), Node("b", "B"), Node("c", "C")))
+    steps = steps_of(lone, ("Heading.", "A.", "B.", "C."))
+    assert set(steps) == {DRAW_STEPS - 1}

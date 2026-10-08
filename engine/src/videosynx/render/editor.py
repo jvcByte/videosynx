@@ -352,7 +352,7 @@ class Editor:
         image = render_diagram(
             slide.diagram, (width, height),
             key=slide.heading, style=self.style,
-            revealed=slide.revealed, font_path=self.font_path,
+            revealed=slide.revealed, font_path=self.font_path, step=slide.step,
         )
         self.canvas.paste(image, ((self.width - width) // 2, y))
 
