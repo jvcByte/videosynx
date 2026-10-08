@@ -658,8 +658,12 @@ def test_a_per_minute_limit_is_told_apart_from_a_spent_quota():
     assert classify_http(429, "daily quota reached").reason == "quota"
     assert classify_http(503, "upstream is overloaded").reason == "busy"
     assert classify_http(400, "bad request").reason == "error"
-    # OpenRouter says 402 and "insufficient credits" rather than 429.
-    assert classify_http(402, "insufficient credits").reason == "quota"
+    # 402 is read by status, because the same condition is worded three ways.
+    # OpenRouter says "insufficient credits", DeepSeek says "Insufficient
+    # Balance", and a keyword list only catches the one it was written for.
+    assert classify_http(402, "insufficient credits").reason == "payment"
+    assert classify_http(402, "Insufficient Balance").reason == "payment"
+    assert classify_http(402, "billing hard limit reached").reason == "payment"
 
     # A 5xx is read as a 5xx however its body is worded. Reading one as a
     # spent allowance is the difference between trying another provider now

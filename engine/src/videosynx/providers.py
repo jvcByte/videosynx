@@ -99,12 +99,26 @@ def summarise(failures: list[tuple[str, ProviderError]]) -> tuple[str, str]:
                 "and resets daily",
                 "quota",
             )
+        # Same shape as quota, opposite advice. Waiting is exactly what does
+        # not work here, so the message must not imply that it might.
+        if exc.reason == "payment":
+            return (
+                f"{name} is out of credit; this does not reset on its own, "
+                "the account has to be topped up",
+                "payment",
+            )
         return str(exc)[:300], exc.reason
     if reasons == {"quota"}:
         return (
             f"all {len(failures)} models are out of free-tier quota; it is "
             "per model, per day, and resets daily",
             "quota",
+        )
+    if reasons == {"payment"}:
+        return (
+            "every model with a key is out of credit; this does not reset on "
+            "its own, the accounts have to be topped up",
+            "payment",
         )
     if len(reasons) == 1:
         only = reasons.pop()
@@ -271,6 +285,17 @@ def classify_http(status: int, detail: str) -> ProviderError:
     """
     if status in (500, 502, 503, 504):
         return ProviderError(f"service unavailable ({status})", reason="busy")
+    # 402 means the account owes money, whatever the body calls it. Read by
+    # status because the bodies disagree: OpenRouter says "insufficient
+    # credits" and DeepSeek says "Insufficient Balance", which matches none of
+    # the words below, so the same condition arrived as two different reasons
+    # depending on the provider's phrasing.
+    #
+    # Deliberately not "quota". A spent free tier resets by itself and the
+    # summary says so; an unfunded account does not, and telling someone to
+    # come back tomorrow when the fix is to top up is the wrong instruction.
+    if status == 402:
+        return ProviderError(f"out of credit: {detail[:140]}", reason="payment")
     text = detail.lower()
     if status == 429 or any(w in text for w in ("quota", "rate limit", "credit")):
         if any(w in text for w in ("per day", "daily", "quota", "credit")):
