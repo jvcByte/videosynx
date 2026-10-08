@@ -31,7 +31,16 @@ from .prompts import (
 )
 from .providers import ProviderError, Speaker, Writer
 from .sandbox import DEFAULT_TIMEOUT_S, assert_sandbox_available
-from .timeline import Explanation, FramePlan, Card, Phrase, Slide, Snippet, build_plan
+from .timeline import (
+    Card,
+    Explanation,
+    FramePlan,
+    Phrase,
+    Slide,
+    Snippet,
+    build_plan,
+    parse_steps,
+)
 
 _console = Console()
 
@@ -109,7 +118,9 @@ def concept_slides(
         slides.append(
             Explanation(
                 slide=Slide(heading=raw["heading"], columns=raw["columns"],
-                            diagram=raw.get("diagram"), note=raw["note"]),
+                            diagram=raw.get("diagram"),
+                            steps=parse_steps(raw.get("steps"), raw.get("diagram")),
+                            note=raw["note"]),
                 phrases=phrases,
             )
         )

@@ -40,6 +40,7 @@ from videosynx.timeline import (
     Phrase,
     Slide,
     parse_diagram,
+    parse_steps,
     plan_explanation,
 )
 
@@ -554,3 +555,160 @@ def test_a_diagram_with_no_arrows_asks_for_no_animation():
     lone = Diagram(layout="row", nodes=(Node("a", "A"), Node("b", "B"), Node("c", "C")))
     steps = steps_of(lone, ("Heading.", "A.", "B.", "C."))
     assert set(steps) == {DRAW_STEPS - 1}
+
+
+# --------------------------------------------------- a diagram that changes
+# What a diagram could not do before: report that something has gone wrong on
+# a picture that is already drawn. It could only ever gain nodes, so a
+# sentence explaining a problem had nothing to show -- the sentences with the
+# most to demonstrate were the ones with nothing to demonstrate with.
+#
+# The story below is the one that prompted this: a thousand users arrive and
+# everything is fine, ten thousand arrive and the machine starts to struggle,
+# and then it gives up. Same three shapes throughout.
+
+OVERLOAD = {
+    "layout": "row",
+    "nodes": [{"id": "u", "label": "users", "shape": "person"},
+              {"id": "s", "label": "one machine"},
+              {"id": "db", "label": "database", "shape": "cylinder"}],
+    "edges": [["u", "s"], ["s", "db"]],
+}
+
+OVERLOAD_STEPS = [
+    # Everything is on screen from the first sentence: nothing new is going
+    # to be drawn, only what is already there is going to change.
+    {"show": ["u", "s", "db"], "pill": "1,000 users · CPU 12%", "tone": "ok"},
+    {"pill": "10,000 users · CPU 74%", "tone": "busy"},
+    {"status": {"s": "busy"}, "pill": "struggling", "tone": "busy"},
+    # Says nothing about the machine, so it must stay busy. A step reports
+    # what changed rather than the whole picture, and a state that lapsed
+    # because a later sentence did not repeat it would blink out mid-story.
+    {"pill": "still struggling", "tone": "busy"},
+    {"status": {"s": "failed"}, "pill": "overloaded", "tone": "failed"},
+]
+
+
+def overload() -> tuple[Slide, tuple[Phrase, ...]]:
+    raw = dict(OVERLOAD, steps=OVERLOAD_STEPS)
+    slide = Slide(
+        heading="One machine",
+        diagram=parse_diagram(raw),
+        steps=parse_steps(OVERLOAD_STEPS, parse_diagram(raw)),
+    )
+    sentences = ("A thousand users arrive.", "Then ten thousand arrive.",
+                 "It starts to struggle.", "It keeps struggling.",
+                 "And it gives up.")
+    return slide, tuple(phrase(s) for s in sentences)
+
+
+def test_the_same_shapes_report_the_problem():
+    """Nothing is added after the first sentence; only the state changes."""
+    slide, phrases = overload()
+    spans, _, _, _ = plan_explanation(Explanation(slide=slide, phrases=phrases))
+
+    seen = []
+    for span in spans:
+        state = span.state.slide
+        if state is None or (seen and seen[-1][0] == state.revealed):
+            continue
+        seen.append((state.revealed, dict(state.states), state.pill,
+                     state.tone, state.shown))
+
+    # Six moments for five steps: the first sentence lands on the heading
+    # alone, before any step has been reached.
+    assert [s[0] for s in seen] == [0, 1, 2, 3, 4, 5]
+    assert [s[1].get("s", "ok") for s in seen] == [
+        "ok", "ok", "ok", "busy", "busy", "failed"]
+    assert [s[2] for s in seen] == ["", "1,000 users · CPU 12%",
+                                    "10,000 users · CPU 74%", "struggling",
+                                    "still struggling", "overloaded"]
+    assert [s[3] for s in seen] == ["ok", "ok", "busy", "busy", "busy", "failed"]
+    # And no shape is added or taken away while all that is said: the picture
+    # is the same three boxes from the first step to the last.
+    assert {s[4] for s in seen if s[4]} == {("u", "s", "db")}
+
+
+def drawn(revealed: int, *, pill: str = "") -> Image.Image:
+    """The diagram as the plan would draw it at one moment.
+
+    The pill is off by default and that is the point: a status pill is drawn
+    in the tone colour too, so a test that leaves it on cannot tell whether
+    the *node* changed colour or only the label above it. Every test below
+    about a shape being red turns it off.
+    """
+    slide, phrases = overload()
+    spans, _, _, _ = plan_explanation(Explanation(slide=slide, phrases=phrases))
+    for span in spans:
+        state = span.state.slide
+        if state is not None and state.revealed == revealed:
+            return render_diagram(
+                state.diagram, SIZE, key=state.heading, style=SKETCH,
+                revealed=state.revealed, font_path=FONT,
+                states=state.states, shown=state.shown,
+                pill=pill, tone=state.tone)
+    raise AssertionError(f"no span with revealed={revealed}")
+
+
+def test_the_troubled_node_is_actually_drawn_red():
+    """Folded state is worth nothing if the drawing ignores it."""
+    assert count_near(drawn(1), SKETCH.bad) == 0, "a healthy machine was drawn red"
+    assert count_near(drawn(5), SKETCH.bad) > 40, "the overloaded machine was not red"
+
+
+def test_a_warning_is_its_own_colour_and_not_a_dimmer_failure():
+    """Two colours because they are two things to say. One colour for both
+    and the viewer cannot tell starting-to-struggle from given-up."""
+    worried = drawn(3)
+    assert count_near(worried, SKETCH.warn) > 40
+    assert count_near(worried, SKETCH.bad) == 0
+
+
+def test_a_step_shows_every_shape_it_names():
+    """Left to the node count, one sentence would show one box -- and this
+    story is three shapes that never change, only get worse."""
+    # revealed=1 with the steps' `show` against the same moment without it:
+    # the count would draw the first node only.
+    slide, phrases = overload()
+    spans, _, _, _ = plan_explanation(Explanation(slide=slide, phrases=phrases))
+    state = next(s.state.slide for s in spans
+                 if s.state.slide is not None and s.state.slide.revealed == 1)
+
+    with_steps = render_diagram(state.diagram, SIZE, key=state.heading, style=SKETCH,
+                                revealed=1, font_path=FONT,
+                                states=state.states, shown=state.shown)
+    counted = render_diagram(state.diagram, SIZE, key=state.heading, style=SKETCH,
+                             revealed=1, font_path=FONT, shown=())
+
+    assert count_near(with_steps, SKETCH.ink) > count_near(counted, SKETCH.ink) * 1.5
+
+
+def test_a_lesson_can_author_the_steps():
+    """The schema's other end: what a model or a person actually writes."""
+    diagram = parse_diagram(OVERLOAD)
+    steps = parse_steps(OVERLOAD_STEPS, diagram)
+    assert len(steps) == len(OVERLOAD_STEPS)
+    assert steps[0].show == ("u", "s", "db")
+    assert steps[1].status == (), "a step that changes nothing is allowed"
+    assert dict(steps[4].status) == {"s": "failed"}
+
+
+def test_a_step_naming_a_node_that_is_not_there_is_dropped():
+    """It would draw nothing, and a step that draws nothing is a sentence
+    whose demonstration silently does not happen."""
+    diagram = parse_diagram(OVERLOAD)
+    steps = parse_steps([
+        {"show": ["u", "s", "db", "ghost"]},
+        {"status": {"nobody": "failed", "s": "busy"}},
+    ], diagram)
+    assert steps[0].show == ("u", "s", "db")
+    assert dict(steps[1].status) == {"s": "busy"}
+
+
+def test_a_diagram_with_no_steps_renders_exactly_as_before():
+    """Every video already rendered. `shown` empty means the count rules."""
+    plain = render_diagram(flow(), SIZE, key="k", style=SKETCH, revealed=2,
+                           font_path=FONT)
+    same = render_diagram(flow(), SIZE, key="k", style=SKETCH, revealed=2,
+                          font_path=FONT, states=(), shown=(), pill="", tone="ok")
+    assert plain.tobytes() == same.tobytes()

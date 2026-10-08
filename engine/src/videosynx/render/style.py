@@ -25,6 +25,13 @@ class Style:
     panel: str        # fill behind a shape
     panel_line: str   # a drawn shape's outline
     ghost: str        # the outline of a shape not revealed yet
+    # The only two colours here that mean something rather than decorate.
+    # `ink` and `dim` say how loud a thing is; these say whether it is all
+    # right, which is the whole of what a picture of a system going wrong has
+    # to communicate. Chosen dark enough to read on `paper` and to look like
+    # the same hand drew them.
+    warn: str         # busy, strained, filling up
+    bad: str          # overloaded, failed, the thing that broke
     jitter: float     # hand-drawn wobble in px; 0 draws ruled
     stroke: int       # stroke width in px, before supersampling
     label_size: int   # diagram label size
@@ -39,6 +46,8 @@ SKETCH = Style(
     panel="#fffdf7",
     panel_line="#3f3b35",
     ghost="#cdc7ba",
+    warn="#a16207",
+    bad="#b91c1c",
     jitter=1.7,
     stroke=3,
     label_size=22,
@@ -53,6 +62,8 @@ CLEAN = Style(
     panel="#1a2027",
     panel_line="#3d444d",
     ghost="#2a3138",
+    warn="#d29922",
+    bad="#f85149",
     jitter=0.0,
     stroke=2,
     label_size=20,

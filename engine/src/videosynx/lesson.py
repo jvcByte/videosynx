@@ -46,6 +46,7 @@ from .timeline import (
     Snippet,
     build_plan,
     parse_diagram,
+    parse_steps,
 )
 
 _console = Console()
@@ -83,11 +84,13 @@ def _load_explain(raw: dict, name: str) -> ExplainSection:
         (str(title), tuple(str(line) for line in lines))
         for title, lines in spec.get("columns", [])
     )
+    diagram = parse_diagram(spec.get("diagram"))
     slide = Slide(
         heading=str(spec.get("heading", name)),
         columns=columns,
         sequence=tuple(str(v) for v in spec.get("sequence", [])),
-        diagram=parse_diagram(spec.get("diagram")),
+        diagram=diagram,
+        steps=parse_steps(spec.get("steps"), diagram),
         note=str(spec.get("note", "")),
     )
     sentences = tuple(str(s) for s in raw.get("narration", []) if str(s).strip())

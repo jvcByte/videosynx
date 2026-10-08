@@ -353,6 +353,8 @@ class Editor:
             slide.diagram, (width, height),
             key=slide.heading, style=self.style,
             revealed=slide.revealed, font_path=self.font_path, step=slide.step,
+            states=slide.states, shown=slide.shown,
+            pill=slide.pill, tone=slide.tone,
         )
         self.canvas.paste(image, ((self.width - width) // 2, y))
 

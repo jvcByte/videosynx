@@ -125,6 +125,53 @@ class Diagram:
 SHAPES = ("box", "round", "cylinder", "cloud", "document", "person", "stack")
 LAYOUTS = ("row", "column", "grid", "cycle", "tree", "stack")
 
+# How a node is doing. `ok` is the resting state and the only one a diagram
+# without steps ever uses; the other two are for showing something going
+# wrong, which is how a diagram demonstrates a sentence rather than
+# illustrating one.
+STATES = ("ok", "busy", "failed")
+
+# What a status reading is about: green, amber, red. Kept apart from STATES
+# because a pill can report "1,000 users" -- good news -- and the two are
+# coloured from the same three-tone palette without meaning the same thing.
+TONES = ("ok", "busy", "failed")
+
+
+@dataclass(frozen=True)
+class DiagramStep:
+    """What the diagram shows by the time one sentence has been spoken.
+
+    A diagram used to only ever gain things: nodes appeared, one per
+    sentence, and that was the whole vocabulary. So it could show that a
+    server exists but never that the server is struggling -- and the
+    sentences that explain a problem are exactly the ones with nothing to
+    show.
+
+    A step changes what is already on screen. `status` reports on nodes that
+    are already there, and `pill` is a short reading in a box, which is what
+    carries a number: "1,000 users", "CPU 12%", "overloaded".
+
+    Steps accumulate. Each one says only what changed, and the planner folds
+    them into the state the renderer actually sees, once per span rather than
+    once per frame.
+    """
+
+    # Nodes this step puts on screen, cumulative. Left out, nodes arrive one
+    # per sentence as they always did -- which is right for building a picture
+    # up and wrong for one that is already drawn and merely changing. The
+    # overload story needs all three shapes visible from the first sentence,
+    # because what the sentence reports is not a new box but a box going
+    # wrong.
+    show: tuple[str, ...] = ()
+    # node id -> one of STATES. Anything not named keeps what it had.
+    status: tuple[tuple[str, str], ...] = ()
+    # The reading shown in a box, or None to leave the last one up. Empty
+    # string takes it away, which is a third thing again and the reason this
+    # is not simply a string: a pill that vanished because a step forgot to
+    # mention it would blink out mid-explanation.
+    pill: str | None = None
+    tone: str = "ok"
+
 
 def _bounded_int(value, default: int, low: int, high: int) -> int:
     try:
@@ -199,8 +246,19 @@ class Slide:
     sequence: tuple[str, ...] = ()
     # Nodes and arrows, for anything with structure: flow, layers, hierarchy.
     diagram: Diagram | None = None
+    # What changes as the sentences are spoken, one step per sentence. Only
+    # authored slides carry these; everything below `revealed` is folded out
+    # of them by the planner.
+    steps: tuple[DiagramStep, ...] = ()
     note: str = ""
     revealed: int = 0  # how many pieces are on screen so far
+    # The folded result: what the nodes are doing by now, and what the pill
+    # reads. Set by the planner from `steps`, never authored directly -- the
+    # renderer reads these and has no idea steps exist.
+    states: tuple[tuple[str, str], ...] = ()
+    shown: tuple[str, ...] = ()
+    pill: str = ""
+    tone: str = "ok"
     # How far through its own reveal this sentence is, 0..DRAW_STEPS-1, where
     # the last value means settled. Only the piece this sentence revealed is
     # drawn partially; everything older is complete. Defaulting to settled
@@ -220,6 +278,13 @@ class Slide:
             return len(self.columns)
         if self.sequence:
             return len(self.sequence)
+        # Steps first: an authored diagram is revealed one node at a time
+        # *and* changes what is already there, and the sentences are the union
+        # of both. Counting only the nodes would leave the sentences that
+        # report a problem with nothing to advance to -- they would all land
+        # on the same state and the demonstration would never happen.
+        if self.steps:
+            return len(self.steps)
         if self.diagram:
             return len(self.diagram.nodes)
         return 0
@@ -711,6 +776,83 @@ class Explanation:
         return self.slide.pieces
 
 
+def parse_steps(raw, diagram: Diagram | None) -> tuple[DiagramStep, ...]:
+    """Build a diagram's steps from a wire list, or none at all.
+
+    Defensive for the same reason `parse_diagram` is: the input is model
+    output. A status naming a node that is not in the picture is dropped
+    rather than kept, because it would draw nothing -- and a step that draws
+    nothing is a sentence whose demonstration silently does not happen, which
+    is the one failure here nobody would notice until they watched it.
+    """
+    if not isinstance(raw, list) or not diagram or not diagram.nodes:
+        return ()
+    known = {node.id for node in diagram.nodes}
+    seen_shown: set[str] = set()
+
+    steps: list[DiagramStep] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        status = []
+        reported = item.get("status")
+        if isinstance(reported, dict):
+            for node_id, state in reported.items():
+                name = str(state).strip().lower()
+                if str(node_id) in known and name in STATES:
+                    status.append((str(node_id), name))
+        show = tuple(
+            str(n) for n in (item.get("show") or [])
+            if str(n) in known and str(n) not in seen_shown
+            and not seen_shown.add(str(n))
+        )
+        tone = str(item.get("tone", "ok")).strip().lower()
+        pill = item.get("pill")
+        steps.append(DiagramStep(
+            show=show,
+            status=tuple(status),
+            pill=None if pill is None else str(pill).strip()[:40],
+            tone=tone if tone in TONES else "ok",
+        ))
+    return tuple(steps)
+
+
+def fold_steps(slide: Slide, revealed: int) -> dict:
+    """The node states and the pill after *revealed* sentences have been spoken.
+
+    Steps accumulate: a node reported busy stays busy until something reports
+    otherwise, and a pill stays up until a step replaces or clears it. Folding
+    here rather than in the renderer matters -- the renderer runs this once per
+    frame, and the answer is the same for every frame of a span.
+
+    Returns nothing at all for a slide with no steps, so the common case costs
+    nothing and the renderer's defaults stand.
+    """
+    if not slide.steps:
+        return {}
+
+    states: dict[str, str] = {}
+    visible: list[str] = []
+    named = False
+    pill = ""
+    tone = "ok"
+    for step in slide.steps[: max(0, revealed)]:
+        states.update(step.status)
+        if step.show:
+            named = True
+            visible.extend(n for n in step.show if n not in visible)
+        if step.pill is not None:
+            pill, tone = step.pill, step.tone
+
+    folded = {"states": tuple(sorted(states.items())), "pill": pill, "tone": tone}
+    # Only when a step has actually said what is on screen. Otherwise the
+    # renderer keeps counting nodes, and a diagram authored without `show`
+    # behaves exactly as it did before steps existed.
+    if named:
+        folded["shown"] = tuple(visible)
+    return folded
+
+
 def _has_an_arrow(diagram: Diagram | None, index: int) -> bool:
     """Whether node *index* has an arrow to something already on screen.
 
@@ -804,7 +946,8 @@ def plan_explanation(
             step = min(DRAW_STEPS - 1, (elapsed * DRAW_STEPS) // sentence_len)
         else:
             step = DRAW_STEPS - 1
-        slide = replace(explanation.slide, revealed=revealed, step=step)
+        slide = replace(explanation.slide, revealed=revealed, step=step,
+                        **fold_steps(explanation.slide, revealed))
         spans.append(Span(VisualState("", caption=caption, slide=slide), end - start))
 
     return spans, Narration(audio, 0), captions, total

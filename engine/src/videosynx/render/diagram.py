@@ -309,6 +309,30 @@ def _edge_ends(a, b) -> tuple[tuple[float, float], tuple[float, float]]:
     return (ax, a[3] if dy > 0 else a[1]), (bx, b[1] if dy > 0 else b[3])
 
 
+def _state_ink(state: str, style: Style) -> str:
+    """What colour a node in this state is drawn in."""
+    return {"busy": style.warn, "failed": style.bad}.get(state, style.ink)
+
+
+def _draw_pill(draw: ImageDraw.ImageDraw, text: str, colour: str,
+               style: Style, font, x: float, y: float) -> None:
+    """A short reading in a rounded box: "1,000 users", "CPU 12%".
+
+    The one place a diagram carries a number, and the reason the pill exists
+    at all -- a figure that changes while the voice explains it is what makes
+    a picture read as something happening rather than something drawn.
+    """
+    pad_x, pad_y = 11 * SCALE, 5 * SCALE
+    wide = font.getlength(text)
+    high = font.size + pad_y * 2
+    draw.rounded_rectangle(
+        (x, y, x + wide + pad_x * 2, y + high),
+        radius=high / 2, fill=style.panel, outline=colour,
+        width=max(1, round(style.stroke * SCALE * 0.6)),
+    )
+    draw.text((x + pad_x, y + pad_y), text, font=font, fill=colour, anchor="la")
+
+
 def _draw_edge(pen: Pen, ends, ink: str, progress: float = 1.0) -> None:
     """A line leaving *start* toward *tip*, *progress* of the way there.
 
@@ -420,6 +444,10 @@ def render_diagram(
     revealed: int,
     font_path: str,
     step: int = DRAW_STEPS - 1,
+    states: tuple[tuple[str, str], ...] = (),
+    shown: tuple[str, ...] = (),
+    pill: str = "",
+    tone: str = "ok",
 ) -> Image.Image:
     """Draw *diagram* at *size*, with the first *revealed* nodes shown.
 
@@ -453,7 +481,27 @@ def render_diagram(
         for node, cell in zip(diagram.nodes, cells)
     }
 
-    shown = {node.id for i, node in enumerate(diagram.nodes) if i < revealed}
+    # Named nodes when a step has said which are on screen, and a count of
+    # them otherwise. The count is the original behaviour and stays the
+    # default, so a diagram that never mentions a step renders as it always
+    # did.
+    on_screen = (set(shown) if shown
+                 else {node.id for i, node in enumerate(diagram.nodes) if i < revealed})
+
+    # How each node is doing. A node nobody has said anything about is fine,
+    # which is what makes `states` additive: a step reports a change and the
+    # rest of the picture is left alone.
+    doing = dict(states)
+    tone_colour = {"ok": style.ink, "busy": style.warn,
+                   "failed": style.bad}.get(tone, style.ink)
+
+    # The pill sits above the picture rather than over it, so the layout is
+    # given the room it takes. Drawing it last and on top would put a label
+    # over whatever shape happened to be there.
+    top = 0.0
+    if pill:
+        top = font.size + 20 * SCALE
+        box = (box[0], box[1] + top, box[2], box[3])
 
     # Which node is mid-arrival, if any. Sentence *i* is what reveals piece
     # *i*, so the piece drawing itself in is always `revealed - 1`. A settled
@@ -467,7 +515,7 @@ def render_diagram(
     # shape can never be drawn over the label of the arrow pointing at it.
     labelled = []
     for edge in diagram.edges:
-        if edge.source not in shown or edge.target not in shown:
+        if edge.source not in on_screen or edge.target not in on_screen:
             continue
         if edge.source not in boxes or edge.target not in boxes:
             continue
@@ -489,8 +537,11 @@ def render_diagram(
         if box is None:
             continue
         pen = Pen(draw, style, seed_for(f"{key}|{node.id}"), SCALE)
-        if i < revealed:
-            _draw_node(pen, node, box, font, style, style.panel, style.ink)
+        if node.id in on_screen:
+            # The state is the whole of what a step changes, and it is drawn
+            # on the shape that is already there rather than by adding one.
+            _draw_node(pen, node, box, font, style, style.panel,
+                       _state_ink(doing.get(node.id, "ok"), style))
         else:
             _draw_node(pen, node, box, font, style, style.paper, style.ghost)
 
@@ -499,7 +550,7 @@ def render_diagram(
     occupied = []
     for i, node in enumerate(diagram.nodes):
         box = boxes.get(node.id)
-        if box is None or i >= revealed or not node.label:
+        if box is None or node.id not in on_screen or not node.label:
             continue
         text = _fit(node.label, font, (box[2] - box[0]) * 0.88)
         occupied.append(_text_rect(text, font, *_node_label_anchor(node, box, font),
@@ -508,5 +559,12 @@ def render_diagram(
     for pen, ends, edge in labelled:
         _draw_edge_label(pen, ends, edge, font, style, width * SCALE * 0.5,
                          boxes, occupied, height * SCALE)
+
+    # Last, in the band reserved for it, so nothing is drawn over.
+    if pill:
+        high = font.size + 10 * SCALE
+        _draw_pill(draw, pill, tone_colour, style, font,
+                   width * SCALE * 0.5 - font.getlength(pill) / 2 - 11 * SCALE,
+                   (top - high) / 2)
 
     return layer.resize((width, height), Image.LANCZOS)
