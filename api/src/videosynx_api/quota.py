@@ -63,9 +63,16 @@ TIERS: dict[str, Tier] = {
         narration=True, watermark=False, resolution=(1920, 1080),
         local_jobs_per_day=30, price_usd=7,
         tagline="More of it, and no watermark.",
+        # "Bring your own API key" was here. It was never true: there is no
+        # field to accept a key, nowhere to keep one, and nothing that reads
+        # one -- the tier was named after a capability that did not exist, and
+        # the price page promised it to buyers for as long as it took anyone
+        # to look. It is not coming back until there is a place to put a key
+        # and somewhere safe to keep it, which is a decision about storing
+        # credentials rather than a line of copy. Until then this plan sells
+        # only what it does.
         features=("10 videos a day", "1080p, no watermark",
-                  "Longer videos", "Bring your own API key",
-                  "30 local renders a day"),
+                  "Longer videos", "30 local renders a day"),
     ),
     "paid": Tier(
         "paid", jobs_per_day=50, max_snippets=12, tts="elevenlabs",
