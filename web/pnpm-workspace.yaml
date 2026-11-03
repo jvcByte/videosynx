@@ -1,0 +1,17 @@
+# pnpm 11 no longer reads settings from the "pnpm" field in package.json --
+# it warns and ignores them, which is how the first attempt at this override
+# silently did nothing and left the vulnerable postcss in the lockfile:
+#
+#   The "pnpm" field in package.json is no longer read by pnpm.
+#   The following keys were ignored: "pnpm.overrides"
+#
+# Settings live here now. See https://pnpm.io/settings
+packages:
+  - "."
+
+overrides:
+  # Next 15.5.29 pins postcss to exactly 8.4.31, which carries four
+  # advisories (two high: arbitrary file read via sourceMappingURL, and a
+  # path traversal). Bumping Next does not move it, so it has to be forced.
+  # 8.5.23 is the lowest version that clears all four.
+  postcss: ^8.5.23

@@ -7,7 +7,7 @@ import { SupabaseClient, createClient } from "@supabase/supabase-js";
  *
  * Null is a supported state, not a failure: with no project the app behaves
  * exactly as it always has, sending the development header and showing no
- * sign-in screen. That is what keeps `npm run dev` working without a Supabase
+ * sign-in screen. That is what keeps `pnpm run dev` working without a Supabase
  * account and keeps the browser tests running against the same code path they
  * have always used.
  *

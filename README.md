@@ -70,7 +70,7 @@ pip install -e engine/ -e worker/ -e api/ -e agent/
 
 python -m videosynx_api --port 8000          # the API
 python -m videosynx_worker --once            # a worker (drop --once to loop)
-cd web && npm install && npm run dev        # the UI on :3000
+cd web && pnpm install && pnpm run dev        # the UI on :3000
 ```
 
 `agent/` is only needed to drive the service from an assistant rather than
@@ -259,5 +259,5 @@ decided.
 ```bash
 pip install -e "engine[dev]" -e worker/ -e api/ -e "agent[dev]"
 pytest                      # from the repository root: 459 tests
-cd web && npx playwright test   # needs videosynx_e2e
+cd web && pnpm exec playwright test   # needs videosynx_e2e
 ```

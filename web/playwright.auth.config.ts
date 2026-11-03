@@ -44,7 +44,7 @@ export default defineConfig({
         `VIDEOSYNX_DIST_DIR=.next-auth ` +
         `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:9 ` +
         `NEXT_PUBLIC_SUPABASE_ANON_KEY=test-anon-key ` +
-        `npm run dev`,
+        `pnpm run dev`,
       url: `http://127.0.0.1:${WEB_PORT}`,
       reuseExistingServer: false,
       stdout: "ignore",

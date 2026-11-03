@@ -83,7 +83,7 @@ $VIDEOSYNX/.venv/bin/videosynx-api --port 8000
 $VIDEOSYNX/.venv/bin/videosynx-worker
 
 # terminal 3 — the UI
-cd $VIDEOSYNX/web && npm run dev
+cd $VIDEOSYNX/web && pnpm run dev
 ```
 
 Open **http://localhost:3000** for the public page, and
@@ -485,7 +485,7 @@ would be counting it.
 
 ```bash
 $VIDEOSYNX/.venv/bin/pytest                  # 459 tests
-cd $VIDEOSYNX/web && npx playwright test     # 3 browser tests
+cd $VIDEOSYNX/web && pnpm exec playwright test     # 3 browser tests
 ```
 
 The queue tests need Postgres:
@@ -653,7 +653,7 @@ API is running on that port — a browser-side CORS problem is no longer
 possible, because every request is same-origin.
 
 `VIDEOSYNX_API_URL` is read by the Next server when it starts, so changing it
-needs a restart of `npm run dev`, not a rebuild. That is deliberate: it used
+needs a restart of `pnpm run dev`, not a rebuild. That is deliberate: it used
 to be a `NEXT_PUBLIC_*` value, which is inlined into a client chunk that a
 browser will happily cache and go stale on.
 

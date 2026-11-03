@@ -922,7 +922,7 @@ def test_a_missing_env_file_is_not_an_error(tmp_path):
 
 
 def test_the_env_file_is_found_from_a_subdirectory(tmp_path, monkeypatch):
-    """A worker started from `web/` after `npm run dev` had no key at all.
+    """A worker started from `web/` after `pnpm run dev` had no key at all.
 
     Nothing failed at startup -- the key was simply absent -- so it surfaced
     minutes later as a render dying with "no model key is configured" while

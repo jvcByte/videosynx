@@ -59,7 +59,7 @@ export default defineConfig({
     {
       // The same identity the tests submit as. Without it the page is a
       // different account and, correctly, cannot see the test's jobs.
-      // Its own build directory, or this server and a developer's `npm run
+      // Its own build directory, or this server and a developer's `pnpm run
       // dev` overwrite each other's compiled bundle -- and NEXT_PUBLIC_* is
       // inlined at compile time, so the survivor's API URL wins for both.
       // VIDEOSYNX_API_URL, not NEXT_PUBLIC_API_URL: the server reads it at
@@ -74,7 +74,7 @@ export default defineConfig({
         // app renders the sign-in screen and never sends the development
         // header at all, so there is nothing here to test.
         `NEXT_PUBLIC_SUPABASE_URL= NEXT_PUBLIC_SUPABASE_ANON_KEY= ` +
-        `npm run dev`,
+        `pnpm run dev`,
       url: `http://127.0.0.1:${WEB_PORT}`,
       reuseExistingServer: false,
       stdout: "ignore",
