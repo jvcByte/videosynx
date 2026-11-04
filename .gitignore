@@ -30,3 +30,8 @@ dist/
 
 # Output videos — large, and regenerable
 tmp/
+
+# Working notes kept by the tool that writes them, not by the project. The
+# progress log is a running scratch file; it is not documentation and it does
+# not belong in a clone.
+.cline/
