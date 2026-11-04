@@ -260,37 +260,6 @@ decided.
 pip install -e "engine[dev]" -e worker/ -e api/ -e "agent[dev]"
 pytest                      # from the repository root: 459 tests
 
-cd web
-pnpm install
-pnpm run lint
-pnpm run typecheck
-pnpm run build
+cd web && pnpm install
 pnpm exec playwright test   # needs videosynx_e2e
 ```
-
-### What `main` will not accept
-
-`main` is protected. Changes arrive by pull request, and three checks run on
-every branch in `.github/workflows/ci.yml`:
-
-| check | command | catches |
-|---|---|---|
-| `lint` | `pnpm run lint` | ESLint, with the Next config |
-| `typecheck` | `pnpm run typecheck` | `tsc --noEmit` |
-| `build` | `pnpm run build` | `next build` — the production build, every route |
-
-A branch merges only when all three are green **and** it is up to date with
-`main`. Force-pushes and deletions of `main` are blocked, and the rules apply
-to administrators too, so a direct `git push` to `main` is rejected with
-"required status checks are expected" — that is the rule working, not a
-misconfiguration. To land a change:
-
-```bash
-git checkout -b my-branch
-# ... commit ...
-git push -u origin my-branch
-gh pr create --fill
-```
-
-`pnpm` settings live in `web/pnpm-workspace.yaml`, not in a `pnpm` field in
-`package.json` — pnpm 11 no longer reads that field and silently ignores it.
