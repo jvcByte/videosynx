@@ -251,7 +251,7 @@ decided.
 - `ffmpeg` — encoding
 - `bubblewrap` — sandboxing generated code
 - PostgreSQL — the job queue
-- Node 20+ — the frontend
+- Node 20+ and pnpm 11 — the frontend
 - `espeak-ng` or Kokoro — local narration
 
 ## Development
@@ -259,5 +259,7 @@ decided.
 ```bash
 pip install -e "engine[dev]" -e worker/ -e api/ -e "agent[dev]"
 pytest                      # from the repository root: 459 tests
-cd web && pnpm exec playwright test   # needs videosynx_e2e
+
+cd web && pnpm install
+pnpm exec playwright test   # needs videosynx_e2e
 ```
